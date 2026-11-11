@@ -93,7 +93,10 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
   `tools/extract_logo.py`; regenerate it with
   `python3 tools/extract_logo.py --out crates/seek-tui/src/logo_bitmap.rs` after changing
   `assets/logo.png`. Never scale the PNG at runtime. The script finds the cell size from the
-  pitch of the letters, so it works for a scaled, anti-aliased asset as well.
+  pitch of the letters, so it works for a scaled, anti-aliased asset as well; `--crop` writes the
+  asset cropped to its ink.
+- The assets: `assets/logo.png` is the mark on transparency (cropped), `assets/logo-green.png` the
+  same mark on the brand green, `assets/logo.pixil` the editable design.
 
 ## Architecture notes that are not obvious from the filenames
 
@@ -109,6 +112,9 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
 - The thinking spinner is a 3x3 cube grid lit in the order 1 2 3 6 9 8 7 4 5, three cubes at a
   time. The loading spinner is a row of five cubes. `reduce_motion` (also `--reduce-motion`)
   replaces both with static text.
+- The config points at the llama.cpp binary and at the subcommand that starts the server:
+  `llama_path` and `llama_subcommand` (D-001). The old `llama_server_path` is migrated on the
+  first write.
 - The provider interface (`Provider`, `ChatRequest`, `ProviderEvent`) lives in **seek-core**, not
   seek-llm, because the agent loop in seek-core uses it. seek-llm re-exports it and implements it
   for the two wire protocols.
@@ -283,6 +289,7 @@ Run one package with `cargo test -p seek-core`, one test with `cargo test -p see
 - The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
 - The `fetch` tool is implemented but not in the default tool set: it is a network tool, so it
   needs the `ask` mode (SPEC 9.4).
+- There is no license yet (D-005). The crates cannot be published until there is one.
 - A background `bash` command leaves the process registry when the shell exits, even though the
   child keeps running.
 

@@ -48,6 +48,10 @@ workspace; each release ships a milestone (SPEC 15).
 - The rate limits: the headers of the providers and the `rpm` and `tpm` of the configuration
   (SPEC 6).
 - The `fetch` tool, the first network tool (SPEC 9.3).
+- The logo assets: the mark on transparency (cropped to its ink), the green variant and the
+  editable design. The extraction handles transparent, scaled and anti-aliased assets.
+- The config points at the llama.cpp binary and at its subcommand; the old key is migrated.
+- The first run asks which model to use (SPEC 16.7).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

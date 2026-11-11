@@ -50,7 +50,7 @@ async fn a_local_model_answers_a_message() {
     let name = model_path.file_name().expect("the model has a name");
     std::fs::copy(&model_path, models.join(name)).expect("the model is copied");
 
-    let runtime = Arc::new(Runtime::new(&home, &binary));
+    let runtime = Arc::new(Runtime::new(&home, &binary, Some("serve".into())));
     assert_eq!(runtime.local_models.len(), 1, "the model is found");
 
     // A small context: the KV cache of the default context of the model is several gigabytes.

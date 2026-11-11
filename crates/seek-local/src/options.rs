@@ -97,28 +97,45 @@ impl LaunchOptions {
     }
 
     /// The whole command, as it is run.
-    pub fn command(&self, binary: &str, model: &Path, port: u16) -> Vec<String> {
-        let mut command = vec![
-            binary.to_string(),
-            "serve".to_string(),
+    ///
+    /// The `subcommand` is the one that starts the server: `serve` for the unified `llama`
+    /// binary, nothing for the legacy `llama-server` (DECISIONS.md D-001).
+    pub fn command(
+        &self,
+        binary: &str,
+        subcommand: Option<&str>,
+        model: &Path,
+        port: u16,
+    ) -> Vec<String> {
+        let mut command = vec![binary.to_string()];
+        if let Some(subcommand) = subcommand {
+            command.push(subcommand.to_string());
+        }
+        command.extend([
             IMPLICIT_MODEL.to_string(),
             model.display().to_string(),
             IMPLICIT_HOST.to_string(),
             "127.0.0.1".to_string(),
             IMPLICIT_PORT.to_string(),
             port.to_string(),
-        ];
+        ]);
         command.extend(self.words.iter().cloned());
         command.extend(self.implicit());
         command
     }
 
     /// The read-only prefix the editor shows.
-    pub fn prefix(&self, model: &Path, port: u16) -> String {
-        format!(
-            "llama serve -m {} --host 127.0.0.1 --port {port}",
+    pub fn prefix(&self, subcommand: Option<&str>, model: &Path, port: u16) -> String {
+        let mut prefix = String::from("llama");
+        if let Some(subcommand) = subcommand {
+            prefix.push(' ');
+            prefix.push_str(subcommand);
+        }
+        prefix.push_str(&format!(
+            " -m {} --host 127.0.0.1 --port {port}",
             model.display()
-        )
+        ));
+        prefix
     }
 }
 
@@ -138,7 +155,7 @@ mod tests {
     #[test]
     fn the_command_has_the_implicit_options() {
         let options = LaunchOptions::parse("");
-        let command = options.command("llama", &model(), 8123);
+        let command = options.command("llama", Some("serve"), &model(), 8123);
         assert_eq!(command[0], "llama");
         assert_eq!(command[1], "serve");
         assert!(command.contains(&"--model".to_string()));
@@ -167,7 +184,7 @@ mod tests {
     #[test]
     fn the_user_may_override_an_implicit_option() {
         let options = LaunchOptions::parse("--parallel 4 --reasoning-format none");
-        let command = options.command("llama", &model(), 8123);
+        let command = options.command("llama", Some("serve"), &model(), 8123);
         assert_eq!(command.iter().filter(|word| *word == "4").count(), 1);
         assert!(!command.contains(&"deepseek".to_string()));
         assert!(command.contains(&"none".to_string()));
@@ -184,8 +201,13 @@ mod tests {
     fn the_prefix_is_read_only() {
         let options = LaunchOptions::parse("--ctx-size 8192");
         assert_eq!(
-            options.prefix(&model(), 8123),
+            options.prefix(Some("serve"), &model(), 8123),
             "llama serve -m /models/mistral.gguf --host 127.0.0.1 --port 8123"
+        );
+        // The legacy binary is the server itself.
+        assert_eq!(
+            options.prefix(None, &model(), 8123),
+            "llama -m /models/mistral.gguf --host 127.0.0.1 --port 8123"
         );
     }
 

@@ -45,6 +45,9 @@ pub const TICK_MS: u64 = 100;
 /// Everything that can happen to the application.
 #[derive(Debug)]
 pub enum Message {
+    /// The application starts. Nothing is configured yet on the first run, so the picker asks
+    /// which model to use (SPEC 16.7).
+    Start,
     Key(KeyEvent),
     Resize(u16, u16),
     Tick,
@@ -190,6 +193,13 @@ pub struct App {
     pub widget_outputs: Vec<seek_core::WidgetOutput>,
     /// Whether the widgets have been run for this home screen.
     widgets_ran: bool,
+    /// Whether the model picker has been opened for the first run.
+    asked_for_model: bool,
+    /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
+    /// from the current model.
+    pub model_configured: bool,
+    /// The subcommand that starts the local server, when there is one.
+    pub llama_subcommand: Option<String>,
     /// Which tools and skills are enabled.
     pub toggles: seek_core::Toggles,
     /// When the turn started.
@@ -244,6 +254,9 @@ impl App {
             toggles: seek_core::Toggles::default(),
             turn_started: None,
             think_started: None,
+            asked_for_model: false,
+            model_configured: false,
+            llama_subcommand: None,
         }
     }
 
@@ -256,6 +269,13 @@ impl App {
     pub fn update(&mut self, message: Message) -> Option<Command> {
         self.dirty = true;
         let command = match message {
+            Message::Start => {
+                if !self.model_configured && !self.local_models.is_empty() {
+                    self.asked_for_model = true;
+                    self.overlay = Some(Overlay::Picker(self.model_picker()));
+                }
+                None
+            }
             Message::Key(key) => self.on_key(key),
             Message::Resize(_, _) => None,
             Message::Tick => {
@@ -559,14 +579,11 @@ impl App {
         let options = LaunchOptions::parse(local.sidecar.options.as_deref().unwrap_or_default());
         let mut input = Input::new();
         input.set_text(local.sidecar.options.as_deref().unwrap_or_default());
-        let _ = options;
+        let prefix = options.prefix(self.llama_subcommand.as_deref(), &local.path, port);
         self.overlay = Some(Overlay::Options {
             id: local.id.clone(),
             name: local.name.clone(),
-            prefix: format!(
-                "llama serve -m {} --host 127.0.0.1 --port {port}",
-                local.path.display()
-            ),
+            prefix,
             input,
         });
     }
@@ -674,6 +691,7 @@ impl App {
                 return None;
             }
             self.select_model(model_id);
+            self.model_configured = true;
             return Some(Command::SwitchModel {
                 id: model_id.to_string(),
             });
@@ -683,6 +701,7 @@ impl App {
                 return None;
             }
             self.select_local_model(local_id);
+            self.model_configured = true;
             return Some(Command::SwitchModel {
                 id: local_id.to_string(),
             });

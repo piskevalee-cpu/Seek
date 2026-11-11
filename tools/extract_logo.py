@@ -30,9 +30,15 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_PNG = os.path.join(REPO_ROOT, "assets", "logo.png")
 DEFAULT_OUT = os.path.join(REPO_ROOT, "crates", "seek-tui", "src", "logo_bitmap.rs")
 
-# Fraction of the background->lightness range that a cell must reach to count as lit / dim.
+# How bright a cell has to be to count as lit, as a fraction of the range between the background
+# and the brightest ink.
 LIT_THRESHOLD = 0.75
-DIM_THRESHOLD = 0.50
+# How bright a cell has to be to count as dim, with an opaque background. The pixels that are
+# blended into the background stay out of the grid.
+DIM_THRESHOLD = 0.5
+# With a transparent background there is nothing to blend into, so every tone of the ink counts.
+# The tones are measured against the ink itself: the brightest is lit, the rest is dim.
+DIM_THRESHOLD_TRANSPARENT = 0.0
 
 
 # --------------------------------------------------------------------------- PNG
@@ -110,6 +116,8 @@ def read_png(path: str):
             elif color in (0, 4):
                 g = out[off]
                 row.append((g, g, g))
+            elif color == 6:
+                row.append((out[off], out[off + 1], out[off + 2], out[off + 3]))
             else:
                 row.append((out[off], out[off + 1], out[off + 2]))
         rows.append(row)
@@ -120,8 +128,18 @@ def read_png(path: str):
 
 
 def luminance(rgb) -> float:
-    r, g, b = rgb
+    r, g, b = rgb[0], rgb[1], rgb[2]
     return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def alpha_of(pixel) -> int:
+    """The alpha of a pixel; 255 when the image has no alpha channel."""
+    return pixel[3] if len(pixel) > 3 else 255
+
+
+def is_transparent(pixel) -> bool:
+    """Whether a pixel is see-through, so it counts as the background."""
+    return alpha_of(pixel) < 128
 
 
 def math_gcd(a: int, b: int) -> int:
@@ -215,7 +233,8 @@ def crisp_runs(rows, lit_lum):
     for x in range(width):
         count = 0
         for y in range(height):
-            if luminance(rows[y][x]) >= lit_lum:
+            pixel = rows[y][x]
+            if not is_transparent(pixel) and luminance(pixel) >= lit_lum:
                 count += 1
         profile.append(count)
 
@@ -249,25 +268,60 @@ def cell_size_from_runs(runs):
     return pitch / 4.0
 
 
-def classify(rows, bg_lum, lit_lum):
-    span = max(lit_lum - bg_lum, 1e-6)
-    lit_cut = bg_lum + LIT_THRESHOLD * span
-    dim_cut = bg_lum + DIM_THRESHOLD * span
-    return [
-        [2 if luminance(p) >= lit_cut else (1 if luminance(p) >= dim_cut else 0) for p in row]
-        for row in rows
-    ]
+def classify(rows, bg_rgb, bg_lum, lit_lum):
+    """The level of every pixel: 0 is the background, 1 dim ink, 2 lit ink.
+
+    With an opaque background the ink is what is brighter than the background, so the pixels that
+    are blended into the background stay out of the grid. With a transparent background there is
+    nothing to blend into: the tones of the ink are measured against the ink itself, so a logo
+    with two tones (the letters and the fainter sparkles) keeps them apart.
+    """
+    if bg_rgb is None:
+        ink = [
+            luminance(pixel) for row in rows for pixel in row if not is_transparent(pixel)
+        ]
+        if not ink:
+            ink = [lit_lum]
+        darkest = min(ink)
+        brightest = max(ink)
+        span = max(brightest - darkest, 1e-6)
+        lit_cut = darkest + LIT_THRESHOLD * span
+        dim_cut = darkest + DIM_THRESHOLD_TRANSPARENT * span
+    else:
+        span = max(lit_lum - bg_lum, 1e-6)
+        lit_cut = bg_lum + LIT_THRESHOLD * span
+        dim_cut = bg_lum + DIM_THRESHOLD * span
+
+    levels = []
+    for row in rows:
+        line = []
+        for pixel in row:
+            if is_transparent(pixel) or (bg_rgb is not None and pixel[:3] == bg_rgb):
+                line.append(0)
+            else:
+                value = luminance(pixel)
+                line.append(2 if value >= lit_cut else (1 if value >= dim_cut else 0))
+        levels.append(line)
+    return levels
 
 
 def extract_grid(png_path: str):
     width, height, rows = read_png(png_path)
-    counts = collections.Counter(p for row in rows for p in row)
-    bg_rgb = counts.most_common(1)[0][0]
-    bg_lum = luminance(bg_rgb)
+    opaque = [p for row in rows for p in row if not is_transparent(p)]
+    counts = collections.Counter(opaque)
+    # When the image is see-through, the background is the transparency itself and every opaque
+    # pixel is ink. Otherwise the most common opaque color is the background.
+    transparent = len(rows) * len(rows[0]) - len(opaque)
+    if opaque and transparent > 0.05 * len(rows) * len(rows[0]):
+        bg_rgb = None
+        bg_lum = 0.0
+    else:
+        bg_rgb = counts.most_common(1)[0][0]
+        bg_lum = luminance(bg_rgb)
     lit_rgb = max(counts.items(), key=lambda kv: luminance(kv[0]))[0]
     lit_lum = luminance(lit_rgb)
 
-    levels = classify(rows, bg_lum, lit_lum)
+    levels = classify(rows, bg_rgb, bg_lum, lit_lum)
     cover = coverage_map(levels)
 
     # The cell size comes from the pitch of the letters; it is exact, even when the image was
@@ -327,6 +381,64 @@ def extract_grid(png_path: str):
 # ------------------------------------------------------------------------ output
 
 
+def write_png(path, width, height, pixels):
+    """Write an RGBA PNG. The rows are written without a filter."""
+    raw = bytearray()
+    for row in pixels:
+        raw.append(0)
+        for pixel in row:
+            if len(pixel) == 4:
+                raw.extend(pixel)
+            else:
+                raw.extend((pixel[0], pixel[1], pixel[2], 255))
+
+    def chunk(kind, data):
+        return (
+            struct.pack(">I", len(data))
+            + kind
+            + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    with open(path, "wb") as fh:
+        fh.write(b"\x89PNG\r\n\x1a\n")
+        fh.write(chunk(b"IHDR", header))
+        fh.write(chunk(b"IDAT", zlib.compress(bytes(raw), 9)))
+        fh.write(chunk(b"IEND", b""))
+
+
+def crop_to_ink(source, target):
+    """Crop an image to its ink and write it out.
+
+    The padding around a logo is of no use to anybody; the asset is cropped so that the grid of
+    the logo is the whole image.
+    """
+    width, height, rows = read_png(source)
+    opaque = [
+        (x, y)
+        for y in range(height)
+        for x in range(width)
+        if not is_transparent(rows[y][x])
+    ]
+    if not opaque:
+        raise ValueError("the image has no ink")
+    xs = [x for x, _ in opaque]
+    ys = [y for _, y in opaque]
+    left, top = min(xs), min(ys)
+    right, bottom = max(xs), max(ys)
+
+    cropped = []
+    for y in range(top, bottom + 1):
+        row = []
+        for x in range(left, right + 1):
+            pixel = rows[y][x]
+            row.append(pixel if len(pixel) == 4 else (pixel[0], pixel[1], pixel[2], 255))
+        cropped.append(row)
+    write_png(target, right - left + 1, bottom - top + 1, cropped)
+    return (right - left + 1, bottom - top + 1)
+
+
 def rust_constant(grid) -> str:
     rows_n = len(grid)
     cols = len(grid[0])
@@ -364,7 +476,17 @@ def main() -> int:
     parser.add_argument("--png", default=DEFAULT_PNG)
     parser.add_argument("--out", default=None, help="write the Rust constant to this path")
     parser.add_argument("--preview", action="store_true", help="print the grid as ASCII")
+    parser.add_argument(
+        "--crop",
+        metavar="PATH",
+        help="crop the image to its ink and write it there, then stop",
+    )
     args = parser.parse_args()
+
+    if args.crop:
+        size = crop_to_ink(args.png, args.crop)
+        print(f"wrote {args.crop} ({size[0]} x {size[1]})", file=sys.stderr)
+        return 0
 
     grid, colors, cell, origin, size = extract_grid(args.png)
     print(
@@ -373,8 +495,14 @@ def main() -> int:
     )
     print(f"cell size   : {cell}px, origin {origin}", file=sys.stderr)
     print(f"grid        : {len(grid[0])} x {len(grid)}", file=sys.stderr)
+    background = colors.get("bg")
+    background_text = (
+        "transparent"
+        if background is None
+        else f"#{background[0]:02X}{background[1]:02X}{background[2]:02X}"
+    )
     print(
-        f"bg          : #{colors['bg'][0]:02X}{colors['bg'][1]:02X}{colors['bg'][2]:02X}"
+        f"bg          : {background_text}"
         f"  light: #{colors['light'][0]:02X}{colors['light'][1]:02X}{colors['light'][2]:02X}",
         file=sys.stderr,
     )

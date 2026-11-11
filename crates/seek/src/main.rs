@@ -58,8 +58,12 @@ async fn main() -> Result<()> {
     });
 
     // The local models of ~/seek/models, and the supervisor of the local server.
-    let llama_binary = seek::find_llama(&home);
-    let runtime = Arc::new(seek::Runtime::new(&home, &llama_binary));
+    let (llama_binary, llama_subcommand) = seek::find_llama(&home);
+    let runtime = Arc::new(seek::Runtime::new(
+        &home,
+        &llama_binary,
+        llama_subcommand.clone(),
+    ));
     let logs = runtime.supervisor.lock().await.logs_handle();
 
     // The agent task. It talks to the real provider when one is configured, and to the scripted
@@ -87,6 +91,7 @@ async fn main() -> Result<()> {
     app.toggles = runtime.toggles.clone();
     app.external_tools = runtime.external_tools.clone();
     app.widgets = runtime.widgets.clone();
+    app.llama_subcommand = llama_subcommand;
 
     // `ratatui::init` installs a panic hook that restores the terminal.
     let terminal = init_terminal();

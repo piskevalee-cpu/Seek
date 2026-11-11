@@ -212,8 +212,18 @@ pub struct Config {
     /// The default model, as `provider/model`.
     #[serde(default)]
     pub default_model: Option<String>,
-    /// The path to the llama.cpp server binary.
+    /// The path to the llama.cpp binary.
+    ///
+    /// The shipped llama.cpp is one binary whose server is a subcommand, so the subcommand is a
+    /// key of its own (DECISIONS.md D-001).
     #[serde(default)]
+    pub llama_path: Option<String>,
+    /// The subcommand that starts the server; `serve` for the unified `llama` binary, empty for
+    /// the legacy `llama-server`.
+    #[serde(default)]
+    pub llama_subcommand: Option<String>,
+    /// The old key, kept so that an old file still works. It is migrated away on the first write.
+    #[serde(default, skip_serializing)]
     pub llama_server_path: Option<String>,
     /// Whether reasoning text is shown.
     #[serde(default)]
@@ -230,6 +240,8 @@ impl Default for Config {
             theme: None,
             default_mode: None,
             default_model: None,
+            llama_path: None,
+            llama_subcommand: None,
             llama_server_path: None,
             show_reasoning: None,
             reduce_motion: None,
@@ -256,6 +268,38 @@ impl Config {
         let text = toml::to_string_pretty(self)
             .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
         std::fs::write(path, text)
+    }
+
+    /// Move the old key to the new one.
+    ///
+    /// The old `llama_server_path` pointed at a binary that was the server itself; the new keys
+    /// point at the binary and at the subcommand that starts the server (DECISIONS.md D-001).
+    ///
+    /// Returns whether the file has to be written again.
+    pub fn migrate(&mut self) -> bool {
+        let Some(old) = self.llama_server_path.take() else {
+            return false;
+        };
+        if self.llama_path.is_none() {
+            self.llama_path = Some(old);
+            // The legacy binary is the server itself, so it has no subcommand.
+            self.llama_subcommand.get_or_insert_with(String::new);
+            return true;
+        }
+        true
+    }
+
+    /// The command that starts the server: the binary and the subcommand.
+    pub fn llama_command(&self) -> (String, Option<String>) {
+        let path = self
+            .llama_path
+            .clone()
+            .unwrap_or_else(|| "llama".to_string());
+        let subcommand = self
+            .llama_subcommand
+            .clone()
+            .filter(|subcommand| !subcommand.is_empty());
+        (path, subcommand)
     }
 }
 
@@ -322,6 +366,30 @@ tpm = 100000
     fn the_schema_is_optional_but_always_one_when_given() {
         let config = ProvidersConfig::parse("[provider.x]\nbase_url = 'y'\n").expect("parses");
         assert_eq!(config.schema, 1);
+    }
+
+    #[test]
+    fn the_old_key_is_migrated_to_the_new_one() {
+        let mut config = Config::parse("schema = 1\nllama_server_path = '/usr/bin/llama-server'\n")
+            .expect("parses");
+        assert!(config.migrate(), "the file has to be written again");
+        assert_eq!(config.llama_path.as_deref(), Some("/usr/bin/llama-server"));
+        assert_eq!(config.llama_subcommand.as_deref(), Some(""));
+        assert!(config.llama_server_path.is_none());
+
+        // A second migration changes nothing.
+        assert!(!config.migrate());
+    }
+
+    #[test]
+    fn the_command_of_the_server_is_the_binary_and_the_subcommand() {
+        let config = Config::parse(
+            "schema = 1\nllama_path = '/usr/bin/llama'\nllama_subcommand = 'serve'\n",
+        )
+        .expect("parses");
+        let (path, subcommand) = config.llama_command();
+        assert_eq!(path, "/usr/bin/llama");
+        assert_eq!(subcommand.as_deref(), Some("serve"));
     }
 
     #[test]
