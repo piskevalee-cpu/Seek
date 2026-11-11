@@ -122,6 +122,10 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
 - The config points at the llama.cpp binary and at the subcommand that starts the server:
   `llama_path` and `llama_subcommand` (D-001). The old `llama_server_path` is migrated on the
   first write.
+- The keys of the user live in `state/auth.json` (mode 0600) or in the environment; never in
+  `config.toml` or `providers.toml` (SPEC 5).
+- The sessions are append-only JSONL in `state/sessions/`; the title is the first user message and
+  is derived, so the file only ever grows (SPEC 11).
 - The provider interface (`Provider`, `ChatRequest`, `ProviderEvent`) lives in **seek-core**, not
   seek-llm, because the agent loop in seek-core uses it. seek-llm re-exports it and implements it
   for the two wire protocols.
@@ -298,12 +302,12 @@ Run one package with `cargo test -p seek-core`, one test with `cargo test -p see
 
 ## Known gaps (deliberate, per the milestone order)
 
-- The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
 - The `fetch` tool is implemented but not in the default tool set: it is a network tool, so it
-  needs the `ask` mode (SPEC 9.4).
+  needs the `ask` mode (SPEC 9.4). It can be turned on in `/tools`.
 - There is no license yet (D-005). The crates cannot be published until there is one.
 - A background `bash` command leaves the process registry when the shell exits, even though the
   child keeps running.
+- The contracts are not frozen yet: that is v1.0.0, and the review is still to come.
 
 ## Open questions for the owner (spec §16) — don't invent answers
 

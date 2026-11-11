@@ -99,7 +99,9 @@ Every key of the specification, one by one.
 - [ ] **The sidebar.** Ctrl+B — the sessions are at the top, with their title and how old they are.
 - [ ] **A new session.** `/new` — the transcript is empty again.
 - [ ] **Resume.** `/resume` — the sidebar opens on the sessions. Move with Up and Down, press Enter — the conversation comes back.
-- [ ] **The file.** `~/seek/state/sessions/` holds one JSONL file per session: a header, then a line per message.
+- [ ] **The focus.** With the sidebar open, Tab moves the focus into it; the selected session is highlighted. Tab again moves it back.
+- [ ] **The file.** `~/seek/state/sessions/` holds one JSONL file per session: a header, then a line per message and per model switch.
+- [ ] **The model switch is in the file.** Switch models in the middle of a conversation: the file says which model said what.
 
 ## The context
 
@@ -116,6 +118,17 @@ Every key of the specification, one by one.
 - [ ] **Run a skill.** Type `/init` and press Enter — the instructions of the skill fill the prompt, and the model follows them.
 - [ ] **Turn one off.** `/skills`, Space on a skill, close the picker — it is gone from the prompt.
 - [ ] **The catalog.** The prompt that reaches the model carries the name, the description and the path of every enabled skill, and nothing else.
+
+## The providers
+
+- [ ] **The list.** `/provider` lists the configured providers, with their kind and their base URL.
+- [ ] **Add one.** Choose "Add a provider": the form opens with the fields for the name, the kind, the base URL, the key environment variable, the models, the context and the rate limits.
+- [ ] **Fill it in.** Tab moves from field to field; type the values. The kind has to be `anthropic-messages` or `openai-chat`.
+- [ ] **Save it.** Enter — the provider is written to `~/seek/providers.toml` and shows up in the list.
+- [ ] **An incomplete form.** Leave the name empty and press Enter — nothing is written and the app says what is missing.
+- [ ] **The detected providers.** With no `providers.toml` and `ANTHROPIC_API_KEY` in the environment, the provider is there without any setup.
+- [ ] **The keys.** A key can also live in `~/seek/state/auth.json`, under the name of the environment variable it stands in for. The file is readable by its owner only: `ls -l ~/seek/state/auth.json`.
+- [ ] **The discovered models.** With an openai-chat provider that answers, the models it knows are in the picker, marked "found on the endpoint". The entries of `providers.toml` win over them.
 
 ## The widgets and the overlays
 
