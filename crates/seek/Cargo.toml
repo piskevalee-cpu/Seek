@@ -23,5 +23,6 @@ seek-local.workspace = true
 seek-tui.workspace = true
 clap.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 futures.workspace = true
 anyhow.workspace = true

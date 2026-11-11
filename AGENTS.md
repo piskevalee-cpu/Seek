@@ -52,6 +52,13 @@ This machine has 15 GB of RAM and **no swap**. A full parallel build of this dep
 a running local server can exhaust it and take the shell down with it. Build with `cargo build -j 2`
 or `cargo test -j 2` when a server is running, and keep the context of local servers small.
 
+## The manual test checklist
+
+`docs/TESTING.md` is the checklist for going through the TUI by hand: every screen, every key,
+every command, with what to expect. Walk it after a change that touches the UI, the tools or the
+agent loop — the layout, the keyboard and the flow of a conversation are not covered by the unit
+tests, and a broken picker or a lost keypress only shows up when a person uses it.
+
 ## Spec precedence (spec §0)
 
 - When sections conflict, **the UI ownership table (10.2) and the contracts list (2.4) win**.

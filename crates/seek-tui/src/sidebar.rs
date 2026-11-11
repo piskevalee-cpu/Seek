@@ -42,7 +42,15 @@ impl Sidebar {
 /// Draw the sidebar.
 ///
 /// The metrics are pinned to the bottom (SPEC 10.3).
-pub fn render(frame: &mut Frame, area: Rect, sidebar: &Sidebar, theme: &Theme, metrics: &Metrics) {
+pub fn render(
+    frame: &mut Frame,
+    area: Rect,
+    sidebar: &Sidebar,
+    theme: &Theme,
+    metrics: &Metrics,
+    sessions: &[seek_core::SessionInfo],
+    selected_session: usize,
+) {
     let block = ratatui::widgets::Block::bordered()
         .border_style(Style::new().fg(theme.cube_dark))
         .title(Span::styled(" SEEK ", Style::new().fg(theme.dim)));
@@ -55,17 +63,31 @@ pub fn render(frame: &mut Frame, area: Rect, sidebar: &Sidebar, theme: &Theme, m
         "Sessions",
         Style::new().fg(theme.accent).bold(),
     )));
-    if sidebar.sessions.is_empty() {
+    if sessions.is_empty() {
         lines.push(Line::from(Span::styled(
             "  none yet",
             Style::new().fg(theme.dim).italic(),
         )));
     } else {
-        for (title, age) in &sidebar.sessions {
+        let now = std::time::SystemTime::now();
+        for (index, session) in sessions.iter().enumerate() {
+            let style = if index == selected_session {
+                Style::new().fg(theme.bg).bg(theme.accent)
+            } else {
+                Style::new().fg(theme.cube_light)
+            };
+            let title = if session.title.is_empty() {
+                "(no title)"
+            } else {
+                &session.title
+            };
             lines.push(Line::from(vec![
                 Span::styled("  ", Style::new()),
-                Span::styled(title.clone(), Style::new().fg(theme.cube_light)),
-                Span::styled(format!("  {age}"), Style::new().fg(theme.dim)),
+                Span::styled(title.to_string(), style),
+                Span::styled(
+                    format!("  {}", session.age(now)),
+                    Style::new().fg(theme.dim),
+                ),
             ]));
         }
     }

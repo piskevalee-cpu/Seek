@@ -23,6 +23,9 @@ pub struct Toggles {
     /// The skills that are off. A skill that is not in here is on.
     #[serde(default)]
     pub skills: BTreeMap<String, bool>,
+    /// The reasoning level of every model (SPEC 9.7).
+    #[serde(default)]
+    pub reasoning: BTreeMap<String, String>,
 }
 
 fn default_schema() -> u32 {
@@ -35,6 +38,7 @@ impl Default for Toggles {
             schema: SCHEMA,
             tools: BTreeMap::new(),
             skills: BTreeMap::new(),
+            reasoning: BTreeMap::new(),
         }
     }
 }
@@ -58,6 +62,16 @@ impl Toggles {
     /// Turn a skill on or off.
     pub fn set_skill(&mut self, name: &str, enabled: bool) {
         self.skills.insert(name.to_string(), enabled);
+    }
+
+    /// The reasoning level of a model, if one was chosen.
+    pub fn reasoning(&self, model: &str) -> Option<String> {
+        self.reasoning.get(model).cloned()
+    }
+
+    /// Remember the reasoning level of a model.
+    pub fn set_reasoning(&mut self, model: &str, level: &str) {
+        self.reasoning.insert(model.to_string(), level.to_string());
     }
 
     /// The tools that are off.
@@ -129,6 +143,18 @@ mod tests {
         toggles.set_skill("init", false);
         assert!(!toggles.skill_enabled("init"));
         assert_eq!(toggles.disabled_skills(), vec!["init".to_string()]);
+    }
+
+    #[test]
+    fn the_reasoning_level_of_a_model_is_remembered() {
+        let mut toggles = Toggles::default();
+        assert_eq!(toggles.reasoning("claude-sonnet-4-5"), None);
+        toggles.set_reasoning("claude-sonnet-4-5", "high");
+        assert_eq!(
+            toggles.reasoning("claude-sonnet-4-5").as_deref(),
+            Some("high")
+        );
+        assert_eq!(toggles.reasoning("gpt-5.4"), None);
     }
 
     #[test]

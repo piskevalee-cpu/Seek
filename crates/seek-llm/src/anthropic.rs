@@ -27,6 +27,8 @@ pub struct AnthropicProvider {
     api_key: String,
     model: String,
     max_tokens: u32,
+    /// The client side limits of the configuration (SPEC 6).
+    limiter: std::sync::Mutex<crate::ratelimit::Limiter>,
 }
 
 impl AnthropicProvider {
@@ -43,7 +45,16 @@ impl AnthropicProvider {
             api_key: api_key.into(),
             model: model.into(),
             max_tokens,
+            limiter: std::sync::Mutex::new(crate::ratelimit::Limiter::new(
+                crate::ratelimit::Limit::none(),
+            )),
         }
+    }
+
+    /// The client side limits of the configuration (SPEC 6).
+    pub fn with_limit(mut self, limit: crate::ratelimit::Limit) -> Self {
+        self.limiter = std::sync::Mutex::new(crate::ratelimit::Limiter::new(limit));
+        self
     }
 
     /// The URL of the messages endpoint.
@@ -210,6 +221,19 @@ impl Provider for AnthropicProvider {
         let client = self.client.clone();
 
         async_stream::stream! {
+            // The client side limit is honored before the request goes out (SPEC 6).
+            let wait = {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.wait_time(0)
+            };
+            if !wait.is_zero() {
+                tokio::time::sleep(wait).await;
+            }
+            {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.record(0);
+            }
+
             let response = match client
                 .post(&url)
                 .header("x-api-key", key)

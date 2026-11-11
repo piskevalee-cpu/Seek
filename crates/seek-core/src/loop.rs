@@ -77,6 +77,8 @@ pub struct Agent {
     external_tools: Vec<crate::external::ExternalTool>,
     /// The tokens of the last turn.
     usage: std::sync::Arc<std::sync::Mutex<(u32, u32)>>,
+    /// The token that stops the turn when the user presses Esc (SPEC 9.1).
+    cancel: tokio_util::sync::CancellationToken,
 }
 
 impl Agent {
@@ -100,7 +102,13 @@ impl Agent {
             context: String::new(),
             external_tools: Vec::new(),
             usage: std::sync::Arc::new(std::sync::Mutex::new((0, 0))),
+            cancel: tokio_util::sync::CancellationToken::new(),
         }
+    }
+
+    /// The token that stops the turn.
+    pub fn cancel_token(&self) -> tokio_util::sync::CancellationToken {
+        self.cancel.clone()
     }
 
     /// Where the tokens of the turn are counted.
@@ -155,6 +163,12 @@ impl Agent {
         let _ = events.send(AgentEvent::TurnStarted).await;
 
         for _ in 0..self.config.max_iterations {
+            if self.cancel.is_cancelled() {
+                let _ = events
+                    .send(AgentEvent::TurnFinished(TurnReason::Cancelled))
+                    .await;
+                return TurnReason::Cancelled;
+            }
             let request = ChatRequest {
                 messages: history.messages.clone(),
                 tools: self.schemas(),
@@ -167,7 +181,13 @@ impl Agent {
             let mut calls: Vec<(String, String, serde_json::Value)> = Vec::new();
 
             let mut stream = self.provider.stream(request);
-            while let Some(event) = stream.next().await {
+            while let Some(event) = tokio::select! {
+                event = stream.next() => event,
+                _ = self.cancel.cancelled() => {
+                    let _ = events.send(AgentEvent::TurnFinished(TurnReason::Cancelled)).await;
+                    return TurnReason::Cancelled;
+                }
+            } {
                 let event = match event {
                     Ok(event) => event,
                     Err(error) => {

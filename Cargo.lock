@@ -2333,6 +2333,7 @@ dependencies = [
  "seek-local",
  "seek-tui",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -2349,6 +2350,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tiktoken-rs",
  "tokio",
+ "tokio-util",
  "toml",
 ]
 
@@ -2910,6 +2912,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
+ "futures-util",
  "pin-project-lite",
  "tokio",
 ]

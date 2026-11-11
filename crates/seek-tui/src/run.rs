@@ -78,6 +78,8 @@ pub async fn run(
                 let message = match message {
                     crate::app::UiMessage::Widget(output) => Message::Widget(output),
                     crate::app::UiMessage::Context(total) => Message::Context(total),
+                    crate::app::UiMessage::Sessions(sessions) => Message::Sessions(sessions),
+                    crate::app::UiMessage::Session(messages) => Message::Session(messages),
                 };
                 if let Some(command) = app.update(message)
                     && commands.send(command).await.is_err()

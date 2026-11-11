@@ -60,6 +60,13 @@ workspace; each release ships a milestone (SPEC 15).
   toggles swallowed it.
 - The real context size of a local server reaches the metrics.
 - A local server that cannot be started is an error, not a scripted answer.
+- The conversation is written to a session and can be resumed: `/new`, `/resume`, and the
+  sessions in the sidebar (SPEC 11).
+- Esc stops the turn that is running (SPEC 9.1).
+- The reasoning level is remembered per model (SPEC 9.7).
+- The `fetch` tool can be turned on in `/tools`.
+- The client side limits of the configuration (`rpm` and `tpm`) are honored (SPEC 6).
+- The manual test checklist, `docs/TESTING.md`.
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

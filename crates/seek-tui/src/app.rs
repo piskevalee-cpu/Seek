@@ -49,6 +49,10 @@ pub enum UiMessage {
     Widget(seek_core::WidgetOutput),
     /// The size of the window of the model that is running (SPEC 8).
     Context(u32),
+    /// The sessions of the sidebar (SPEC 10.2).
+    Sessions(Vec<seek_core::SessionInfo>),
+    /// The messages of a session that was resumed (SPEC 11).
+    Session(Vec<seek_core::Message>),
 }
 
 /// Everything that can happen to the application.
@@ -65,6 +69,10 @@ pub enum Message {
     Widget(seek_core::WidgetOutput),
     /// The size of the window of the model that is running (SPEC 8).
     Context(u32),
+    /// The sessions of the sidebar (SPEC 10.2).
+    Sessions(Vec<seek_core::SessionInfo>),
+    /// The messages of a session that was resumed (SPEC 11).
+    Session(Vec<seek_core::Message>),
 }
 
 /// A side effect that the binary has to perform.
@@ -88,6 +96,12 @@ pub enum Command {
         toggles: seek_core::Toggles,
         model: Option<String>,
     },
+    /// Start a new session (SPEC 11).
+    NewSession,
+    /// Resume a session (SPEC 11).
+    ResumeSession(String),
+    /// Stop the turn that is running (SPEC 9.1).
+    Cancel,
     /// Run the home widgets.
     RunWidgets,
     /// Leave.
@@ -218,6 +232,12 @@ pub struct App {
     pub model_configured: bool,
     /// The subcommand that starts the local server, when there is one.
     pub llama_subcommand: Option<String>,
+    /// The sessions of the sidebar (SPEC 10.2).
+    pub sessions: Vec<seek_core::SessionInfo>,
+    /// The selected session.
+    pub session_selected: usize,
+    /// Whether the keyboard is in the sidebar.
+    pub sidebar_focused: bool,
     /// Which tools and skills are enabled.
     pub toggles: seek_core::Toggles,
     /// When the turn started.
@@ -276,6 +296,9 @@ impl App {
             asked_for_model: false,
             model_configured: false,
             llama_subcommand: None,
+            sessions: Vec::new(),
+            session_selected: 0,
+            sidebar_focused: false,
         }
     }
 
@@ -315,6 +338,27 @@ impl App {
             Message::Context(total) => {
                 // The window of the model that is running (SPEC 8).
                 self.metrics.context.total = total;
+                None
+            }
+            Message::Sessions(sessions) => {
+                self.sessions = sessions;
+                None
+            }
+            Message::Session(messages) => {
+                // The conversation of a session that was resumed (SPEC 11).
+                self.rows.clear();
+                for message in messages {
+                    match message.role {
+                        seek_core::Role::User => {
+                            self.rows.push(Row::User(message.plain_text()));
+                        }
+                        seek_core::Role::Assistant => {
+                            self.rows.push(Row::Assistant(message.plain_text()));
+                        }
+                        seek_core::Role::System => {}
+                    }
+                }
+                self.scroll = 0;
                 None
             }
         };
@@ -365,6 +409,15 @@ impl App {
                     self.input.insert_newline();
                     return None;
                 }
+                if self.sidebar_focused {
+                    // Enter resumes the selected session (SPEC 10.3).
+                    if let Some(session) = self.sessions.get(self.session_selected) {
+                        let id = session.id.clone();
+                        self.sidebar_focused = false;
+                        return Some(Command::ResumeSession(id));
+                    }
+                    return None;
+                }
                 self.submit()
             }
             KeyCode::Esc => {
@@ -372,7 +425,11 @@ impl App {
                     self.overlay = None;
                     return None;
                 }
-                // Interrupting a turn arrives with the next agent event.
+                if self.status != Status::Idle {
+                    // Esc stops the turn that is running (SPEC 9.1).
+                    self.status = Status::Idle;
+                    return Some(Command::Cancel);
+                }
                 self.scroll = 0;
                 None
             }
@@ -393,7 +450,9 @@ impl App {
                 None
             }
             KeyCode::Up => {
-                if self.input.is_empty() {
+                if self.sidebar_focused {
+                    self.move_session_selection(-1);
+                } else if self.input.is_empty() {
                     self.move_selection(-1);
                 } else {
                     self.input.history_prev();
@@ -401,7 +460,9 @@ impl App {
                 None
             }
             KeyCode::Down => {
-                if self.input.is_empty() {
+                if self.sidebar_focused {
+                    self.move_session_selection(1);
+                } else if self.input.is_empty() {
                     self.move_selection(1);
                 } else {
                     self.input.history_next();
@@ -425,7 +486,12 @@ impl App {
                 None
             }
             KeyCode::Tab => {
-                self.mode = self.mode.next();
+                if self.sidebar.open {
+                    // Tab moves the focus into the sidebar (SPEC 10.3).
+                    self.sidebar_focused = !self.sidebar_focused;
+                } else {
+                    self.mode = self.mode.next();
+                }
                 None
             }
             KeyCode::Char(c) => {
@@ -772,10 +838,14 @@ impl App {
             model: model.name.clone(),
             local: model.local,
         };
-        // Switching to a model restores its level, else its default (SPEC 9.7).
+        // Switching to a model restores its own level, else its default (SPEC 9.7).
+        let stored = self.toggles.reasoning(&model.id);
         self.reasoning = model
-            .resolve(self.reasoning.as_deref())
+            .resolve(stored.as_deref())
             .map(|variant| variant.id.clone());
+        if self.reasoning.as_deref() != Some("off") {
+            self.last_reasoning = self.reasoning.clone();
+        }
         // The window of the model comes from the catalog (SPEC 8).
         self.metrics.context.total = model.context;
     }
@@ -858,6 +928,8 @@ impl App {
         if level != "off" {
             self.last_reasoning = Some(level.to_string());
         }
+        // The level belongs to the model (SPEC 9.7).
+        self.toggles.set_reasoning(&model.id, level);
         true
     }
 
@@ -983,6 +1055,12 @@ impl App {
                     .with_detail(tool.description.clone()),
             );
         }
+        items.push(
+            PickerItem::new("fetch", "fetch")
+                .with_check(self.toggles.tool_enabled("fetch"))
+                .with_group("network")
+                .with_detail("Fetch a URL and return it as text."),
+        );
         for tool in &self.external_tools {
             items.push(
                 PickerItem::new(tool.config.name.clone(), tool.config.name.clone())
@@ -1070,6 +1148,17 @@ impl App {
         if let Some(entry) = processes.get(self.process_selected) {
             registry.kill(entry.pid);
         }
+    }
+
+    /// Move the session selection in the sidebar.
+    fn move_session_selection(&mut self, delta: isize) {
+        if self.sessions.is_empty() {
+            self.session_selected = 0;
+            return;
+        }
+        let length = self.sessions.len() as isize;
+        let next = (self.session_selected as isize + delta).rem_euclid(length);
+        self.session_selected = next as usize;
     }
 
     /// Move the transcript selection up or down.
@@ -1195,16 +1284,19 @@ impl App {
                 None
             }
             "/new" => {
-                // A new session: the transcript starts empty again.
+                // A new session: the transcript starts empty again (SPEC 11).
                 self.rows.clear();
                 self.queued.clear();
                 self.scroll = 0;
                 self.selected = None;
-                None
+                self.sidebar_focused = false;
+                Some(Command::NewSession)
             }
             "/resume" => {
                 // The sidebar opens on the sessions (SPEC 10.2).
                 self.sidebar.open = true;
+                self.sidebar_focused = true;
+                self.session_selected = 0;
                 None
             }
             "/compact" => {
@@ -1484,6 +1576,8 @@ impl App {
                 &self.sidebar,
                 &self.theme,
                 &self.metrics,
+                &self.sessions,
+                self.session_selected,
             );
         }
 

@@ -30,7 +30,7 @@ pub use permission::{Decision, PermissionDecision, PermissionMode};
 pub use process::{ProcessEntry, ProcessRegistry};
 pub use prompt::{DEFAULT_TOOLS, HELPER_TOOLS, SYSTEM_PROMPT};
 pub use provider::{ChatRequest, Protocol, Provider, ProviderError, ProviderEvent};
-pub use session::{ModelTag, Session, SessionEvent, SessionHeader};
+pub use session::{ModelTag, Session, SessionEvent, SessionHeader, SessionInfo};
 pub use skill::Skill;
 pub use toggles::Toggles;
 pub use tool::{Risk, Tool, ToolError, ToolSchema};

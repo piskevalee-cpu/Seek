@@ -26,6 +26,8 @@ pub struct OpenAiProvider {
     max_tokens: u32,
     /// Extra fields merged into every request body, e.g. `reasoning_effort`.
     extra_body: Value,
+    /// The client side limits of the configuration (SPEC 6).
+    limiter: std::sync::Mutex<crate::ratelimit::Limiter>,
 }
 
 impl OpenAiProvider {
@@ -43,7 +45,16 @@ impl OpenAiProvider {
             model: model.into(),
             max_tokens,
             extra_body: json!({}),
+            limiter: std::sync::Mutex::new(crate::ratelimit::Limiter::new(
+                crate::ratelimit::Limit::none(),
+            )),
         }
+    }
+
+    /// The client side limits of the configuration (SPEC 6).
+    pub fn with_limit(mut self, limit: crate::ratelimit::Limit) -> Self {
+        self.limiter = std::sync::Mutex::new(crate::ratelimit::Limiter::new(limit));
+        self
     }
 
     /// Merge extra fields into the request body.
@@ -152,6 +163,19 @@ impl Provider for OpenAiProvider {
         let client = self.client.clone();
 
         async_stream::stream! {
+            // The client side limit is honored before the request goes out (SPEC 6).
+            let wait = {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.wait_time(0)
+            };
+            if !wait.is_zero() {
+                tokio::time::sleep(wait).await;
+            }
+            {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.record(0);
+            }
+
             let mut builder = client.post(&url).json(&body);
             if let Some(key) = key {
                 builder = builder.header("authorization", format!("Bearer {key}"));

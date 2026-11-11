@@ -770,3 +770,73 @@ fn resume_opens_the_sidebar() {
     app.update(Message::Key(key(KeyCode::Enter)));
     assert!(app.sidebar.open);
 }
+
+#[test]
+fn esc_stops_the_turn_that_is_running() {
+    let mut app = app();
+    app.update(Message::Agent(AgentEvent::TurnStarted));
+    let command = app.update(Message::Key(key(KeyCode::Esc)));
+    match command {
+        Some(seek_tui::Command::Cancel) => {}
+        other => panic!("expected a cancel, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_new_session_asks_for_one() {
+    let mut app = app();
+    app.rows.push(Row::User("hello".into()));
+    for c in "/new".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    assert!(matches!(command, Some(seek_tui::Command::NewSession)));
+    assert!(app.rows.is_empty());
+}
+
+#[test]
+fn the_sidebar_lists_the_sessions() {
+    let mut app = app();
+    app.sidebar.open = true;
+    app.sessions = vec![seek_core::SessionInfo {
+        id: "one".into(),
+        title: "the first question".into(),
+        created: "2026-11-11T12:00:00Z".into(),
+    }];
+
+    let screen = render(&mut app, 120, 30);
+    assert!(screen.contains("the first question"));
+    assert!(screen.contains("Sessions"));
+}
+
+#[test]
+fn the_reasoning_level_is_remembered_for_the_model() {
+    let mut app = app();
+    app.select_model("claude-sonnet-4-5");
+    for c in "/think high".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.toggles.reasoning("claude-sonnet-4-5").as_deref(),
+        Some("high")
+    );
+
+    // Another model has its own level.
+    app.select_model("gpt-5.4");
+    assert_ne!(app.reasoning.as_deref(), Some("high"));
+}
+
+#[test]
+fn the_tools_picker_has_the_fetch_tool() {
+    let mut app = app();
+    for c in "/tools".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("fetch"));
+    assert!(screen.contains("network"));
+}

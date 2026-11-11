@@ -41,6 +41,10 @@ pub struct Runtime {
     pub external_tools: Vec<seek_core::ExternalTool>,
     /// The widgets of `~/seek/widgets`.
     pub widgets: Vec<seek_core::Widget>,
+    /// The session that is open.
+    session: tokio::sync::Mutex<Option<seek_core::Session>>,
+    /// The token that stops the turn that is running.
+    cancel: tokio::sync::Mutex<Option<tokio_util::sync::CancellationToken>>,
     /// Where the state of SEEK lives.
     pub state_dir: std::path::PathBuf,
 }
@@ -92,7 +96,95 @@ impl Runtime {
             project_context,
             external_tools,
             widgets,
+            session: tokio::sync::Mutex::new(None),
+            cancel: tokio::sync::Mutex::new(None),
             state_dir,
+        }
+    }
+
+    /// The folder the sessions live in.
+    fn sessions_dir(&self) -> std::path::PathBuf {
+        self.state_dir.join("sessions")
+    }
+
+    /// Start a new session.
+    pub async fn new_session(&self) -> std::io::Result<()> {
+        let dir = self.sessions_dir();
+        std::fs::create_dir_all(&dir)?;
+        let session = seek_core::Session::create(
+            &dir,
+            &std::env::current_dir()
+                .map(|path| path.display().to_string())
+                .unwrap_or_default(),
+            &seek_core::Session::now(),
+            &seek_core::Session::new_id(),
+        )?;
+        *self.session.lock().await = Some(session);
+        Ok(())
+    }
+
+    /// Open a session and return its messages.
+    pub async fn resume_session(&self, id: &str) -> std::io::Result<seek_core::History> {
+        let path = self.sessions_dir().join(format!("{id}.jsonl"));
+        let session = seek_core::Session::open(&path)?;
+        let history = session.replay()?;
+        *self.session.lock().await = Some(session);
+        Ok(history)
+    }
+
+    /// Append a message to the open session.
+    ///
+    /// The session is created when the first message is written, so that an empty start does not
+    /// leave a file behind.
+    pub async fn append(&self, message: &seek_core::Message) {
+        if self.session.lock().await.is_none() {
+            let _ = self.new_session().await;
+        }
+        let mut session = self.session.lock().await;
+        let Some(session) = session.as_mut() else {
+            return;
+        };
+        let model = self.current_model().map(|id| {
+            let local = id.starts_with("local/");
+            seek_core::ModelTag {
+                provider: if local {
+                    "local".into()
+                } else {
+                    "cloud".into()
+                },
+                model: id,
+                local,
+            }
+        });
+        let _ = session.append_message(message, model.as_ref());
+    }
+
+    /// Record a model switch in the session.
+    pub async fn append_switch(&self, model: &str) {
+        let mut session = self.session.lock().await;
+        let Some(session) = session.as_mut() else {
+            return;
+        };
+        let _ = session.append_model_switch(&seek_core::ModelTag {
+            provider: if model.starts_with("local/") {
+                "local".into()
+            } else {
+                "cloud".into()
+            },
+            model: model.to_string(),
+            local: model.starts_with("local/"),
+        });
+    }
+
+    /// The token that stops the turn that is running.
+    pub async fn set_cancel(&self, token: tokio_util::sync::CancellationToken) {
+        *self.cancel.lock().await = Some(token);
+    }
+
+    /// Stop the turn that is running.
+    pub async fn cancel(&self) {
+        if let Some(token) = self.cancel.lock().await.as_ref() {
+            token.cancel();
         }
     }
 
@@ -222,6 +314,30 @@ pub async fn agent_loop(
                     runtime.set_current_model(Some(model));
                 }
             }
+            Command::NewSession => {
+                // A new session: the file is new and the transcript starts empty (SPEC 11).
+                if runtime.new_session().await.is_err() {
+                    let _ = events
+                        .send(AgentEvent::Error("the session could not be created".into()))
+                        .await;
+                }
+                let sessions = seek_core::Session::list(&runtime.state_dir.join("sessions"));
+                let _ = widgets
+                    .send(seek_tui::app::UiMessage::Sessions(sessions))
+                    .await;
+            }
+            Command::ResumeSession(id) => {
+                // The messages of the session go back to the UI (SPEC 11).
+                if let Ok(history) = runtime.resume_session(&id).await {
+                    let _ = widgets
+                        .send(seek_tui::app::UiMessage::Session(history.messages))
+                        .await;
+                }
+            }
+            Command::Cancel => {
+                // Esc stops the turn that is running (SPEC 9.1).
+                runtime.cancel().await;
+            }
             Command::RunWidgets => {
                 // The widgets run when the home screen is shown (SPEC 10.5).
                 for widget in &runtime.widgets {
@@ -252,6 +368,7 @@ pub async fn agent_loop(
             Command::SwitchModel { id } => {
                 // A model switch happens between turns (SPEC 7.3).
                 runtime.set_current_model(Some(id.clone()));
+                runtime.append_switch(&id).await;
             }
             Command::Submit { text, mode } => {
                 // Only the enabled tools are given to the agent (SPEC 9.2, 9.6).
@@ -290,7 +407,10 @@ pub async fn agent_loop(
                     .collect();
 
                 let mut history = History::new();
-                history.push(seek_core::Message::user(text));
+                let user_message = seek_core::Message::user(text);
+                history.push(user_message.clone());
+                // The conversation is written to the session (SPEC 11).
+                runtime.append(&user_message).await;
                 // The usage of the turn is counted for the lifetime usage.
                 let usage = Arc::new(Mutex::new((0, 0)));
 
@@ -345,7 +465,17 @@ pub async fn agent_loop(
                         .with_context(runtime.context())
                         .with_external_tools(external_tools)
                         .with_usage(Arc::clone(&usage));
+                        // The token lets Esc stop the turn (SPEC 9.1).
+                        let cancel = agent.cancel_token();
+                        runtime.set_cancel(cancel.clone()).await;
                         agent.run_turn(&mut history, &events).await;
+                        runtime
+                            .set_cancel(tokio_util::sync::CancellationToken::new())
+                            .await;
+                        // The answer goes into the session as well.
+                        if let Some(answer) = history.messages.last() {
+                            runtime.append(answer).await;
+                        }
                         let (input, output) = *usage.lock().expect("the usage is not poisoned");
                         runtime.add_usage(input, output);
                     }
