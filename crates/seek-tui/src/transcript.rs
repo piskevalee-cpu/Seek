@@ -48,21 +48,40 @@ const USER_LABEL: &str = "USER";
 const ASSISTANT_LABEL: &str = "SEEK";
 
 /// Render the transcript into lines.
-pub fn transcript_lines(rows: &[Row], theme: &Theme, show_reasoning: bool) -> Vec<Line<'static>> {
+///
+/// Every line carries the index of the row it belongs to, so the view can highlight the selected
+/// row.
+pub fn transcript_lines(
+    rows: &[Row],
+    theme: &Theme,
+    show_reasoning: bool,
+) -> Vec<(usize, Line<'static>)> {
     let mut lines = Vec::new();
-    for row in rows {
+    for (index, row) in rows.iter().enumerate() {
         match row {
             Row::User(text) => {
-                lines.extend(message_box(text, USER_LABEL, theme.cube_light, theme));
+                lines.extend(
+                    message_box(text, USER_LABEL, theme.cube_light, theme)
+                        .into_iter()
+                        .map(|line| (index, line)),
+                );
             }
             Row::Assistant(text) => {
-                lines.extend(message_box(text, ASSISTANT_LABEL, theme.accent, theme));
+                lines.extend(
+                    message_box(text, ASSISTANT_LABEL, theme.accent, theme)
+                        .into_iter()
+                        .map(|line| (index, line)),
+                );
             }
             Row::Reasoning(text) => {
                 if show_reasoning {
-                    lines.extend(reasoning_lines(text, theme));
+                    lines.extend(
+                        reasoning_lines(text, theme)
+                            .into_iter()
+                            .map(|line| (index, line)),
+                    );
                 } else {
-                    lines.push(reasoning_collapsed(theme));
+                    lines.push((index, reasoning_collapsed(theme)));
                 }
             }
             Row::Tool {
@@ -73,28 +92,37 @@ pub fn transcript_lines(rows: &[Row], theme: &Theme, show_reasoning: bool) -> Ve
                 detail,
                 expanded,
             } => {
-                lines.push(tool_line(name, command, status, *duration, theme));
+                lines.push((index, tool_line(name, command, status, *duration, theme)));
                 if *expanded && let Some(detail) = detail {
                     for line in detail.lines() {
-                        lines.push(Line::from(Span::styled(
-                            format!("    {line}"),
-                            Style::new().fg(theme.dim),
-                        )));
+                        lines.push((
+                            index,
+                            Line::from(Span::styled(
+                                format!("    {line}"),
+                                Style::new().fg(theme.dim),
+                            )),
+                        ));
                     }
                 }
             }
             Row::Error(text) => {
-                lines.push(Line::from(vec![
-                    Span::styled("! ", Style::new().fg(theme.error).bold()),
-                    Span::styled(text.clone(), Style::new().fg(theme.error)),
-                ]));
+                lines.push((
+                    index,
+                    Line::from(vec![
+                        Span::styled("! ", Style::new().fg(theme.error).bold()),
+                        Span::styled(text.clone(), Style::new().fg(theme.error)),
+                    ]),
+                ));
             }
             Row::Pending(text) => {
-                lines.push(Line::from(vec![
-                    Span::styled("│ ", Style::new().fg(theme.dim)),
-                    Span::styled(text.clone(), Style::new().fg(theme.dim).italic()),
-                    Span::styled(" queued", Style::new().fg(theme.dim).italic()),
-                ]));
+                lines.push((
+                    index,
+                    Line::from(vec![
+                        Span::styled("│ ", Style::new().fg(theme.dim)),
+                        Span::styled(text.clone(), Style::new().fg(theme.dim).italic()),
+                        Span::styled(" queued", Style::new().fg(theme.dim).italic()),
+                    ]),
+                ));
             }
             Row::Spinner => {}
         }
@@ -252,8 +280,9 @@ mod tests {
         let theme = Theme::default();
         let lines = transcript_lines(&[Row::User("hi".into())], &theme, true);
         assert_eq!(lines.len(), 2);
-        assert!(lines[0].spans[0].content.contains("▌"));
-        assert!(lines[0].to_string().contains(USER_LABEL));
+        assert_eq!(lines[0].0, 0, "the line knows its row");
+        assert!(lines[0].1.spans[0].content.contains("▌"));
+        assert!(lines[0].1.to_string().contains(USER_LABEL));
     }
 
     #[test]
@@ -264,15 +293,15 @@ mod tests {
         let hidden = transcript_lines(&rows, &theme, false);
         assert_eq!(shown.len(), 1);
         assert_eq!(hidden.len(), 1);
-        assert!(hidden[0].to_string().contains("reasoning"));
-        assert!(!hidden[0].to_string().contains("secret"));
+        assert!(hidden[0].1.to_string().contains("reasoning"));
+        assert!(!hidden[0].1.to_string().contains("secret"));
     }
 
     #[test]
     fn pending_rows_are_tagged() {
         let theme = Theme::default();
         let lines = transcript_lines(&[Row::Pending("later".into())], &theme, true);
-        assert!(lines[0].to_string().contains("queued"));
+        assert!(lines[0].1.to_string().contains("queued"));
     }
 
     #[test]
@@ -288,8 +317,8 @@ mod tests {
         }];
         let lines = transcript_lines(&rows, &theme, true);
         assert_eq!(lines.len(), 1);
-        assert!(lines[0].to_string().contains("cargo test"));
-        assert!(lines[0].to_string().contains("1.2s"));
+        assert!(lines[0].1.to_string().contains("cargo test"));
+        assert!(lines[0].1.to_string().contains("1.2s"));
     }
 
     #[test]

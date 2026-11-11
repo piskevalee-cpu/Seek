@@ -198,11 +198,19 @@ impl App {
                 None
             }
             KeyCode::Up => {
-                self.input.history_prev();
+                if self.input.is_empty() {
+                    self.move_selection(-1);
+                } else {
+                    self.input.history_prev();
+                }
                 None
             }
             KeyCode::Down => {
-                self.input.history_next();
+                if self.input.is_empty() {
+                    self.move_selection(1);
+                } else {
+                    self.input.history_next();
+                }
                 None
             }
             KeyCode::Home => {
@@ -258,6 +266,41 @@ impl App {
             }
             _ => None,
         }
+    }
+
+    /// Move the transcript selection up or down.
+    ///
+    /// Only tool rows can be selected, because only they can be expanded.
+    fn move_selection(&mut self, delta: isize) {
+        let selectable: Vec<usize> = self
+            .rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| matches!(row, Row::Tool { .. }))
+            .map(|(index, _)| index)
+            .collect();
+        if selectable.is_empty() {
+            self.selected = None;
+            return;
+        }
+        let current = self
+            .selected
+            .and_then(|index| selectable.iter().position(|candidate| *candidate == index));
+        let next = match current {
+            None => {
+                if delta < 0 {
+                    selectable.len() - 1
+                } else {
+                    0
+                }
+            }
+            Some(position) => {
+                let length = selectable.len() as isize;
+                let moved = (position as isize + delta).rem_euclid(length);
+                moved as usize
+            }
+        };
+        self.selected = Some(selectable[next]);
     }
 
     /// Expand or collapse the selected tool row.
@@ -512,14 +555,35 @@ impl App {
         let mut lines = transcript_lines(&self.rows, &self.theme, self.show_reasoning);
         if self.status == Status::Thinking {
             if self.reduce_motion {
-                lines.push(Line::from(Span::styled(
-                    crate::spinner::STATIC_THINKING,
-                    Style::new().fg(self.theme.dim),
-                )));
+                lines.push((
+                    usize::MAX,
+                    Line::from(Span::styled(
+                        crate::spinner::STATIC_THINKING,
+                        Style::new().fg(self.theme.dim),
+                    )),
+                ));
             } else {
-                lines.extend(self.spinner.thinking_lines(&self.theme));
+                lines.extend(
+                    self.spinner
+                        .thinking_lines(&self.theme)
+                        .into_iter()
+                        .map(|line| (usize::MAX, line)),
+                );
             }
         }
+
+        // The selected row is highlighted, so it is clear what Ctrl+O will expand.
+        let selected = self.selected;
+        let lines: Vec<Line> = lines
+            .into_iter()
+            .map(|(index, line)| {
+                if selected == Some(index) {
+                    line.style(Style::new().bg(self.theme.cube_dark))
+                } else {
+                    line
+                }
+            })
+            .collect();
 
         let height = area.height as usize;
         let total = lines.len();
@@ -733,6 +797,56 @@ mod tests {
         }
         app.update(Message::Key(key(KeyCode::Enter)));
         assert!(!app.show_reasoning);
+    }
+
+    #[test]
+    fn up_and_down_select_a_tool_row() {
+        let mut app = App::new(Theme::default());
+        app.rows.push(Row::Tool {
+            name: "bash".into(),
+            command: "cargo test".into(),
+            status: "ok".into(),
+            duration: None,
+            detail: None,
+            expanded: false,
+        });
+        assert_eq!(app.selected, None);
+        app.update(Message::Key(key(KeyCode::Down)));
+        assert_eq!(app.selected, Some(0));
+    }
+
+    #[test]
+    fn ctrl_o_expands_the_selected_tool_row() {
+        let mut app = App::new(Theme::default());
+        app.rows.push(Row::Tool {
+            name: "bash".into(),
+            command: "cargo test".into(),
+            status: "ok".into(),
+            duration: None,
+            detail: Some("test result: ok".into()),
+            expanded: false,
+        });
+        app.update(Message::Key(key(KeyCode::Down)));
+        app.update(Message::Key(control('o')));
+        match &app.rows[0] {
+            Row::Tool { expanded, .. } => assert!(*expanded),
+            other => panic!("expected a tool row, got {other:?}"),
+        }
+        app.update(Message::Key(control('o')));
+        match &app.rows[0] {
+            Row::Tool { expanded, .. } => assert!(!*expanded),
+            other => panic!("expected a tool row, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_history_is_walked_when_there_is_input() {
+        let mut app = App::new(Theme::default());
+        app.input.insert_char('1');
+        app.input.submit();
+        app.input.insert_char('x');
+        app.update(Message::Key(key(KeyCode::Up)));
+        assert_eq!(app.input.text(), "1");
     }
 
     #[test]
