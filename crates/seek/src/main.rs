@@ -91,6 +91,29 @@ async fn main() -> Result<()> {
         });
     }
 
+    // A signal stops the servers before SEEK leaves: the destructors do not run when the
+    // process is killed, and a local server would stay behind (SPEC 7.3).
+    {
+        let runtime = Arc::clone(&runtime);
+        tokio::spawn(async move {
+            use tokio::signal::unix::{SignalKind, signal};
+            let (Ok(mut terminate), Ok(mut interrupt), Ok(mut hangup)) = (
+                signal(SignalKind::terminate()),
+                signal(SignalKind::interrupt()),
+                signal(SignalKind::hangup()),
+            ) else {
+                return;
+            };
+            tokio::select! {
+                _ = terminate.recv() => {}
+                _ = interrupt.recv() => {}
+                _ = hangup.recv() => {}
+            }
+            runtime.stop_servers().await;
+            std::process::exit(0);
+        });
+    }
+
     let mut app = App::new(Theme::for_terminal());
     app.cwd = std::env::current_dir()
         .map(|path| path.display().to_string())

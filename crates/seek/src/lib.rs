@@ -185,6 +185,14 @@ impl Runtime {
         *self.cancel.lock().await = Some(token);
     }
 
+    /// Stop the servers that are running.
+    ///
+    /// Used when SEEK is closed by a signal: the destructors do not run then, so the server has
+    /// to be stopped by hand (SPEC 7.3).
+    pub async fn stop_servers(&self) {
+        self.supervisor.lock().await.stop().await;
+    }
+
     /// Stop the turn that is running.
     pub async fn cancel(&self) {
         if let Some(token) = self.cancel.lock().await.as_ref() {

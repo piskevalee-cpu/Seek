@@ -364,8 +364,12 @@ fn telling_seek_what_to_do_opens_a_text_input() {
 }
 
 /// A local model for the tests.
+///
+/// Every call gets its own folder: the tests run in parallel and would race over one.
 fn a_local_model() -> seek_local::LocalModel {
-    let dir = std::env::temp_dir().join("seek-ui-local-test");
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let number = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("seek-ui-local-test-{number}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("created");
     std::fs::write(dir.join("m.gguf"), b"x").expect("written");

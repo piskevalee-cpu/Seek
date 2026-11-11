@@ -16,13 +16,31 @@ pub const IMPLICIT_PORT: &str = "--port";
 pub const IMPLICIT_REASONING_FORMAT: &str = "--reasoning-format";
 pub const IMPLICIT_PARALLEL: &str = "--parallel";
 pub const IMPLICIT_JINJA: &str = "--jinja";
+pub const IMPLICIT_CONTEXT: &str = "--ctx-size";
+
+/// The short forms of the options SEEK owns.
+///
+/// The user may write `-c 8000` instead of `--ctx-size 8000`; both are the same option, and
+/// SEEK has to see that the user set it.
+const SHORT_FORMS: [(&str, &str); 3] = [
+    (IMPLICIT_MODEL, "-m"),
+    (IMPLICIT_CONTEXT, "-c"),
+    (IMPLICIT_PARALLEL, "-np"),
+];
+
+/// The name and the short form of an option, as a pair of needles.
+fn needles(name: &str) -> Vec<&str> {
+    let mut out = vec![name];
+    if let Some((_, short)) = SHORT_FORMS.iter().find(|(long, _)| *long == name) {
+        out.push(short);
+    }
+    out
+}
 /// The context size SEEK asks for, unless the user sets one.
 ///
 /// The context of a model can be huge (131072 tokens for a small model), and the key and value
 /// cache of the whole context is allocated up front: 6.5 GB for that model. A coding agent does
 /// not need that much, so SEEK asks for a sane one and the user can override it.
-pub const IMPLICIT_CONTEXT: &str = "--ctx-size";
-/// The context size SEEK asks for.
 pub const DEFAULT_CONTEXT: u32 = 32_768;
 
 /// The options of the user, with the ones SEEK owns removed.
@@ -52,6 +70,9 @@ impl LaunchOptions {
                 Some((name, _)) => (name, true),
                 None => (word.as_str(), !is_flag(word)),
             };
+            // `-m` is the short form of `--model` and is stripped as well.
+            let owned = name == "-m";
+            let name = if owned { IMPLICIT_MODEL } else { name };
             match name {
                 IMPLICIT_MODEL | IMPLICIT_HOST | IMPLICIT_PORT => {
                     stripped.push(word.clone());
@@ -82,9 +103,12 @@ impl LaunchOptions {
 
     /// Whether the user set an option themselves.
     pub fn has(&self, name: &str) -> bool {
-        self.words
-            .iter()
-            .any(|word| word == name || word.starts_with(&format!("{name}=")))
+        let needles = needles(name);
+        self.words.iter().any(|word| {
+            needles
+                .iter()
+                .any(|needle| word == needle || word.starts_with(&format!("{needle}=")))
+        })
     }
 
     /// The options that SEEK adds because the user did not set them.
@@ -184,6 +208,23 @@ mod tests {
         let options = LaunchOptions::parse("--model other.gguf --host 0.0.0.0 --port 1234");
         assert_eq!(options.stripped.len(), 6);
         assert!(options.words.is_empty());
+    }
+
+    #[test]
+    fn the_short_form_of_the_context_size_counts() {
+        // `-c 8000` is `--ctx-size 8000`: SEEK must not add its own.
+        let options = LaunchOptions::parse("-c 8000");
+        assert!(options.has(IMPLICIT_CONTEXT));
+        let command = options.command("llama", Some("serve"), &model(), 8123);
+        assert_eq!(command.iter().filter(|word| *word == "8000").count(), 1);
+        assert!(!command.contains(&"32768".to_string()), "{command:?}");
+    }
+
+    #[test]
+    fn the_short_form_of_the_model_is_stripped() {
+        let options = LaunchOptions::parse("-m other.gguf");
+        assert!(options.words.is_empty(), "{:?}", options.words);
+        assert_eq!(options.stripped.len(), 2);
     }
 
     #[test]

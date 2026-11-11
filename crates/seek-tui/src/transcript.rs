@@ -43,9 +43,8 @@ pub enum Row {
     Spinner,
 }
 
-/// The role label shown on the first line of a message box.
-const USER_LABEL: &str = "USER";
-const ASSISTANT_LABEL: &str = "SEEK";
+/// The arrow in front of the prompt of the user.
+const PROMPT_ARROW: &str = "\u{276F} ";
 
 /// Render the transcript into lines.
 ///
@@ -55,20 +54,21 @@ pub fn transcript_lines(
     rows: &[Row],
     theme: &Theme,
     show_reasoning: bool,
+    width: usize,
 ) -> Vec<(usize, Line<'static>)> {
     let mut lines = Vec::new();
     for (index, row) in rows.iter().enumerate() {
         match row {
             Row::User(text) => {
                 lines.extend(
-                    message_box(text, USER_LABEL, theme.cube_light, theme)
+                    user_lines(text, theme, width)
                         .into_iter()
                         .map(|line| (index, line)),
                 );
             }
             Row::Assistant(text) => {
                 lines.extend(
-                    message_box(text, ASSISTANT_LABEL, theme.accent, theme)
+                    assistant_lines(text, theme, width)
                         .into_iter()
                         .map(|line| (index, line)),
                 );
@@ -76,7 +76,7 @@ pub fn transcript_lines(
             Row::Reasoning(text) => {
                 if show_reasoning {
                     lines.extend(
-                        reasoning_lines(text, theme)
+                        reasoning_lines(text, theme, width)
                             .into_iter()
                             .map(|line| (index, line)),
                     );
@@ -130,47 +130,59 @@ pub fn transcript_lines(
     lines
 }
 
-/// A message box: accent edge, role label, filled surface.
-fn message_box(
-    text: &str,
-    label: &str,
-    accent: ratatui::style::Color,
-    theme: &Theme,
-) -> Vec<Line<'static>> {
-    let surface = Style::new().bg(SURFACE);
+/// The prompt of the user: a band across the width with the arrow in front of it.
+///
+/// This is the look of the grok-build pager: the prompt of the user is the one thing that is
+/// banded, so it stands out from the answer of the model.
+fn user_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
+    let band = Style::new().bg(SURFACE);
+    let inner = width.saturating_sub(2).max(20);
     let mut lines = Vec::new();
-    lines.push(
-        Line::from(vec![
-            Span::styled("▌", Style::new().fg(accent)),
-            Span::styled(
-                format!(" {label}"),
-                Style::new().fg(theme.dim).bold().bg(SURFACE),
-            ),
-        ])
-        .style(surface),
-    );
-    for line in text.lines() {
-        lines.push(
-            Line::from(vec![
-                Span::styled("▌", Style::new().fg(accent)),
-                Span::styled(
-                    format!(" {line}"),
-                    Style::new().fg(theme.cube_light).bg(SURFACE),
-                ),
-            ])
-            .style(surface),
-        );
+    for (index, line) in wrap(text, inner).into_iter().enumerate() {
+        let mut spans = Vec::new();
+        if index == 0 {
+            spans.push(Span::styled(
+                PROMPT_ARROW,
+                Style::new().fg(theme.accent).bold().bg(SURFACE),
+            ));
+        } else {
+            spans.push(Span::styled("  ", Style::new().bg(SURFACE)));
+        }
+        spans.push(Span::styled(
+            line,
+            Style::new().fg(theme.cube_light).bg(SURFACE),
+        ));
+        // The band goes across the whole width.
+        let used: usize = spans.iter().map(|span| span.content.chars().count()).sum();
+        if used < width {
+            spans.push(Span::styled(
+                " ".repeat(width - used),
+                Style::new().bg(SURFACE),
+            ));
+        }
+        lines.push(Line::from(spans).style(band));
     }
     lines
 }
 
+/// The answer of the model: plain text, without a band and without a border.
+fn assistant_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
+    let inner = width.max(20);
+    wrap(text, inner)
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, Style::new().fg(theme.cube_light))))
+        .collect()
+}
+
 /// Reasoning text: dim, with a thin vertical bar at the left.
-fn reasoning_lines(text: &str, theme: &Theme) -> Vec<Line<'static>> {
-    text.lines()
+fn reasoning_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
+    let inner = width.saturating_sub(2).max(20);
+    wrap(text, inner)
+        .into_iter()
         .map(|line| {
             Line::from(vec![
                 Span::styled("│ ", Style::new().fg(theme.dim)),
-                Span::styled(line.to_string(), Style::new().fg(theme.dim)),
+                Span::styled(line, Style::new().fg(theme.dim)),
             ])
         })
         .collect()
@@ -276,21 +288,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_user_message_has_an_accent_edge_and_a_label() {
+    fn a_user_message_is_a_band_with_an_arrow() {
         let theme = Theme::default();
-        let lines = transcript_lines(&[Row::User("hi".into())], &theme, true);
-        assert_eq!(lines.len(), 2);
+        let lines = transcript_lines(&[Row::User("hi".into())], &theme, true, 80);
+        assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].0, 0, "the line knows its row");
-        assert!(lines[0].1.spans[0].content.contains("▌"));
-        assert!(lines[0].1.to_string().contains(USER_LABEL));
+        assert!(lines[0].1.spans[0].content.contains(PROMPT_ARROW));
+        // The band goes across the whole width.
+        assert_eq!(lines[0].1.width(), 80);
+    }
+
+    #[test]
+    fn the_answer_of_the_model_is_plain_text() {
+        let theme = Theme::default();
+        let lines = transcript_lines(&[Row::Assistant("hello".into())], &theme, true, 80);
+        assert_eq!(lines.len(), 1);
+        assert!(!lines[0].1.to_string().contains(PROMPT_ARROW));
     }
 
     #[test]
     fn hidden_reasoning_collapses_to_one_row() {
         let theme = Theme::default();
         let rows = [Row::Reasoning("secret".into())];
-        let shown = transcript_lines(&rows, &theme, true);
-        let hidden = transcript_lines(&rows, &theme, false);
+        let shown = transcript_lines(&rows, &theme, true, 80);
+        let hidden = transcript_lines(&rows, &theme, false, 80);
         assert_eq!(shown.len(), 1);
         assert_eq!(hidden.len(), 1);
         assert!(hidden[0].1.to_string().contains("reasoning"));
@@ -300,7 +321,7 @@ mod tests {
     #[test]
     fn pending_rows_are_tagged() {
         let theme = Theme::default();
-        let lines = transcript_lines(&[Row::Pending("later".into())], &theme, true);
+        let lines = transcript_lines(&[Row::Pending("later".into())], &theme, true, 80);
         assert!(lines[0].1.to_string().contains("queued"));
     }
 
@@ -315,10 +336,26 @@ mod tests {
             detail: None,
             expanded: false,
         }];
-        let lines = transcript_lines(&rows, &theme, true);
+        let lines = transcript_lines(&rows, &theme, true, 80);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].1.to_string().contains("cargo test"));
         assert!(lines[0].1.to_string().contains("1.2s"));
+    }
+
+    #[test]
+    fn a_long_message_is_wrapped() {
+        let theme = Theme::default();
+        let text = "word ".repeat(60);
+        let lines = transcript_lines(&[Row::Assistant(text)], &theme, true, 40);
+        // The label, then the wrapped text.
+        assert!(
+            lines.len() > 3,
+            "the message is wrapped: {} lines",
+            lines.len()
+        );
+        for (_, line) in &lines {
+            assert!(line.width() <= 40, "the line fits: {line:?}");
+        }
     }
 
     #[test]

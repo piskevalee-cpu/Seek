@@ -328,6 +328,8 @@ pub struct App {
     pub widget_outputs: Vec<seek_core::WidgetOutput>,
     /// Whether the widgets have been run for this home screen.
     widgets_ran: bool,
+    /// When the application started, for the shimmer.
+    started: std::time::Instant,
     /// Whether the model picker has been opened for the first run.
     asked_for_model: bool,
     /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
@@ -395,6 +397,7 @@ impl App {
             widgets: Vec::new(),
             widget_outputs: Vec::new(),
             widgets_ran: false,
+            started: std::time::Instant::now(),
             toggles: seek_core::Toggles::default(),
             turn_started: None,
             think_started: None,
@@ -411,6 +414,11 @@ impl App {
     /// Whether the last update changed anything that has to be drawn.
     pub fn needs_redraw(&self) -> bool {
         self.dirty
+    }
+
+    /// The seconds since the application started, for the shimmer.
+    pub fn anim_secs(&self) -> f32 {
+        self.started.elapsed().as_secs_f32()
     }
 
     /// Handle a message.
@@ -1257,7 +1265,7 @@ impl App {
     ///
     /// The strip shows the last three lines of the local server and hides after ten seconds of
     /// silence (SPEC 10.3).
-    fn log_strip_lines(&self) -> Vec<Line<'static>> {
+    fn log_strip_lines(&self, width: usize) -> Vec<Line<'static>> {
         let Some(logs) = &self.logs else {
             return Vec::new();
         };
@@ -1267,19 +1275,19 @@ impl App {
         if logs.is_quiet(std::time::Duration::from_secs(10)) {
             return Vec::new();
         }
-        logs.last(3)
-            .into_iter()
-            .map(|line| {
-                Line::from(Span::styled(
-                    line.text.clone(),
-                    Style::new().fg(if line.error {
-                        self.theme.warn
-                    } else {
-                        self.theme.dim
-                    }),
-                ))
-            })
-            .collect()
+        // One line: the newest event of the local server.
+        let Some(line) = logs.last(1).into_iter().next() else {
+            return Vec::new();
+        };
+        let text: String = line.text.chars().take(width).collect();
+        vec![Line::from(Span::styled(
+            text,
+            Style::new().fg(if line.error {
+                self.theme.warn
+            } else {
+                self.theme.dim
+            }),
+        ))]
     }
 
     /// Copy the running processes into the sidebar.
@@ -1752,7 +1760,7 @@ impl App {
             prompt_height = prompt_height.max(5);
         }
 
-        let log_lines = self.log_strip_lines();
+        let log_lines = self.log_strip_lines(main_area.width as usize);
 
         // The metrics have exactly one home: the bottom of the sidebar when it is open, the
         // line under the prompt bar otherwise. Never both (SPEC 10.2).
@@ -1840,7 +1848,12 @@ impl App {
             return;
         }
 
-        let mut lines = transcript_lines(&self.rows, &self.theme, self.show_reasoning);
+        let mut lines = transcript_lines(
+            &self.rows,
+            &self.theme,
+            self.show_reasoning,
+            area.width as usize,
+        );
         if self.status == Status::Thinking {
             if self.reduce_motion {
                 lines.push((
@@ -1851,12 +1864,7 @@ impl App {
                     )),
                 ));
             } else {
-                lines.extend(
-                    self.spinner
-                        .thinking_lines(&self.theme)
-                        .into_iter()
-                        .map(|line| (usize::MAX, line)),
-                );
+                lines.push((usize::MAX, self.spinner.shimmer_line(&self.theme)));
             }
         }
 
@@ -1873,27 +1881,40 @@ impl App {
             })
             .collect();
 
+        // The window of the transcript: the last `height` lines, minus what the user scrolled
+        // up. The end follows the start, so the slice can never be inverted.
         let height = area.height as usize;
         let total = lines.len();
-        let end = total.min(height.saturating_add(self.scroll).min(total));
-        let start = total.saturating_sub(height + self.scroll);
-        let visible: Vec<Line> = lines[start.min(total)..end].to_vec();
+        let start = total.saturating_sub(height.saturating_add(self.scroll));
+        let end = start.saturating_add(height).min(total);
+        let visible: Vec<Line> = lines[start..end].to_vec();
 
         frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
     }
 
     /// The home screen: the logo and the widgets.
     fn render_home(&mut self, frame: &mut Frame, area: Rect) {
-        // The logo takes the upper half, the widgets the lower one.
-        let logo_height = 9.min(area.height / 2);
-        let logo_area = Rect::new(area.x, area.y, area.width, logo_height);
-        logo::render(frame, logo_area, &self.theme);
+        // The widgets sit in a band at the bottom; the logo is centred in the space above them,
+        // so it is in the middle of the screen when there are no widgets.
+        let widget_height = if self.widget_outputs.is_empty() {
+            0
+        } else {
+            (MAX_WIDGET_ROWS as u16 + 2).min(area.height / 3)
+        };
+        let logo_area = Rect::new(
+            area.x,
+            area.y,
+            area.width,
+            area.height.saturating_sub(widget_height),
+        );
+        let secs = self.anim_secs();
+        logo::render(frame, logo_area, &self.theme, secs, self.reduce_motion);
 
         let widget_area = Rect::new(
             area.x,
-            area.y + logo_height,
+            area.y + area.height.saturating_sub(widget_height),
             area.width,
-            area.height.saturating_sub(logo_height),
+            widget_height,
         );
         self.render_widgets(frame, widget_area);
     }
@@ -1910,7 +1931,8 @@ impl App {
             _ => 3,
         };
         let column_width = (area.width / columns).max(20);
-        let row_height = (MAX_WIDGET_ROWS + 2) as u16;
+        // The row fits in the band; otherwise the first row would not be drawn at all.
+        let row_height = ((MAX_WIDGET_ROWS + 2) as u16).min(area.height);
 
         for (index, output) in self.widget_outputs.iter().enumerate() {
             let index = index as u16;

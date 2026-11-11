@@ -1,26 +1,26 @@
-//! The two spinners (SPEC 10.3).
+//! The thinking and loading animations (SPEC 10.3).
 //!
-//! * **Thinking**: a 3x3 grid of cubes, numbered 123 / 456 / 789. The lit order is a clockwise
-//!   spiral ending in the center: 1 2 3 6 9 8 7 4 5. At most three cubes are lit at once, one
-//!   step per tick (about 110 ms).
-//! * **Loading**: a row of five cubes alternating dark and light, shifting one position per tick.
+//! Both are the same thing: a line of cells that are dark, with a wave of brightness going
+//! through them. The wave follows the grok-build pager (Apache-2.0): a `sin²` per cell, so it is
+//! smooth at both ends.
 //!
-//! Every cube is two terminal columns of full blocks. `reduce_motion` replaces both with static
-//! text.
+//! The line replaces the cube grid of the first version of the specification; the specification
+//! is updated with it.
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::shimmer::{blend, wave_brightness};
 use crate::theme::Theme;
 
-/// How long one spinner step lasts, in milliseconds.
+/// How many cells the line has.
+pub const CELLS: u16 = 12;
+/// How fast the wave travels.
+pub const SPEED: f32 = 0.22;
+/// How long one step lasts, in milliseconds.
 pub const STEP_MS: u64 = 110;
 
-/// The lit order of the thinking spinner, as indices into the 3x3 grid
-/// (row major: 123 / 456 / 789).
-const SPIRAL: [usize; 9] = [0, 1, 2, 5, 8, 7, 6, 3, 4];
-
-/// The animated spinners.
+/// The animated line.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Spinner {
     frame: u64,
@@ -41,49 +41,14 @@ impl Spinner {
         self.frame
     }
 
-    /// The cells that are lit at the current frame.
-    ///
-    /// The lit cubes are `path[f mod 9]`, `path[(f-1) mod 9]` and `path[(f-2) mod 9]`.
-    pub fn lit_cells(&self) -> [usize; 3] {
-        let f = self.frame as usize;
-        [
-            SPIRAL[f % 9],
-            SPIRAL[(f + 9 - 1) % 9],
-            SPIRAL[(f + 9 - 2) % 9],
-        ]
-    }
-
-    /// The thinking spinner: three rows of three cubes.
-    pub fn thinking_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
-        let lit = self.lit_cells();
-        let mut lines = Vec::with_capacity(3);
-        for row in 0..3 {
-            let mut spans: Vec<Span<'static>> = Vec::with_capacity(3);
-            for column in 0..3 {
-                let index = row * 3 + column;
-                let style = if lit.contains(&index) {
-                    Style::new().fg(theme.cube_light)
-                } else {
-                    Style::new().fg(theme.cube_dark)
-                };
-                spans.push(Span::styled("██", style));
-            }
-            lines.push(Line::from(spans));
-        }
-        lines
-    }
-
-    /// The loading spinner: one row of five cubes.
-    pub fn loading_line(&self, theme: &Theme) -> Line<'static> {
-        let mut spans: Vec<Span<'static>> = Vec::with_capacity(5);
-        for column in 0..5 {
-            let lit = (column as u64 + self.frame).is_multiple_of(2);
-            let style = if lit {
-                Style::new().fg(theme.cube_light)
-            } else {
-                Style::new().fg(theme.cube_dark)
-            };
-            spans.push(Span::styled("██", style));
+    /// The line of cells, the wave going through them.
+    pub fn shimmer_line(&self, theme: &Theme) -> Line<'static> {
+        let mut spans = Vec::with_capacity(CELLS as usize);
+        for index in 0..CELLS {
+            let brightness = wave_brightness(self.frame, index, CELLS, SPEED);
+            // The cells are dark, and the wave lifts them up to the lit colour.
+            let color = blend(theme.bg, theme.cube_light, brightness);
+            spans.push(Span::styled("█", Style::new().fg(color)));
         }
         Line::from(spans)
     }
@@ -99,48 +64,50 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_spiral_visits_every_cell_once() {
-        let mut seen = SPIRAL.to_vec();
-        seen.sort_unstable();
-        assert_eq!(seen, (0..9).collect::<Vec<_>>());
+    fn the_line_has_the_cells() {
+        let theme = Theme::default();
+        let line = Spinner::new().shimmer_line(&theme);
+        assert_eq!(line.width(), CELLS as usize);
+    }
+
+    /// The colours of the cells of a line.
+    fn cells(spinner: &Spinner, theme: &Theme) -> Vec<ratatui::style::Color> {
+        spinner
+            .shimmer_line(theme)
+            .spans
+            .iter()
+            .map(|span| span.style.fg.expect("a colour"))
+            .collect()
     }
 
     #[test]
-    fn the_spiral_is_a_clockwise_walk() {
-        // 1 2 3 6 9 8 7 4 5 in one-based cell numbers.
-        let expected = [1, 2, 3, 6, 9, 8, 7, 4, 5];
-        let actual: Vec<usize> = SPIRAL.iter().map(|i| i + 1).collect();
-        assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn three_cubes_are_lit_at_a_time() {
-        let spinner = Spinner::new();
-        let lit = spinner.lit_cells();
-        assert_eq!(lit.len(), 3);
-        assert!(lit.iter().all(|cell| *cell < 9));
-    }
-
-    #[test]
-    fn the_lit_cubes_move_on_every_step() {
+    fn the_wave_moves_the_brightness() {
+        let theme = Theme::default();
         let mut spinner = Spinner::new();
-        let first = spinner.lit_cells();
+        let first = cells(&spinner, &theme);
         spinner.tick();
-        assert_ne!(first, spinner.lit_cells());
+        assert_ne!(first, cells(&spinner, &theme));
     }
 
     #[test]
-    fn the_thinking_spinner_is_three_rows_of_six_columns() {
+    fn the_cells_are_dark_at_the_rest() {
         let theme = Theme::default();
-        let lines = Spinner::new().thinking_lines(&theme);
-        assert_eq!(lines.len(), 3);
-        assert!(lines.iter().all(|line| line.width() == 6));
+        let line = Spinner::new().shimmer_line(&theme);
+        // The first cell of the wave is dark at the start of the frame: the line is made of
+        // dark pixels, and the light goes through them.
+        let color = line.spans[0].style.fg.expect("a colour");
+        assert_eq!(color, theme.bg);
     }
 
     #[test]
-    fn the_loading_spinner_is_one_row_of_ten_columns() {
+    fn the_wave_lights_some_cells() {
         let theme = Theme::default();
-        let line = Spinner::new().loading_line(&theme);
-        assert_eq!(line.width(), 10);
+        let line = Spinner::new().shimmer_line(&theme);
+        let lit = line
+            .spans
+            .iter()
+            .filter(|span| span.style.fg.expect("a colour") != theme.bg)
+            .count();
+        assert!(lit > 0, "the wave is somewhere on the line");
     }
 }

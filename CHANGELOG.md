@@ -67,6 +67,17 @@ workspace; each release ships a milestone (SPEC 15).
 - The `fetch` tool can be turned on in `/tools`.
 - The client side limits of the configuration (`rpm` and `tpm`) are honored (SPEC 6).
 - The manual test checklist, `docs/TESTING.md`.
+- The logo draws only its lit pixels, is centred both ways and has a sheen sweeping across it.
+- The thinking and the loading animation are one line of dark cells with a wave of brightness.
+- The prompt of the user is a band with the arrow in front of it; the answer of the model is plain
+  text.
+- The log strip is one line.
+- The permission prompt is a selector: the chosen answer is highlighted and the keys are shown.
+- The transcript window is right, and long messages are wrapped, so the streaming no longer
+  disappears.
+- The helpers and the network tools are off by default.
+- The short forms of the launch options count, so `-c 8000` is the context size the user set.
+- The servers are stopped when SEEK is closed by a signal.
 - The form that adds a provider, with the kind, the base URL, the key environment variable, the
   models, the context and the rate limits (SPEC 10.3).
 - The providers are detected from the environment when there is no `providers.toml`, so a bare

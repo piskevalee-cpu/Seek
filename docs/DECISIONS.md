@@ -166,3 +166,25 @@ user can override it in the launch options of the model, and the editor shows th
 
 **Status:** accepted. A coding agent does not need 131k tokens of context, and 32k fits on a
 normal machine (about 1.6 GB for that model).
+
+## D-010 — The look of the logo and of the animation
+
+**Date:** 2026-11-11 · **Affects:** SPEC 10.3, SPEC 12
+
+The first version of the interface drew the logo as a grid of cubes, which put a block of colour
+around the mark, and the thinking animation was a 3x3 grid of cubes. Neither looked like the
+harness it was meant to be.
+
+The look now follows the grok-build pager (Apache-2.0):
+
+- **The logo** draws only its lit pixels; the background of the mark is the background of the
+  terminal. A sheen sweeps across it from the bottom left to the top right: a raised-cosine band
+  over the diagonal position of every glyph, blended from the resting grey toward the lit colour.
+  The logo is centred both ways.
+- **The animation** is one line of twelve cells that are dark, with a wave of brightness going
+  through them: a `sin²` per cell. The thinking and the loading spinner are the same line.
+- **The messages**: the prompt of the user is a band across the width with the arrow `❯` in front
+  of it; the answer of the model is plain text, without a band and without a border.
+- **The log strip** is one line instead of three.
+
+**Status:** accepted. The specification was updated with it (§10.3, §12).

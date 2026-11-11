@@ -116,9 +116,9 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   animation is running.
 - The logo is drawn from a 25x9 cell bitmap: full blocks (50x9 cells) when there is room, half
   blocks (25x5) on short terminals, and the word SEEK below 56 columns.
-- The thinking spinner is a 3x3 cube grid lit in the order 1 2 3 6 9 8 7 4 5, three cubes at a
-  time. The loading spinner is a row of five cubes. `reduce_motion` (also `--reduce-motion`)
-  replaces both with static text.
+- The thinking and the loading animation are one line of twelve dark cells with a wave of
+  brightness going through them (`seek-tui::shimmer`). The logo draws only its lit pixels and has
+  the same kind of sheen. `reduce_motion` (also `--reduce-motion`) rests both.
 - The config points at the llama.cpp binary and at the subcommand that starts the server:
   `llama_path` and `llama_subcommand` (D-001). The old `llama_server_path` is migrated on the
   first write.

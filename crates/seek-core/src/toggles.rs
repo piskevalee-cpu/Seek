@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 /// The schema version of the toggles.
 pub const SCHEMA: u32 = 1;
 
+/// The tools that are on when nothing was chosen (SPEC 9.2).
+///
+/// The read-only helpers and the network tools are off until the user turns them on.
+pub const DEFAULT_ON: [&str; 4] = ["read", "write", "edit", "bash"];
+
 /// Which tools and skills are enabled.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Toggles {
@@ -45,8 +50,14 @@ impl Default for Toggles {
 
 impl Toggles {
     /// Whether a tool is enabled.
+    ///
+    /// A tool that was never mentioned follows the default: the four built-in tools are on, the
+    /// helpers and the network tools are off (SPEC 9.2).
     pub fn tool_enabled(&self, name: &str) -> bool {
-        self.tools.get(name).copied().unwrap_or(true)
+        self.tools
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| DEFAULT_ON.contains(&name))
     }
 
     /// Whether a skill is enabled.
@@ -121,11 +132,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn everything_is_on_by_default() {
+    fn the_four_built_in_tools_are_on_by_default() {
         let toggles = Toggles::default();
         assert!(toggles.tool_enabled("read"));
+        assert!(toggles.tool_enabled("write"));
+        assert!(toggles.tool_enabled("edit"));
+        assert!(toggles.tool_enabled("bash"));
         assert!(toggles.skill_enabled("init"));
         assert!(toggles.disabled_tools().is_empty());
+    }
+
+    #[test]
+    fn the_helpers_and_the_network_tools_are_off_by_default() {
+        let toggles = Toggles::default();
+        assert!(!toggles.tool_enabled("ls"));
+        assert!(!toggles.tool_enabled("grep"));
+        assert!(!toggles.tool_enabled("find"));
+        assert!(!toggles.tool_enabled("fetch"));
     }
 
     #[test]

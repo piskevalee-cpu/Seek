@@ -23,6 +23,9 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 
 - [ ] **Start it.** `seek` — the logo appears in the middle of the screen, the widgets below it, the prompt bar at the bottom, the footer at the very bottom.
 - [ ] **The logo.** It is the mark: the plus symbol on the left, `SEEK` on the right. It is drawn with blocks, two columns per pixel.
+- [ ] **The logo has no frame.** Only the lit pixels are drawn: the background of the mark is the background of the terminal, not a block of colour.
+- [ ] **The logo is centred.** Horizontally and vertically in the home screen.
+- [ ] **The sheen.** A shine sweeps across the logo from the bottom left to the top right. With `SEEK_COLOR`/reduced motion it rests.
 - [ ] **The widgets.** The `git` widget shows the branch and the recent commits; the `usage` widget shows the tokens used so far. A widget that fails shows its title and a dash.
 - [ ] **The model picker.** With a local model installed, the picker opens on its own. The local model is listed with a `LOCAL` tag.
 - [ ] **Choose a model.** Press Enter — the picker closes, the footer shows the model.
@@ -41,11 +44,12 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 
 - [ ] **Ask something.** "Say hello in three words." — the answer streams in, word by word, in a `SEEK` box.
 - [ ] **The reasoning.** A model that thinks shows its reasoning above the answer, dimmed, behind a vertical bar. Press Alt+T — the reasoning collapses to one row that says "reasoning". Press Alt+T again — it comes back.
+- [ ] **Your message is a band.** The prompt of the user is a band across the width with the arrow in front of it. The answer of the model is plain text, without a band.
 - [ ] **The metrics.** While the model answers, the line under the prompt bar shows the context (`1.6k / 32.8k`), the percentage, the speed in tokens per second, the think time and the vitals (cpu, ram, gpu, vram).
-- [ ] **The spinner.** While the model works, the thinking spinner shows at the tail of the transcript: a 3x3 grid of cubes, three of them lit, moving in a spiral.
+- [ ] **The animation.** While the model works, a line of dark cells shows at the tail of the transcript, with a wave of brightness going through them. It is one line, twelve cells, and it moves.
 - [ ] **A long answer.** Ask for a long text — the transcript scrolls, and the view stays at the bottom.
 - [ ] **Scroll up.** Press PageUp — the transcript scrolls up, and the newest lines are no longer glued to the bottom. PageDown scrolls back.
-- [ ] **The log strip.** With a local model, the last lines of the server appear above the prompt bar: "loading model", "server is listening on ...". The strip hides itself after ten seconds of silence and comes back with the next event.
+- [ ] **The log strip.** With a local model, one line of the server appears above the prompt bar: "loading model", "server is listening on ...". The strip hides itself after ten seconds of silence and comes back with the next event.
 
 ## The keys
 
@@ -65,7 +69,7 @@ Every key of the specification, one by one.
 
 ## The permissions
 
-- [ ] **Ask for a write.** "Create a file called hello.txt with the word hi in it." — the prompt bar turns into a question with three choices: **Yes**, **No**, **Tell SEEK what to do**.
+- [ ] **Ask for a write.** "Create a file called hello.txt with the word hi in it." — the prompt bar turns into a question with three choices: **Yes**, **No**, **Tell SEEK what to do**. The chosen answer is highlighted, and the line under it says which keys do what.
 - [ ] **Yes.** The file is written and the tool row shows `ok` with the time it took.
 - [ ] **No.** The tool row shows the refusal, and the model is told that the user said no.
 - [ ] **Tell SEEK what to do.** Choose the third choice, type "use hello.md instead", press Enter — the model gets that text as the result of the tool call.
@@ -143,6 +147,11 @@ Every key of the specification, one by one.
 - [ ] **Quit.** `/quit` — the app exits and the terminal is the way it was.
 - [ ] **The server is stopped.** After quitting, `pgrep -af "llama serve"` finds nothing: SEEK stopped the server it started.
 - [ ] **Ctrl+C twice** — the same.
+
+## Looking at the interface as a picture
+
+- [ ] **Dump a screen.** `cargo run -p seek-tui --example dump_screen -- home > /tmp/home.json` and `python3 tools/screen_to_png.py /tmp/home.json /tmp/home.png` — the home screen as a picture. Do the same with `chat` and `permission`.
+- [ ] **The picture matches the terminal.** The picture is a layout picture: every character fills its cell. Use it to check the alignment, the bands and the colors, not the font.
 
 ## When something is wrong
 
