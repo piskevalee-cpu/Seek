@@ -6,25 +6,27 @@ rejected, as required by SPEC 0.
 
 Format: one entry per decision, newest last.
 
-## D-001 — llama.cpp server binary is `llama serve`
+## D-001 — The config points at the binary and at the subcommand
 
-**Date:** 2026-11-11 · **Affects:** SPEC 5, SPEC 7.2, SPEC 13
+**Date:** 2026-11-11 · **Affects:** SPEC 5, SPEC 7.2
 
 SPEC 7.2 says to run `llama-server`, and SPEC 5 puts a `llama-server path` in `config.toml`.
-The shipped llama.cpp since 0.9.0 is a single `llama` binary whose server is the `serve` subcommand
+The shipped llama.cpp since 0.9.0 is one `llama` binary whose server is the `serve` subcommand
 (`llama serve`, `llama cli`, `llama download`, `llama update`). The legacy `llama-server` binary
 still exists in some distributions and accepts the same flags.
 
-**Status:** open — waiting on the owner.
+**Status:** accepted (the owner decided).
 
-**Options:**
-1. Keep the config key `llama_server_path` and treat it as a path to a server binary, with a
-   fallback that detects the unified `llama` CLI and appends the `serve` subcommand.
-2. Rename the key to `llama_path` and add a `llama_subcommand` key (default `serve`).
+The config has two keys:
 
-Option 2 is cleaner but changes a contract (SPEC 2.4), so it needs a migration and a changelog
-entry. Until the owner decides, the code resolves the server command by probing, in order:
-`llama_server_path` as given, then `llama serve` on `PATH`, then `llama-server` on `PATH`.
+```toml
+llama_path = "/usr/local/bin/llama"
+llama_subcommand = "serve"
+```
+
+`llama_subcommand` is empty for the legacy binary, which is the server itself. The old
+`llama_server_path` still works: it is migrated to the new keys on the first write
+(`Config::migrate`), so an old file keeps working.
 
 ## D-002 — Theme colors sampled from the logo
 
