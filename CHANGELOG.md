@@ -8,6 +8,8 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-11
+
 ### Added
 - Repository bootstrap: specification moved to `docs/SPEC.md`, `CLAUDE.md`, `README.md`,
   `rust-toolchain.toml`, `CHANGELOG.md`, logo asset and the logo extraction script.
@@ -47,4 +49,5 @@ workspace; each release ships a milestone (SPEC 15).
   (SPEC 6).
 - The `fetch` tool, the first network tool (SPEC 9.3).
 
-[Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...HEAD
+[Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

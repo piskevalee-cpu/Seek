@@ -9,17 +9,17 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.88"
 repository = "https://github.com/piskevalee-cpu/Seek"
 description = "SEEK: a thin, local-first coding-agent harness for the terminal"
 
 [workspace.dependencies]
-seek-core = { path = "crates/seek-core", version = "0.1.0" }
-seek-llm = { path = "crates/seek-llm", version = "0.1.0" }
-seek-local = { path = "crates/seek-local", version = "0.1.0" }
-seek-tui = { path = "crates/seek-tui", version = "0.1.0" }
+seek-core = { path = "crates/seek-core", version = "0.7.0" }
+seek-llm = { path = "crates/seek-llm", version = "0.7.0" }
+seek-local = { path = "crates/seek-local", version = "0.7.0" }
+seek-tui = { path = "crates/seek-tui", version = "0.7.0" }
 
 ratatui = "0.30.2"
 crossterm = { version = "0.29.0", features = ["event-stream"] }
