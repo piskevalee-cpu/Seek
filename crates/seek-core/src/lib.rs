@@ -4,6 +4,7 @@
 //! skills, sessions and context accounting. It never draws and never speaks HTTP (SPEC 4.1).
 
 pub mod config;
+pub mod context;
 pub mod event;
 pub mod r#loop;
 pub mod message;
@@ -16,6 +17,7 @@ pub mod tool;
 pub mod tools;
 
 pub use config::{Config, ProviderConfig, ProviderKind, ProvidersConfig, seek_home};
+pub use context::{ContextWindow, Level, TurnStats};
 pub use event::{AgentEvent, PermissionRequest, ToolOutput, TurnReason, Usage};
 pub use message::{Block, History, Message, Role};
 pub use permission::{Decision, PermissionDecision, PermissionMode};

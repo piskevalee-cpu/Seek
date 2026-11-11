@@ -32,5 +32,10 @@ workspace; each release ships a milestone (SPEC 15).
   check, the properties and the shutdown of `llama serve` (SPEC 7).
 - The launch options editor, with the implicit prefix shown read-only (SPEC 7.4).
 - The log strip, which shows the last three lines of the local server (SPEC 10.3).
+- The context accounting: the window of a model, the used tokens, the estimate and the turn
+  statistics (SPEC 8).
+- The METRICS block with the context bar, the speed, the think time and the vitals (SPEC 10.3).
+- `/compact` and `/truncate`, and the model switch that would overflow the window is blocked
+  (SPEC 8).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...HEAD

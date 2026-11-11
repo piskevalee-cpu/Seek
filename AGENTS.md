@@ -23,12 +23,12 @@ reference/          read-only third-party checkouts (gitignored)
 Upstream remote: `https://github.com/piskevalee-cpu/Seek.git` (the repo was renamed from
 `Seek-`; see `docs/DECISIONS.md` D-004). The crate and binary are named `seek`.
 
-**Milestones v0.1.0 to v0.4.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
+**Milestones v0.1.0 to v0.5.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
 prompt bar, spinners, footer, sidebar shell, reasoning show/hide, the Anthropic and
 OpenAI-compatible providers, the model catalog, the configuration contracts, sessions, the
-pickers, the agent loop, the four tools, the permission matrix and the llama.cpp supervisor.
-Later milestones are listed in `docs/SPEC.md` §15 — **do not implement features from later
-milestones.**
+pickers, the agent loop, the four tools, the permission matrix, the llama.cpp supervisor and the
+context accounting with the METRICS block. Later milestones are listed in `docs/SPEC.md` §15 —
+**do not implement features from later milestones.**
 
 ## Commands
 
@@ -115,6 +115,12 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
 - The permission matrix lives in `seek-core::permission`: reading is **always** allowed, writing
   and running are denied in `read` mode and asked in `ask` mode. A path outside the project root
   is always asked in `ask` mode.
+- The context accounting is in `seek-core::context`: the window, the used tokens (the usage of
+  the last response is the ground truth), the estimate and the turn statistics.
+- The METRICS block has exactly one home: the bottom of the sidebar when it is open, the line
+  under the prompt bar otherwise. A UI test checks that the counts appear exactly once.
+- The vitals are sampled at 1 Hz by `seek-tui::vitals`. The GPU needs the `nvml` feature; without
+  it the GPU and the video memory show a dash.
 - The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
   caps its output and says how to fetch the rest; `bash` runs in its own process group and
   registers the process in the sidebar.
@@ -254,7 +260,6 @@ Run one package with `cargo test -p seek-core`, one test with `cargo test -p see
 
 ## Known gaps (deliberate, per the milestone order)
 
-- Context accounting and the METRICS block (SPEC 8) are v0.5.
 - Skills, the external tool format and the toggles (SPEC 9.3, 9.5, 9.6) are v0.6.
 - Widgets and `install.sh` (SPEC 10.5, 13) are v0.7.
 - The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.

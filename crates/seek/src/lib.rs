@@ -137,6 +137,17 @@ pub async fn agent_loop(
             Command::Permission { id, decision } => {
                 permissions.answer(id, decision);
             }
+            Command::Compact { messages } => {
+                // The model summarizes the older turns into one message (SPEC 8).
+                match summarize(&providers, runtime.current_model().as_deref(), messages).await {
+                    Ok(summary) => {
+                        let _ = events.send(AgentEvent::Compacted(summary)).await;
+                    }
+                    Err(error) => {
+                        let _ = events.send(AgentEvent::Error(error)).await;
+                    }
+                }
+            }
             Command::SwitchModel { id } => {
                 // A model switch happens between turns (SPEC 7.3).
                 runtime.set_current_model(Some(id.clone()));
@@ -215,6 +226,46 @@ pub async fn agent_loop(
             }
         }
     }
+}
+
+/// Ask the model to summarize a conversation.
+async fn summarize(
+    providers: &ProvidersConfig,
+    current_model: Option<&str>,
+    messages: Vec<seek_core::Message>,
+) -> Result<String, String> {
+    use futures::StreamExt;
+
+    let provider = match current_model {
+        Some(id) if id.starts_with("local/") => None,
+        _ => build_provider(providers),
+    };
+    let Some(provider) = provider else {
+        return Err("a provider is needed to compact the conversation".to_string());
+    };
+
+    let mut request = ChatRequest {
+        messages,
+        ..ChatRequest::default()
+    };
+    request.messages.push(seek_core::Message::user(
+        "Summarize the conversation above in a few sentences. Keep the decisions, the file paths \
+         and the open questions; drop the small talk.",
+    ));
+
+    let mut stream = provider.stream(request);
+    let mut summary = String::new();
+    while let Some(event) = stream.next().await {
+        match event {
+            Ok(ProviderEvent::TextDelta(text)) => summary.push_str(&text),
+            Ok(_) => {}
+            Err(error) => return Err(error.to_string()),
+        }
+    }
+    if summary.trim().is_empty() {
+        return Err("the model did not summarize anything".to_string());
+    }
+    Ok(summary)
 }
 
 /// Build a provider from the configuration.

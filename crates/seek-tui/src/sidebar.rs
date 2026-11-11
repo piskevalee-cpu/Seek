@@ -12,6 +12,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::metrics::Metrics;
 use crate::theme::Theme;
 
 /// The width of the sidebar.
@@ -39,7 +40,9 @@ impl Sidebar {
 }
 
 /// Draw the sidebar.
-pub fn render(frame: &mut Frame, area: Rect, sidebar: &Sidebar, theme: &Theme) {
+///
+/// The metrics are pinned to the bottom (SPEC 10.3).
+pub fn render(frame: &mut Frame, area: Rect, sidebar: &Sidebar, theme: &Theme, metrics: &Metrics) {
     let block = ratatui::widgets::Block::bordered()
         .border_style(Style::new().fg(theme.cube_dark))
         .title(Span::styled(" SEEK ", Style::new().fg(theme.dim)));
@@ -88,10 +91,21 @@ pub fn render(frame: &mut Frame, area: Rect, sidebar: &Sidebar, theme: &Theme) {
         }
     }
 
+    // The metrics are pinned to the bottom of the sidebar.
+    let metric_lines = metrics.sidebar_lines(theme);
+    let metrics_height = metric_lines.len() as u16;
+    let list_height = inner.height.saturating_sub(metrics_height);
+
     frame.render_widget(
         ratatui::widgets::Paragraph::new(lines),
-        Rect::new(inner.x, inner.y, inner.width, inner.height),
+        Rect::new(inner.x, inner.y, inner.width, list_height),
     );
+    if metrics_height > 0 {
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(metric_lines),
+            Rect::new(inner.x, inner.y + list_height, inner.width, metrics_height),
+        );
+    }
 }
 
 #[cfg(test)]

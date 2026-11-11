@@ -66,5 +66,7 @@ pub enum AgentEvent {
     ToolOutput(ToolOutput),
     Usage(Usage),
     TurnFinished(TurnReason),
+    /// The older turns were summarized into one message (SPEC 8).
+    Compacted(String),
     Error(String),
 }

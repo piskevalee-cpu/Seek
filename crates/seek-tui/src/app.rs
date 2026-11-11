@@ -9,8 +9,8 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use seek_core::{
-    AgentEvent, Message as CoreMessage, PermissionDecision, ProcessRegistry, ProvidersConfig, Role,
-    TurnReason,
+    AgentEvent, History, Message as CoreMessage, PermissionDecision, ProcessRegistry,
+    ProvidersConfig, Role, TurnReason,
 };
 use seek_llm::catalog::{ModelInfo, bundled_models};
 use seek_local::model::{LocalModel, sidecar_path};
@@ -19,12 +19,14 @@ use seek_local::options::LaunchOptions;
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
 use crate::input::Input;
 use crate::logo;
+use crate::metrics::Metrics;
 use crate::picker::{Picker, PickerItem};
 use crate::prompt_bar;
 use crate::sidebar::{self, Sidebar};
 use crate::spinner::Spinner;
 use crate::theme::Theme;
 use crate::transcript::{Row, transcript_lines};
+use crate::vitals::VitalsSampler;
 
 /// The smallest usable terminal.
 pub const MIN_WIDTH: u16 = 80;
@@ -58,6 +60,8 @@ pub enum Command {
     },
     /// Switch to another model. The switch happens between turns (SPEC 7.3).
     SwitchModel { id: String },
+    /// Summarize the older turns into one message (SPEC 8).
+    Compact { messages: Vec<CoreMessage> },
     /// Leave.
     Quit,
 }
@@ -163,6 +167,14 @@ pub struct App {
     pub local_models: Vec<LocalModel>,
     /// The log of the local server, shown in the log strip.
     pub logs: Option<std::sync::Arc<std::sync::Mutex<seek_local::LogBuffer>>>,
+    /// The metrics of the current session.
+    pub metrics: Metrics,
+    /// The sampler of the vitals.
+    pub vitals: VitalsSampler,
+    /// When the turn started.
+    turn_started: Option<std::time::Instant>,
+    /// When the first reasoning token arrived.
+    think_started: Option<std::time::Instant>,
 }
 
 impl App {
@@ -201,6 +213,10 @@ impl App {
             process_selected: 0,
             local_models: Vec::new(),
             logs: None,
+            metrics: Metrics::default(),
+            vitals: VitalsSampler::new(),
+            turn_started: None,
+            think_started: None,
         }
     }
 
@@ -218,6 +234,10 @@ impl App {
             Message::Tick => {
                 if self.status != Status::Idle {
                     self.spinner.tick();
+                }
+                // The vitals are sampled once a second (SPEC 8).
+                if self.vitals.is_due() {
+                    self.metrics.vitals = Some(self.vitals.sample());
                 }
                 None
             }
@@ -568,12 +588,18 @@ impl App {
     /// Apply what the user chose in a picker.
     fn apply_picker_value(&mut self, value: &str) -> Option<Command> {
         if let Some(model_id) = value.strip_prefix("model:") {
+            if !self.switch_fits(model_id) {
+                return None;
+            }
             self.select_model(model_id);
             return Some(Command::SwitchModel {
                 id: model_id.to_string(),
             });
         }
         if let Some(local_id) = value.strip_prefix("local:") {
+            if !self.switch_fits(local_id) {
+                return None;
+            }
             self.select_local_model(local_id);
             return Some(Command::SwitchModel {
                 id: local_id.to_string(),
@@ -613,6 +639,8 @@ impl App {
         self.reasoning = model
             .resolve(self.reasoning.as_deref())
             .map(|variant| variant.id.clone());
+        // The window of the model comes from the catalog (SPEC 8).
+        self.metrics.context.total = model.context;
     }
 
     /// Select a local model.
@@ -632,6 +660,31 @@ impl App {
             local: true,
         };
         self.reasoning = None;
+    }
+
+    /// Whether the conversation fits into the window of a model.
+    ///
+    /// A switch that would overflow is blocked: the user can compact or truncate instead
+    /// (SPEC 8).
+    fn switch_fits(&mut self, model_id: &str) -> bool {
+        let window = self
+            .catalog
+            .iter()
+            .find(|model| model.id == model_id)
+            .map(|model| model.context)
+            .unwrap_or(0);
+        if window == 0 {
+            return true;
+        }
+        let needed = seek_core::context::estimate_history(&self.history());
+        if needed <= window as usize {
+            return true;
+        }
+        self.rows.push(Row::Error(format!(
+            "the conversation needs about {needed} tokens, the new model has {window}: \
+             run /compact or /truncate first"
+        )));
+        false
     }
 
     /// Cycle the reasoning level of the current model (SPEC 9.7).
@@ -870,6 +923,17 @@ impl App {
                 self.show_reasoning = !self.show_reasoning;
                 None
             }
+            "/compact" => {
+                let messages = self.history();
+                if messages.is_empty() {
+                    return None;
+                }
+                Some(Command::Compact { messages })
+            }
+            "/truncate" => {
+                self.truncate_to_fit();
+                None
+            }
             "/model" => {
                 self.overlay = Some(Overlay::Picker(self.model_picker()));
                 None
@@ -890,6 +954,8 @@ impl App {
             "/thoughts" => Some("/thoughts"),
             "/model" => Some("/model"),
             "/provider" => Some("/provider"),
+            "/compact" => Some("/compact"),
+            "/truncate" => Some("/truncate"),
             _ => None,
         }
     }
@@ -900,14 +966,23 @@ impl App {
             AgentEvent::TurnStarted => {
                 self.status = Status::Thinking;
                 self.spinner.tick();
+                self.turn_started = Some(std::time::Instant::now());
+                self.think_started = None;
+                self.metrics.stats = seek_core::context::TurnStats::default();
             }
             AgentEvent::ThinkingDelta(text) => {
+                if self.think_started.is_none() {
+                    self.think_started = Some(std::time::Instant::now());
+                }
+                self.metrics.stats.had_reasoning = true;
                 self.append_reasoning(&text);
             }
             AgentEvent::TextDelta(text) => {
+                self.close_think_time();
                 self.append_assistant(&text);
             }
             AgentEvent::ToolCallStarted { id, name } => {
+                self.close_think_time();
                 self.rows.push(Row::Tool {
                     name,
                     command: id,
@@ -942,9 +1017,16 @@ impl App {
             }
             AgentEvent::Usage(usage) => {
                 self.last_usage = Some((usage.input, usage.output));
+                // The usage of the last response is the ground truth of the context (SPEC 8).
+                self.metrics.context = self.metrics.context.with_usage(usage.input, usage.output);
+                self.metrics.stats.output_tokens = usage.output;
             }
             AgentEvent::TurnFinished(reason) => {
                 self.status = Status::Idle;
+                self.close_think_time();
+                if let Some(started) = self.turn_started.take() {
+                    self.metrics.stats.generation_time = started.elapsed();
+                }
                 if reason == TurnReason::Failed {
                     self.rows
                         .push(Row::Error("the turn ended with an error".into()));
@@ -961,6 +1043,13 @@ impl App {
                     });
                 }
             }
+            AgentEvent::Compacted(summary) => {
+                // The older turns become one message (SPEC 8).
+                self.rows.clear();
+                self.rows.push(Row::User("[compacted]".into()));
+                self.rows.push(Row::Assistant(summary));
+                self.scroll = 0;
+            }
             AgentEvent::Error(message) => {
                 self.rows.push(Row::Error(message));
                 self.status = Status::Idle;
@@ -975,6 +1064,45 @@ impl App {
             }
         }
         None
+    }
+
+    /// Drop the oldest turns until the history fits into the window.
+    ///
+    /// Used when the history does not fit into the window of a new model (SPEC 8).
+    pub fn truncate_to_fit(&mut self) -> bool {
+        let window = self.metrics.context.total;
+        if window == 0 {
+            return false;
+        }
+        let mut history = History::new();
+        for row in &self.rows {
+            if let Some(message) = row_to_message(row) {
+                history.push(message);
+            }
+        }
+        let keep = seek_core::context::turns_that_fit(&history, window);
+        if keep == history.messages.len() {
+            return false;
+        }
+        // The oldest turns go; the newest ones stay.
+        let drop = history.messages.len() - keep;
+        let mut dropped = 0;
+        self.rows.retain(|row| {
+            let is_message = row_to_message(row).is_some();
+            if is_message && dropped < drop {
+                dropped += 1;
+                return false;
+            }
+            true
+        });
+        true
+    }
+
+    /// Close the think time, when the model answered.
+    fn close_think_time(&mut self) {
+        if let Some(started) = self.think_started.take() {
+            self.metrics.stats.think_time = started.elapsed();
+        }
     }
 
     /// Append to the reasoning row, or start one.
@@ -1030,7 +1158,13 @@ impl App {
         };
         if self.sidebar.open && sidebar_area != Rect::ZERO {
             self.sync_processes();
-            sidebar::render(frame, sidebar_area, &self.sidebar, &self.theme);
+            sidebar::render(
+                frame,
+                sidebar_area,
+                &self.sidebar,
+                &self.theme,
+                &self.metrics,
+            );
         }
 
         let suggestions = prompt_bar::suggestion_lines(&self.input, &self.theme);
@@ -1045,17 +1179,27 @@ impl App {
 
         let log_lines = self.log_strip_lines();
 
+        // The metrics have exactly one home: the bottom of the sidebar when it is open, the
+        // line under the prompt bar otherwise. Never both (SPEC 10.2).
+        let metrics_height: u16 = if self.sidebar.open && sidebar_area != Rect::ZERO {
+            0
+        } else {
+            1
+        };
+
         let [
             transcript_area,
             log_area,
             suggestions_area,
             prompt_area,
+            metrics_area,
             footer_area,
         ] = Layout::vertical([
             Constraint::Min(3),
             Constraint::Length(log_lines.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(prompt_height),
+            Constraint::Length(metrics_height),
             Constraint::Length(1),
         ])
         .areas(main_area);
@@ -1082,6 +1226,10 @@ impl App {
             self.queued.len(),
             &self.prompt_mode,
         );
+
+        if metrics_height > 0 {
+            crate::metrics::render_one_line(frame, metrics_area, &self.metrics, &self.theme);
+        }
 
         let footer = Footer {
             mode: self.mode,
@@ -1270,6 +1418,15 @@ fn summarize_input(input: &serde_json::Value) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The message of a transcript row, if it is one.
+fn row_to_message(row: &Row) -> Option<CoreMessage> {
+    match row {
+        Row::User(text) => Some(CoreMessage::user(text)),
+        Row::Assistant(text) => Some(CoreMessage::assistant(text)),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

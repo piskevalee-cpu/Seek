@@ -426,3 +426,94 @@ fn the_launch_options_are_saved_to_the_sidecar() {
         .expect("the sidecar is written");
     assert_eq!(sidecar.options.as_deref(), Some("--ctx-size 4096"));
 }
+
+#[test]
+fn the_metrics_line_is_under_the_prompt_bar() {
+    let mut app = app();
+    app.metrics.context = seek_core::context::ContextWindow::new(32_000).with_usage(12_400, 0);
+    let lines = render_lines(&mut app, 100, 30);
+    let metrics = lines
+        .iter()
+        .find(|line| line.contains("12.4k / 32.0k"))
+        .expect("the metrics are shown");
+    assert!(metrics.contains("39%"));
+}
+
+#[test]
+fn the_metrics_are_in_the_sidebar_when_it_is_open() {
+    let mut app = app();
+    app.sidebar.open = true;
+    app.metrics.context = seek_core::context::ContextWindow::new(32_000).with_usage(12_400, 0);
+    let lines = render_lines(&mut app, 120, 30);
+
+    // The counts are there exactly once: in the sidebar, not under the prompt bar.
+    let count = lines
+        .iter()
+        .filter(|line| line.contains("12.4k / 32.0k"))
+        .count();
+    assert_eq!(count, 1, "the metrics have exactly one home");
+}
+
+#[test]
+fn the_vitals_are_shown() {
+    let mut app = app();
+    app.metrics.vitals = Some(seek_tui::Vitals {
+        cpu: Some(12.0),
+        ram_used: Some(1024),
+        ram_total: Some(2048),
+        ..seek_tui::Vitals::default()
+    });
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("cpu 12%"));
+}
+
+#[test]
+fn the_context_is_updated_by_the_usage_of_the_response() {
+    let mut app = app();
+    app.metrics.context = seek_core::context::ContextWindow::new(32_000);
+    app.update(Message::Agent(AgentEvent::Usage(seek_core::Usage {
+        input: 1000,
+        output: 200,
+    })));
+    assert_eq!(app.metrics.context.used, 1200);
+    assert!(!app.metrics.context.estimated);
+}
+
+#[test]
+fn compacting_asks_the_model_for_a_summary() {
+    let mut app = app();
+    app.rows.push(Row::User("add a test".into()));
+    app.rows.push(Row::Assistant("done".into()));
+
+    for c in "/compact".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    match command {
+        Some(seek_tui::Command::Compact { messages }) => {
+            assert_eq!(messages.len(), 2);
+            assert_eq!(messages[0].plain_text(), "add a test");
+        }
+        other => panic!("expected a compact command, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_compacted_conversation_becomes_one_message() {
+    let mut app = app();
+    app.rows.push(Row::User("add a test".into()));
+    app.rows.push(Row::Assistant("done".into()));
+
+    app.update(Message::Agent(AgentEvent::Compacted(
+        "the user wanted a test".into(),
+    )));
+
+    let text: String = app
+        .rows
+        .iter()
+        .map(|row| format!("{row:?}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(text.contains("the user wanted a test"));
+    assert!(!text.contains("add a test"));
+}
