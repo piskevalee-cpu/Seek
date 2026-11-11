@@ -2141,6 +2141,8 @@ dependencies = [
 name = "seek-core"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "nix 0.31.3",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

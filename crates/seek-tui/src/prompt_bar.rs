@@ -8,6 +8,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::app::{PERMISSION_CHOICES, PromptMode};
 use crate::input::{Input, SLASH_COMMANDS};
 use crate::theme::Theme;
 
@@ -82,6 +83,51 @@ pub fn suggestion_lines(input: &Input, theme: &Theme) -> Vec<Line<'static>> {
         .collect()
 }
 
+/// The permission selector: three choices, the selected one highlighted.
+pub fn permission_lines(mode: &PromptMode, input: &Input, theme: &Theme) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    match mode {
+        PromptMode::Normal => {}
+        PromptMode::Permission {
+            tool,
+            summary,
+            choice,
+            ..
+        } => {
+            lines.push(Line::from(vec![
+                Span::styled("? ", Style::new().fg(theme.warn).bold()),
+                Span::styled(
+                    format!("{tool} wants to run"),
+                    Style::new().fg(theme.warn).bold(),
+                ),
+            ]));
+            lines.push(Line::from(Span::styled(
+                format!("  {summary}"),
+                Style::new().fg(theme.dim),
+            )));
+            for (index, label) in PERMISSION_CHOICES.iter().enumerate() {
+                let style = if index == *choice {
+                    Style::new().fg(theme.bg).bg(theme.accent)
+                } else {
+                    Style::new().fg(theme.cube_light)
+                };
+                lines.push(Line::from(Span::styled(format!("  {label}"), style)));
+            }
+        }
+        PromptMode::Tell { tool, .. } => {
+            lines.push(Line::from(vec![
+                Span::styled("? ", Style::new().fg(theme.warn).bold()),
+                Span::styled(
+                    format!("{tool} was denied. What should SEEK do instead?"),
+                    Style::new().fg(theme.warn).bold(),
+                ),
+            ]));
+            lines.extend(prompt_lines(input, theme));
+        }
+    }
+    lines
+}
+
 /// Draw the prompt bar.
 pub fn render(
     frame: &mut Frame,
@@ -90,17 +136,21 @@ pub fn render(
     theme: &Theme,
     busy: bool,
     queued: usize,
+    mode: &PromptMode,
 ) {
-    let mut lines = prompt_lines(input, theme);
-    if busy {
-        lines.push(Line::from(Span::styled(
-            if queued > 0 {
-                format!("  {queued} queued")
-            } else {
-                "  working...".to_string()
-            },
-            Style::new().fg(theme.dim).italic(),
-        )));
+    let mut lines = permission_lines(mode, input, theme);
+    if lines.is_empty() {
+        lines = prompt_lines(input, theme);
+        if busy {
+            lines.push(Line::from(Span::styled(
+                if queued > 0 {
+                    format!("  {queued} queued")
+                } else {
+                    "  working...".to_string()
+                },
+                Style::new().fg(theme.dim).italic(),
+            )));
+        }
     }
     frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
 }

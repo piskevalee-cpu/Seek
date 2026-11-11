@@ -23,9 +23,11 @@ reference/          read-only third-party checkouts (gitignored)
 Upstream remote: `https://github.com/piskevalee-cpu/Seek.git` (the repo was renamed from
 `Seek-`; see `docs/DECISIONS.md` D-004). The crate and binary are named `seek`.
 
-**Milestone v0.1.0 is in progress**: workspace, CI, theme, logo, Home/Chat layout driven by a fake
-agent, prompt bar, spinners, footer, sidebar shell, reasoning show/hide. Later milestones are
-listed in `docs/SPEC.md` §15 — **do not implement features from later milestones.**
+**Milestones v0.1.0 to v0.3.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
+prompt bar, spinners, footer, sidebar shell, reasoning show/hide, the Anthropic and
+OpenAI-compatible providers, the model catalog, the configuration contracts, sessions, the
+pickers, the agent loop, the four tools and the permission matrix. Later milestones are listed in
+`docs/SPEC.md` §15 — **do not implement features from later milestones.**
 
 ## Commands
 
@@ -97,6 +99,20 @@ Before every push: `cargo fmt && cargo clippy -- -D warnings && cargo test`.
 - The thinking spinner is a 3x3 cube grid lit in the order 1 2 3 6 9 8 7 4 5, three cubes at a
   time. The loading spinner is a row of five cubes. `reduce_motion` (also `--reduce-motion`)
   replaces both with static text.
+- The provider interface (`Provider`, `ChatRequest`, `ProviderEvent`) lives in **seek-core**, not
+  seek-llm, because the agent loop in seek-core uses it. seek-llm re-exports it and implements it
+  for the two wire protocols.
+- The agent loop is `seek_core::r#loop::Agent` (`loop` is a Rust keyword, hence the raw
+  identifier). It owns the iteration limit, the tool timeout and the permission checks.
+- Permissions travel through `PermissionRequests`: the agent sends a request with an id, the UI
+  answers it with `Command::Permission { id, decision }`, and the binary hands the answer back.
+  The App never talks to the agent directly.
+- The permission matrix lives in `seek-core::permission`: reading is **always** allowed, writing
+  and running are denied in `read` mode and asked in `ask` mode. A path outside the project root
+  is always asked in `ask` mode.
+- The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
+  caps its output and says how to fetch the rest; `bash` runs in its own process group and
+  registers the process in the sidebar.
 
 ## Dependencies
 
@@ -212,11 +228,24 @@ The clones are shallow and sparse. Refresh one with `git -C reference/<repo> pul
   `FakeProvider` for this.
 - Supervisor: a fake `llama-server` script (v0.4).
 - UI: ratatui `TestBackend` tests in `crates/seek-tui/tests/ui.rs` for Home, Chat, sidebar on/off,
-  the overlays and the ownership table. `cargo run -p seek-tui --example screenshot` prints the
-  rendered screens as text.
+  the overlays, the pickers, the permission selector and the ownership table.
+- End to end: `crates/seek-tui/tests/agent_flow.rs` drives the real agent loop with a scripted
+  provider and checks what lands in the transcript.
+- `cargo run -p seek-tui --example screenshot` prints the rendered screens as text.
 - Prompt budget: `crates/seek-core/tests/prompt_budget.rs`.
 
 Run one package with `cargo test -p seek-core`, one test with `cargo test -p seek-core <name>`.
+
+## Known gaps (deliberate, per the milestone order)
+
+- The local llama.cpp supervisor (SPEC 7) is still empty: `seek-local` only holds the folder and
+  port constants. That is milestone v0.4.
+- Context accounting and the METRICS block (SPEC 8) are v0.5.
+- Skills, the external tool format and the toggles (SPEC 9.3, 9.5, 9.6) are v0.6.
+- Widgets and `install.sh` (SPEC 10.5, 13) are v0.7.
+- The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
+- A background `bash` command leaves the process registry when the shell exits, even though the
+  child keeps running.
 
 ## Open questions for the owner (spec §16) — don't invent answers
 

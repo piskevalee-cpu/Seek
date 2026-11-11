@@ -24,7 +24,7 @@ pub struct Sidebar {
     /// Sessions, as (title, relative time).
     pub sessions: Vec<(String, String)>,
     /// Processes, as (pid, tag, command, uptime).
-    pub processes: Vec<(u16, String, String, String)>,
+    pub processes: Vec<(u32, String, String, String)>,
     /// The index of the selected session.
     pub selected_session: usize,
     /// The index of the selected process.

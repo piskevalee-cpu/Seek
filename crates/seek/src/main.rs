@@ -2,10 +2,14 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::Parser;
-use seek_core::{AgentEvent, ProvidersConfig};
+use seek_core::r#loop::{Agent, PermissionRequests, ToolRegistry};
+use seek_core::process::ProcessRegistry;
+use seek_core::tools::{BashTool, EditTool, ReadTool, WriteTool};
+use seek_core::{AgentEvent, History, ProvidersConfig};
 use seek_llm::FakeProvider;
 use seek_llm::anthropic::AnthropicProvider;
 use seek_llm::openai::OpenAiProvider;
@@ -44,10 +48,30 @@ async fn main() -> Result<()> {
 
     let (command_tx, command_rx) = mpsc::channel::<Command>(16);
     let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(256);
+    let (permission_tx, mut permission_rx) = PermissionRequests::new();
+
+    // The permission requests of the agent are forwarded to the UI.
+    let permission_events = event_tx.clone();
+    tokio::spawn(async move {
+        while let Some(request) = permission_rx.recv().await {
+            if permission_events
+                .send(AgentEvent::PermissionRequest(request))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
 
     // The agent task. It talks to the real provider when one is configured, and to the scripted
     // provider otherwise.
-    tokio::spawn(agent_loop(command_rx, event_tx, providers.clone()));
+    tokio::spawn(agent_loop(
+        command_rx,
+        event_tx,
+        providers.clone(),
+        permission_tx.clone(),
+    ));
 
     let mut app = App::new(Theme::for_terminal());
     app.cwd = std::env::current_dir()
@@ -56,6 +80,7 @@ async fn main() -> Result<()> {
     app.branch = git_branch();
     app.reduce_motion = cli.reduce_motion;
     app.providers = providers;
+    app.processes = Some(Arc::new(ProcessRegistry::new()));
 
     // `ratatui::init` installs a panic hook that restores the terminal.
     let terminal = init_terminal();
@@ -73,7 +98,7 @@ fn load_providers(home: &Path) -> ProvidersConfig {
 
 /// Report what SEEK found (SPEC 13).
 fn doctor(home: &Path, providers: &ProvidersConfig) -> Result<()> {
-    println!("SEEK {}", VERSION);
+    println!("SEEK {VERSION}");
     println!();
     println!("home            {}", home.display());
     println!(
@@ -100,16 +125,16 @@ fn doctor(home: &Path, providers: &ProvidersConfig) -> Result<()> {
     }
 
     println!();
-    let git = which("git");
     println!(
         "git             {}",
-        git.map(|path| path.display().to_string())
+        which("git")
+            .map(|path| path.display().to_string())
             .unwrap_or_else(|| "not found".to_string())
     );
-    let llama = which("llama").or_else(|| which("llama-server"));
     println!(
         "llama server    {}",
-        llama
+        which("llama")
+            .or_else(|| which("llama-server"))
             .map(|path| path.display().to_string())
             .unwrap_or_else(|| "not found".to_string())
     );
@@ -134,50 +159,51 @@ async fn agent_loop(
     mut commands: mpsc::Receiver<Command>,
     events: mpsc::Sender<AgentEvent>,
     providers: ProvidersConfig,
+    permissions: PermissionRequests,
 ) {
     use futures::StreamExt;
+
+    let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let processes = Arc::new(ProcessRegistry::new());
 
     while let Some(command) = commands.recv().await {
         match command {
             Command::Quit => break,
-            Command::Submit(text) => {
-                if events.send(AgentEvent::TurnStarted).await.is_err() {
-                    break;
-                }
-                let request = ChatRequest {
-                    messages: vec![seek_core::Message::user(text)],
-                    ..ChatRequest::default()
+            Command::Permission { id, decision } => {
+                permissions.answer(id, decision);
+            }
+            Command::Submit { text, mode } => {
+                let tools = ToolRegistry {
+                    read: Some(ReadTool::new(root.clone())),
+                    write: Some(WriteTool::new(root.clone())),
+                    edit: Some(EditTool::new(root.clone())),
+                    bash: Some(BashTool::new(root.clone(), processes.clone())),
                 };
+
+                let mut history = History::new();
+                history.push(seek_core::Message::user(text));
 
                 match build_provider(&providers) {
                     Some(provider) => {
-                        let mut stream = provider.stream(request);
-                        while let Some(event) = stream.next().await {
-                            let Some(event) = event.ok() else { break };
-                            let agent_event = match event {
-                                ProviderEvent::ThinkingDelta(text) => {
-                                    AgentEvent::ThinkingDelta(text)
-                                }
-                                ProviderEvent::TextDelta(text) => AgentEvent::TextDelta(text),
-                                ProviderEvent::ToolCall { id, name, input } => {
-                                    AgentEvent::ToolCallReady { id, name, input }
-                                }
-                                ProviderEvent::Usage { input, output } => {
-                                    AgentEvent::Usage(seek_core::Usage { input, output })
-                                }
-                                ProviderEvent::Done => {
-                                    AgentEvent::TurnFinished(seek_core::TurnReason::Stop)
-                                }
-                            };
-                            if events.send(agent_event).await.is_err() {
-                                return;
-                            }
-                        }
+                        let agent = Agent::new(
+                            Arc::from(provider),
+                            tools,
+                            mode,
+                            root.clone(),
+                            processes.clone(),
+                            permissions.clone(),
+                        );
+                        agent.run_turn(&mut history, &events).await;
                     }
                     None => {
                         // No provider is configured: the scripted provider keeps the UI alive.
                         let provider = FakeProvider::demo();
+                        let request = ChatRequest {
+                            messages: history.messages.clone(),
+                            ..ChatRequest::default()
+                        };
                         let mut stream = provider.stream(request);
+                        let _ = events.send(AgentEvent::TurnStarted).await;
                         while let Some(event) = stream.next().await {
                             let Some(event) = event.ok() else { break };
                             let agent_event = match event {

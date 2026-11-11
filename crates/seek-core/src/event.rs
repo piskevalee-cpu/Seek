@@ -4,8 +4,6 @@
 
 use std::time::Duration;
 
-use tokio::sync::oneshot;
-
 /// Why a turn ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TurnReason {
@@ -29,34 +27,17 @@ pub struct ToolOutput {
     pub duration: Duration,
 }
 
-/// A permission request waiting for the user's answer.
+/// A permission request waiting for the user's answer (SPEC 9.4).
 ///
-/// The `reply` channel carries the user's decision back to the agent (SPEC 9.4).
-#[derive(Debug)]
-pub struct PermissionRequest {
-    pub tool: String,
-    pub summary: String,
-    pub reply: oneshot::Sender<PermissionDecision>,
-}
-
-/// What the user decided about a tool call.
+/// The answer comes back through the permission channel of the agent, by id.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PermissionDecision {
-    Allow,
-    Deny,
-    /// "Tell SEEK what to do": the text is fed back to the model as the tool result.
-    Tell(String),
-}
-
-impl PermissionDecision {
-    /// The text handed back to the model as the tool result.
-    pub fn denial_text(&self) -> String {
-        match self {
-            PermissionDecision::Allow => String::new(),
-            PermissionDecision::Deny => "denied by user".to_string(),
-            PermissionDecision::Tell(text) => format!("denied by user: {text}"),
-        }
-    }
+pub struct PermissionRequest {
+    /// The id of the request; the answer carries the same id.
+    pub id: u64,
+    /// The tool that wants to run.
+    pub tool: String,
+    /// What the tool is about to do.
+    pub summary: String,
 }
 
 /// Token accounting for one response.

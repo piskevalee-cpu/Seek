@@ -17,7 +17,7 @@ fn key(code: KeyCode) -> KeyEvent {
 }
 
 /// Render the app into a buffer and return the screen as text.
-fn render(app: &App, width: u16, height: u16) -> String {
+fn render(app: &mut App, width: u16, height: u16) -> String {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("the test backend works");
     terminal
@@ -33,7 +33,7 @@ fn render(app: &App, width: u16, height: u16) -> String {
 }
 
 /// Render with line breaks, so that assertions can look at whole lines.
-fn render_lines(app: &App, width: u16, height: u16) -> Vec<String> {
+fn render_lines(app: &mut App, width: u16, height: u16) -> Vec<String> {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("the test backend works");
     terminal
@@ -61,16 +61,16 @@ fn app() -> App {
 
 #[test]
 fn the_home_screen_shows_the_logo() {
-    let app = app();
-    let screen = render(&app, 100, 30);
+    let mut app = app();
+    let screen = render(&mut app, 100, 30);
     // The full-block logo is 50 columns wide and 9 rows tall.
     assert!(screen.contains("██"), "the logo is not on the home screen");
 }
 
 #[test]
 fn a_small_terminal_says_so() {
-    let app = app();
-    let screen = render(&app, 40, 10);
+    let mut app = app();
+    let screen = render(&mut app, 40, 10);
     assert!(screen.contains("terminal too small"));
 }
 
@@ -79,7 +79,7 @@ fn the_chat_layout_shows_the_message_the_footer_and_the_prompt() {
     let mut app = app();
     app.rows.push(Row::User("hello".into()));
     app.rows.push(Row::Assistant("hi there".into()));
-    let lines = render_lines(&app, 100, 30);
+    let lines = render_lines(&mut app, 100, 30);
 
     assert!(lines.iter().any(|line| line.contains("hello")));
     assert!(lines.iter().any(|line| line.contains("hi there")));
@@ -92,7 +92,7 @@ fn the_chat_layout_shows_the_message_the_footer_and_the_prompt() {
 fn the_sidebar_can_be_shown() {
     let mut app = app();
     app.sidebar.open = true;
-    let screen = render(&app, 120, 30);
+    let screen = render(&mut app, 120, 30);
     assert!(screen.contains("Sessions"));
     assert!(screen.contains("Processes"));
 }
@@ -101,7 +101,7 @@ fn the_sidebar_can_be_shown() {
 fn the_sidebar_is_hidden_on_a_narrow_terminal() {
     let mut app = app();
     app.sidebar.open = true;
-    let screen = render(&app, 90, 30);
+    let screen = render(&mut app, 90, 30);
     assert!(!screen.contains("Sessions"));
 }
 
@@ -109,7 +109,7 @@ fn the_sidebar_is_hidden_on_a_narrow_terminal() {
 fn the_mode_chip_is_the_only_place_the_mode_is_shown() {
     let mut app = app();
     app.mode = seek_tui::PermissionMode::Yolo;
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert_eq!(screen.matches("YOLO").count(), 1);
 }
 
@@ -121,7 +121,7 @@ fn the_model_is_shown_in_the_footer() {
         model: "claude-sonnet".into(),
         local: false,
     };
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("claude-sonnet"));
     assert!(screen.contains("anthropic"));
 }
@@ -130,7 +130,7 @@ fn the_model_is_shown_in_the_footer() {
 fn the_local_tag_only_shows_for_local_models() {
     let mut app = app();
     app.model.local = true;
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("LOCAL"));
 }
 
@@ -138,11 +138,11 @@ fn the_local_tag_only_shows_for_local_models() {
 fn reasoning_is_shown_and_hidden() {
     let mut app = app();
     app.rows.push(Row::Reasoning("secret thinking".into()));
-    let shown = render(&app, 100, 30);
+    let shown = render(&mut app, 100, 30);
     assert!(shown.contains("secret thinking"));
 
     app.show_reasoning = false;
-    let hidden = render(&app, 100, 30);
+    let hidden = render(&mut app, 100, 30);
     assert!(!hidden.contains("secret thinking"));
     assert!(hidden.contains("reasoning"));
 }
@@ -151,7 +151,7 @@ fn reasoning_is_shown_and_hidden() {
 fn a_queued_message_is_tagged() {
     let mut app = app();
     app.rows.push(Row::Pending("later".into()));
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("queued"));
 }
 
@@ -166,7 +166,7 @@ fn a_tool_row_shows_the_command_and_the_status() {
         detail: Some("all good".into()),
         expanded: false,
     });
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("cargo test"));
     assert!(screen.contains("ok"));
     assert!(!screen.contains("all good"));
@@ -176,7 +176,7 @@ fn a_tool_row_shows_the_command_and_the_status() {
 fn the_help_overlay_lists_the_keys() {
     let mut app = app();
     app.overlay = Some(Overlay::Help);
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("Ctrl+B"));
     assert!(screen.contains("Alt+T"));
 }
@@ -185,7 +185,7 @@ fn the_help_overlay_lists_the_keys() {
 fn the_spinner_appears_while_the_agent_thinks() {
     let mut app = app();
     app.update(Message::Agent(AgentEvent::TurnStarted));
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("██"));
 }
 
@@ -201,7 +201,7 @@ fn the_ownership_table_holds_for_the_regions_that_exist() {
         local: false,
     };
 
-    let lines = render_lines(&app, 100, 30);
+    let lines = render_lines(&mut app, 100, 30);
     let footer = lines.last().expect("there is a footer");
 
     assert!(
@@ -232,7 +232,7 @@ fn the_model_picker_lists_the_catalog() {
     }
     app.update(Message::Key(key(KeyCode::Enter)));
 
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("Claude Sonnet 4.5"));
     assert!(screen.contains("GPT-5.4"));
 }
@@ -247,7 +247,7 @@ fn choosing_a_model_shows_it_in_the_footer() {
     // Enter takes the first model.
     app.update(Message::Key(key(KeyCode::Enter)));
 
-    let lines = render_lines(&app, 100, 30);
+    let lines = render_lines(&mut app, 100, 30);
     let footer = lines.last().expect("there is a footer");
     assert!(
         footer.contains("Claude Sonnet 4.5"),
@@ -263,7 +263,7 @@ fn the_provider_picker_is_empty_without_configuration() {
     }
     app.update(Message::Key(key(KeyCode::Enter)));
 
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("Add a provider"));
 }
 
@@ -278,11 +278,87 @@ fn the_picker_can_be_filtered_and_closed() {
     for c in "gpt".chars() {
         app.update(Message::Key(key(KeyCode::Char(c))));
     }
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(screen.contains("GPT-5.4"));
     assert!(!screen.contains("Claude Sonnet 4.5"));
 
     app.update(Message::Key(key(KeyCode::Esc)));
-    let screen = render(&app, 100, 30);
+    let screen = render(&mut app, 100, 30);
     assert!(!screen.contains("GPT-5.4"));
+}
+
+#[test]
+fn a_permission_request_shows_the_three_choices() {
+    let mut app = app();
+    app.update(Message::Agent(AgentEvent::PermissionRequest(
+        seek_core::PermissionRequest {
+            id: 1,
+            tool: "bash".into(),
+            summary: "bash cargo test".into(),
+        },
+    )));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("Yes"));
+    assert!(screen.contains("No"));
+    assert!(screen.contains("Tell SEEK what to do"));
+    assert!(screen.contains("cargo test"));
+}
+
+#[test]
+fn the_permission_selector_answers_the_agent() {
+    let mut app = app();
+    app.update(Message::Agent(AgentEvent::PermissionRequest(
+        seek_core::PermissionRequest {
+            id: 7,
+            tool: "bash".into(),
+            summary: "bash ls".into(),
+        },
+    )));
+
+    // Down to "No", then Enter.
+    app.update(Message::Key(key(KeyCode::Down)));
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    match command {
+        Some(seek_tui::Command::Permission { id, decision }) => {
+            assert_eq!(id, 7);
+            assert_eq!(decision, seek_core::PermissionDecision::Deny);
+        }
+        other => panic!("expected a permission answer, got {other:?}"),
+    }
+}
+
+#[test]
+fn telling_seek_what_to_do_opens_a_text_input() {
+    let mut app = app();
+    app.update(Message::Agent(AgentEvent::PermissionRequest(
+        seek_core::PermissionRequest {
+            id: 3,
+            tool: "write".into(),
+            summary: "write a.txt".into(),
+        },
+    )));
+
+    // Down twice to "Tell SEEK what to do", then Enter.
+    app.update(Message::Key(key(KeyCode::Down)));
+    app.update(Message::Key(key(KeyCode::Down)));
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("What should SEEK do instead?"));
+
+    for c in "use other.txt".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    match command {
+        Some(seek_tui::Command::Permission { id, decision }) => {
+            assert_eq!(id, 3);
+            assert_eq!(
+                decision,
+                seek_core::PermissionDecision::Tell("use other.txt".into())
+            );
+        }
+        other => panic!("expected a permission answer, got {other:?}"),
+    }
 }

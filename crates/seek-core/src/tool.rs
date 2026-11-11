@@ -79,7 +79,7 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Anything the model can call.
 pub trait Tool: Send + Sync {
     /// What the model is told about this tool.
-    fn schema(&self) -> &ToolSchema;
+    fn schema(&self) -> ToolSchema;
 
     /// Run the tool.
     fn call<'a>(&'a self, input: serde_json::Value)

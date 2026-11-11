@@ -8,7 +8,10 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use seek_core::{AgentEvent, Message as CoreMessage, ProvidersConfig, Role, TurnReason};
+use seek_core::{
+    AgentEvent, Message as CoreMessage, PermissionDecision, ProcessRegistry, ProvidersConfig, Role,
+    TurnReason,
+};
 use seek_llm::catalog::{ModelInfo, bundled_models};
 
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
@@ -44,8 +47,13 @@ pub enum Message {
 /// A side effect that the binary has to perform.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    /// Hand a message to the agent.
-    Submit(String),
+    /// Hand a message to the agent, with the permission mode the user chose.
+    Submit { text: String, mode: PermissionMode },
+    /// Answer a permission request.
+    Permission {
+        id: u64,
+        decision: PermissionDecision,
+    },
     /// Leave.
     Quit,
 }
@@ -57,6 +65,33 @@ pub enum Status {
     Thinking,
     Loading,
 }
+
+/// What the prompt bar is doing (SPEC 9.4).
+///
+/// The bar has three modes: normal, the permission selector and the "tell SEEK what to do"
+/// input.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PromptMode {
+    /// The user is typing a message.
+    Normal,
+    /// The agent waits for a permission decision.
+    Permission {
+        id: u64,
+        tool: String,
+        summary: String,
+        /// The selected choice: 0 yes, 1 no, 2 tell.
+        choice: usize,
+    },
+    /// The user is telling SEEK what to do instead.
+    Tell {
+        id: u64,
+        tool: String,
+        summary: String,
+    },
+}
+
+/// The choices of the permission selector.
+pub const PERMISSION_CHOICES: [&str; 3] = ["Yes", "No", "Tell SEEK what to do"];
 
 /// A centered overlay.
 #[derive(Debug, Clone, PartialEq)]
@@ -103,6 +138,12 @@ pub struct App {
     pub current: Option<ModelInfo>,
     /// The reasoning level of the current model.
     pub reasoning: Option<String>,
+    /// What the prompt bar is doing.
+    pub prompt_mode: PromptMode,
+    /// The processes the agent started.
+    pub processes: Option<std::sync::Arc<ProcessRegistry>>,
+    /// The selected process in the sidebar.
+    pub process_selected: usize,
 }
 
 impl App {
@@ -136,6 +177,9 @@ impl App {
             catalog: bundled_models(),
             current: None,
             reasoning: None,
+            prompt_mode: PromptMode::Normal,
+            processes: None,
+            process_selected: 0,
         }
     }
 
@@ -169,6 +213,11 @@ impl App {
         // An open overlay takes the keyboard.
         if let Some(Overlay::Picker(_)) = self.overlay {
             return self.on_picker_key(key);
+        }
+
+        // The permission selector takes the keyboard too.
+        if !matches!(self.prompt_mode, PromptMode::Normal) {
+            return self.on_permission_key(key);
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -285,6 +334,10 @@ impl App {
                 self.toggle_selected_row();
                 None
             }
+            KeyCode::Char('x') => {
+                self.kill_selected_process();
+                None
+            }
             KeyCode::Char('t') => {
                 if !self.cycle_reasoning() {
                     self.rows.push(Row::Error(
@@ -294,6 +347,98 @@ impl App {
                 None
             }
             _ => None,
+        }
+    }
+
+    /// Handle a key while the prompt bar asks for a permission.
+    fn on_permission_key(&mut self, key: KeyEvent) -> Option<Command> {
+        match self.prompt_mode.clone() {
+            PromptMode::Permission {
+                id,
+                tool,
+                summary,
+                choice,
+            } => match key.code {
+                KeyCode::Up => {
+                    let next = (choice + PERMISSION_CHOICES.len() - 1) % PERMISSION_CHOICES.len();
+                    self.prompt_mode = PromptMode::Permission {
+                        id,
+                        tool,
+                        summary,
+                        choice: next,
+                    };
+                    None
+                }
+                KeyCode::Down => {
+                    let next = (choice + 1) % PERMISSION_CHOICES.len();
+                    self.prompt_mode = PromptMode::Permission {
+                        id,
+                        tool,
+                        summary,
+                        choice: next,
+                    };
+                    None
+                }
+                KeyCode::Esc => {
+                    // Esc denies the call.
+                    self.prompt_mode = PromptMode::Normal;
+                    Some(Command::Permission {
+                        id,
+                        decision: PermissionDecision::Deny,
+                    })
+                }
+                KeyCode::Enter => match choice {
+                    0 => {
+                        self.prompt_mode = PromptMode::Normal;
+                        Some(Command::Permission {
+                            id,
+                            decision: PermissionDecision::Allow,
+                        })
+                    }
+                    1 => {
+                        self.prompt_mode = PromptMode::Normal;
+                        Some(Command::Permission {
+                            id,
+                            decision: PermissionDecision::Deny,
+                        })
+                    }
+                    _ => {
+                        // The third choice opens the text input in the same bar.
+                        self.prompt_mode = PromptMode::Tell { id, tool, summary };
+                        self.input = Input::new();
+                        None
+                    }
+                },
+                _ => None,
+            },
+            PromptMode::Tell { id, .. } => match key.code {
+                KeyCode::Esc => {
+                    self.prompt_mode = PromptMode::Normal;
+                    Some(Command::Permission {
+                        id,
+                        decision: PermissionDecision::Deny,
+                    })
+                }
+                KeyCode::Enter => {
+                    let text = self.input.text().trim().to_string();
+                    self.prompt_mode = PromptMode::Normal;
+                    self.input = Input::new();
+                    Some(Command::Permission {
+                        id,
+                        decision: PermissionDecision::Tell(text),
+                    })
+                }
+                KeyCode::Backspace => {
+                    self.input.backspace();
+                    None
+                }
+                KeyCode::Char(c) => {
+                    self.input.insert_char(c);
+                    None
+                }
+                _ => None,
+            },
+            PromptMode::Normal => None,
         }
     }
 
@@ -442,6 +587,35 @@ impl App {
         Picker::new("providers", items).tap_hint("Enter to choose, Esc to close")
     }
 
+    /// Copy the running processes into the sidebar.
+    fn sync_processes(&mut self) {
+        let Some(registry) = &self.processes else {
+            return;
+        };
+        self.sidebar.processes = registry
+            .list()
+            .into_iter()
+            .map(|entry| {
+                let uptime = entry.uptime_text();
+                (entry.pid, entry.tag, entry.command, uptime)
+            })
+            .collect();
+        if self.process_selected >= self.sidebar.processes.len() {
+            self.process_selected = self.sidebar.processes.len().saturating_sub(1);
+        }
+    }
+
+    /// Kill the selected process of the sidebar.
+    fn kill_selected_process(&mut self) {
+        let Some(registry) = &self.processes else {
+            return;
+        };
+        let processes = registry.list();
+        if let Some(entry) = processes.get(self.process_selected) {
+            registry.kill(entry.pid);
+        }
+    }
+
     /// Move the transcript selection up or down.
     ///
     /// Only tool rows can be selected, because only they can be expanded.
@@ -509,7 +683,10 @@ impl App {
             self.rows.push(Row::Pending(text));
             return None;
         }
-        Some(Command::Submit(text))
+        Some(Command::Submit {
+            text,
+            mode: self.mode,
+        })
     }
 
     /// Run a slash command.
@@ -612,14 +789,24 @@ impl App {
                     self.queued.clear();
                     self.rows.retain(|row| !matches!(row, Row::Pending(_)));
                     self.rows.push(Row::User(joined.clone()));
-                    return Some(Command::Submit(joined));
+                    return Some(Command::Submit {
+                        text: joined,
+                        mode: self.mode,
+                    });
                 }
             }
             AgentEvent::Error(message) => {
                 self.rows.push(Row::Error(message));
                 self.status = Status::Idle;
             }
-            AgentEvent::PermissionRequest(_) => {}
+            AgentEvent::PermissionRequest(request) => {
+                self.prompt_mode = PromptMode::Permission {
+                    id: request.id,
+                    tool: request.tool,
+                    summary: request.summary,
+                    choice: 0,
+                };
+            }
         }
         None
     }
@@ -659,7 +846,7 @@ impl App {
     }
 
     /// Draw the application.
-    pub fn view(&self, frame: &mut Frame) {
+    pub fn view(&mut self, frame: &mut Frame) {
         let area = frame.area();
         if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
             frame.render_widget(ratatui::widgets::Paragraph::new("terminal too small"), area);
@@ -676,6 +863,7 @@ impl App {
             (Rect::ZERO, area)
         };
         if self.sidebar.open && sidebar_area != Rect::ZERO {
+            self.sync_processes();
             sidebar::render(frame, sidebar_area, &self.sidebar, &self.theme);
         }
 
@@ -683,6 +871,10 @@ impl App {
         let mut prompt_height = self.input.len().max(1) as u16;
         if self.status != Status::Idle {
             prompt_height += 1;
+        }
+        if !matches!(self.prompt_mode, PromptMode::Normal) {
+            // The permission selector needs five lines: the question, the summary and the choices.
+            prompt_height = prompt_height.max(5);
         }
 
         let [transcript_area, suggestions_area, prompt_area, footer_area] = Layout::vertical([
@@ -709,6 +901,7 @@ impl App {
             &self.theme,
             self.status != Status::Idle,
             self.queued.len(),
+            &self.prompt_mode,
         );
 
         let footer = Footer {
@@ -873,7 +1066,13 @@ mod tests {
             app.update(Message::Key(key(KeyCode::Char(c))));
         }
         let command = app.update(Message::Key(key(KeyCode::Enter)));
-        assert_eq!(command, Some(Command::Submit("hi".into())));
+        assert_eq!(
+            command,
+            Some(Command::Submit {
+                text: "hi".into(),
+                mode: PermissionMode::Ask,
+            })
+        );
         assert_eq!(app.rows.len(), 1);
     }
 
@@ -949,7 +1148,13 @@ mod tests {
         }
         app.update(Message::Key(key(KeyCode::Enter)));
         let command = app.update(Message::Agent(AgentEvent::TurnFinished(TurnReason::Stop)));
-        assert_eq!(command, Some(Command::Submit("hi".into())));
+        assert_eq!(
+            command,
+            Some(Command::Submit {
+                text: "hi".into(),
+                mode: PermissionMode::Ask,
+            })
+        );
         assert!(app.queued.is_empty());
         assert!(!app.rows.iter().any(|row| matches!(row, Row::Pending(_))));
     }

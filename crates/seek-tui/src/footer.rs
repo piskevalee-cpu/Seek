@@ -12,39 +12,16 @@ use ratatui::text::{Line, Span};
 use crate::theme::Theme;
 
 /// The permission mode (SPEC 9.4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PermissionMode {
-    Read,
-    Ask,
-    Yolo,
-}
+///
+/// The mode itself lives in `seek-core`, because the agent loop uses it too.
+pub use seek_core::PermissionMode;
 
-impl PermissionMode {
-    /// The text of the chip.
-    pub fn label(self) -> &'static str {
-        match self {
-            PermissionMode::Read => "READ",
-            PermissionMode::Ask => "ASK",
-            PermissionMode::Yolo => "YOLO",
-        }
-    }
-
-    /// The color of the chip.
-    pub fn color(self, theme: &Theme) -> Color {
-        match self {
-            PermissionMode::Read => theme.dim,
-            PermissionMode::Ask => theme.warn,
-            PermissionMode::Yolo => theme.error,
-        }
-    }
-
-    /// The next mode, cycling read -> ask -> yolo.
-    pub fn next(self) -> Self {
-        match self {
-            PermissionMode::Read => PermissionMode::Ask,
-            PermissionMode::Ask => PermissionMode::Yolo,
-            PermissionMode::Yolo => PermissionMode::Read,
-        }
+/// The color of the mode chip.
+pub fn mode_color(mode: PermissionMode, theme: &Theme) -> Color {
+    match mode {
+        PermissionMode::Read => theme.dim,
+        PermissionMode::Ask => theme.warn,
+        PermissionMode::Yolo => theme.error,
     }
 }
 
@@ -74,7 +51,7 @@ pub fn footer_line(footer: &Footer, theme: &Theme) -> Line<'static> {
         format!(" {} ", footer.mode.label()),
         Style::new()
             .fg(theme.bg)
-            .bg(footer.mode.color(theme))
+            .bg(mode_color(footer.mode, theme))
             .bold(),
     )];
 
@@ -170,5 +147,17 @@ mod tests {
         assert_eq!(PermissionMode::Read.next(), PermissionMode::Ask);
         assert_eq!(PermissionMode::Ask.next(), PermissionMode::Yolo);
         assert_eq!(PermissionMode::Yolo.next(), PermissionMode::Read);
+    }
+
+    #[test]
+    fn every_mode_has_a_color() {
+        let theme = Theme::default();
+        for mode in [
+            PermissionMode::Read,
+            PermissionMode::Ask,
+            PermissionMode::Yolo,
+        ] {
+            assert_ne!(mode_color(mode, &theme), theme.bg);
+        }
     }
 }

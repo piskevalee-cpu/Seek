@@ -18,5 +18,15 @@ workspace; each release ships a milestone (SPEC 15).
   shell and reasoning show/hide (SPEC 10).
 - Prompt-budget test enforcing the 1,500-token limit on the system prompt plus the default tool
   schemas (SPEC 9.2).
+- Anthropic Messages and OpenAI-compatible providers, with the SSE parsers tested against
+  recorded fixtures (SPEC 6).
+- The bundled model catalog with the reasoning variants a model declares (SPEC 9.7).
+- `providers.toml` and `config.toml`, the configuration contracts (SPEC 5).
+- Sessions as append-only JSONL, with model switches recorded (SPEC 11).
+- The reusable picker overlay, with `/model` and `/provider` (SPEC 10.3).
+- The agent loop with the four built-in tools, the permission matrix and the interactive ask
+  (SPEC 9.1, 9.2, 9.4).
+- The process registry: `bash` commands run in their own process group and show up in the
+  sidebar.
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...HEAD

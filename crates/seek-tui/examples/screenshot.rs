@@ -15,7 +15,7 @@ use seek_tui::theme::Theme;
 use seek_tui::transcript::Row;
 
 /// Render the app and return the screen, line by line.
-fn screen(app: &App, width: u16, height: u16) -> Vec<String> {
+fn screen(app: &mut App, width: u16, height: u16) -> Vec<String> {
     let backend = TestBackend::new(width, height);
     let mut terminal = Terminal::new(backend).expect("the test backend works");
     terminal
@@ -40,7 +40,7 @@ fn main() {
     app.branch = Some("develop".into());
 
     println!("== HOME ==");
-    for line in screen(&app, 100, 28) {
+    for line in screen(&mut app, 100, 28) {
         println!("{line}");
     }
 
@@ -58,13 +58,13 @@ fn main() {
     });
 
     println!("\n== CHAT ==");
-    for line in screen(&app, 100, 28) {
+    for line in screen(&mut app, 100, 28) {
         println!("{line}");
     }
 
     app.sidebar.open = true;
     println!("\n== CHAT, SIDEBAR ==");
-    for line in screen(&app, 120, 28) {
+    for line in screen(&mut app, 120, 28) {
         println!("{line}");
     }
 
@@ -75,7 +75,7 @@ fn main() {
     }
     picker.update(app::Message::Key(key(KeyCode::Enter)));
     println!("\n== MODEL PICKER ==");
-    for line in screen(&picker, 100, 28) {
+    for line in screen(&mut picker, 100, 28) {
         println!("{line}");
     }
 }
