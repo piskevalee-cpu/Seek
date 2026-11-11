@@ -17,6 +17,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::tool::{Risk, ToolError, ToolSchema};
+use crate::truncate::cap_output;
 
 /// The name of the declaration of an external tool.
 pub const TOOL_FILE: &str = "tool.toml";
@@ -116,7 +117,7 @@ impl ExternalTool {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         if output.status.success() {
-            Ok(crate::tools::cap_output(stdout.trim_end()))
+            Ok(cap_output(stdout.trim_end()))
         } else {
             let code = output
                 .status

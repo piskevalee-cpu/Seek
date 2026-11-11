@@ -52,6 +52,8 @@ workspace; each release ships a milestone (SPEC 15).
   editable design. The extraction handles transparent, scaled and anti-aliased assets.
 - The config points at the llama.cpp binary and at its subcommand; the old key is migrated.
 - The first run asks which model to use (SPEC 16.7).
+- The capping of the tool output lands on a character boundary and wraps the long lines instead
+  of cutting them; the first version could panic on a multi-byte character.
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

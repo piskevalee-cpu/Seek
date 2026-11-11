@@ -150,6 +150,9 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
 - The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
   caps its output and says how to fetch the rest; `bash` runs in its own process group and
   registers the process in the sidebar.
+- The capping of the tool output is in `seek-core::truncate`: the cut lands on a character
+  boundary and a long line is wrapped, not cut. Both were taken from the grok-build sources
+  (`docs/DECISIONS.md` D-008).
 - The local server lives in `seek-local`: `model` scans `~/seek/models`, `port` derives the port
   from the model id, `options` strips the options SEEK owns and adds the implicit ones, and
   `supervisor` starts `llama serve`, waits for the health check, reads `/props` and stops the

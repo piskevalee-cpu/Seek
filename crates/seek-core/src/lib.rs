@@ -18,6 +18,7 @@ pub mod skill;
 pub mod toggles;
 pub mod tool;
 pub mod tools;
+pub mod truncate;
 pub mod widget;
 
 pub use config::{Config, ProviderConfig, ProviderKind, ProvidersConfig, seek_home};
@@ -33,6 +34,7 @@ pub use session::{ModelTag, Session, SessionEvent, SessionHeader};
 pub use skill::Skill;
 pub use toggles::Toggles;
 pub use tool::{Risk, Tool, ToolError, ToolSchema};
+pub use truncate::{cap_output, truncate_str};
 pub use widget::{Widget, WidgetConfig, WidgetOutput};
 
 /// The crate version, taken from the workspace.

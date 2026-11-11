@@ -121,3 +121,32 @@ There is no browser tool. The `fetch` tool reads a URL and returns it as text.
 
 **Status:** accepted. A browser needs a browser on the machine and is a much bigger thing to
 maintain; `fetch` covers the common case.
+
+## D-008 — What was taken from the grok-build sources
+
+**Date:** 2026-11-11 · **Affects:** SPEC 9.2, SPEC 9.3, SPEC 9.4
+
+The grok-build sources (Apache-2.0) were read for the parts that overlap with the specification:
+the tool implementations, the truncation helpers, the token estimation, the permission rules and the
+compaction.
+
+**Taken and rewritten for SEEK** (`crates/seek-core/src/truncate.rs`):
+
+- The cut of a string always lands on a character boundary. The first version of the capping in
+  SEEK used `String::truncate`, which **panics** when the index is in the middle of a character.
+- A long line is wrapped instead of being cut, so the model sees all of it. This matters for the
+  output of `bash`.
+- The marker says how many lines and bytes were left out, and how to fetch them.
+
+**Not taken:**
+
+- The browser and the computer tools: they are tied to the xAI cloud and to a full desktop
+  environment. The `fetch` tool stays the only network tool (D-007).
+- The web search tool: it calls the xAI Responses API.
+- The permission rules: the risk of a command is computed per segment, but SEEK asks for every
+  `exec` in `ask` mode anyway, so the extra work buys nothing here.
+
+**The token estimation** is the same heuristic SEEK already used (bytes per token, four).
+
+**The license.** grok-build is Apache-2.0. Nothing was copied verbatim; the ideas were written
+again in SEEK's own style. The license of SEEK itself is still undecided (D-005).

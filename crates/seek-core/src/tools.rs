@@ -16,6 +16,7 @@ use serde_json::Value;
 use crate::event::ToolOutput;
 use crate::process::{ProcessRegistry, TAG_AGENT};
 use crate::tool::{BoxFuture, Risk, Tool, ToolError, ToolSchema};
+use crate::truncate::{cap_output, cap_output_with_hint, wrap_long_lines};
 
 /// The maximum number of lines of tool output.
 pub const MAX_LINES: usize = 200;
@@ -23,38 +24,6 @@ pub const MAX_LINES: usize = 200;
 pub const MAX_BYTES: usize = 16 * 1024;
 /// The default timeout of a tool call.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Cap the output of a tool.
-///
-/// The head and the tail are kept, so the model sees both the beginning and the end.
-pub fn cap_output(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let bytes = text.len();
-
-    if lines.len() <= MAX_LINES && bytes <= MAX_BYTES {
-        return text.to_string();
-    }
-
-    // Keep half of the lines at the head and half at the tail, then cut by bytes.
-    let keep = MAX_LINES / 2;
-    let mut head: String = lines[..keep.min(lines.len())].join("\n");
-    let mut tail: String = if lines.len() > keep {
-        lines[lines.len() - keep..].join("\n")
-    } else {
-        String::new()
-    };
-
-    if head.len() + tail.len() > MAX_BYTES {
-        let half = MAX_BYTES / 2;
-        head.truncate(head.len().min(half));
-        tail.truncate(tail.len().min(half));
-    }
-
-    let omitted = lines.len().saturating_sub(keep * 2);
-    format!(
-        "{head}\n… [{omitted} lines omitted, use read with offset and limit to see more] …\n{tail}"
-    )
-}
 
 /// The tools that are on by default.
 pub struct BuiltinTools {
@@ -320,6 +289,8 @@ impl BashTool {
             }
             text.push_str(&errors);
         }
+        // A long line is wrapped instead of being cut, so the model sees all of it.
+        let text = wrap_long_lines(&text, crate::truncate::WRAP_WIDTH);
         if output.status.success() {
             Ok(cap_output(&text))
         } else {
@@ -330,7 +301,7 @@ impl BashTool {
                 .unwrap_or_else(|| "signal".to_string());
             Err(ToolError::Failed(format!(
                 "the command exited with {code}\n{}",
-                cap_output(&text)
+                cap_output_with_hint(&text, "run it again to see more")
             )))
         }
     }
