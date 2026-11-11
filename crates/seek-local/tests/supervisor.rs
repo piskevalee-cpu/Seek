@@ -60,7 +60,8 @@ async fn the_supervisor_starts_a_server_and_reads_its_properties() {
     let model = &local[0];
 
     let mut supervisor = Supervisor::new(binary, home.join("state"));
-    let options = LaunchOptions::parse("");
+    // A small context: the KV cache of the default context of the model is several gigabytes.
+    let options = LaunchOptions::parse("--ctx-size 4096");
     let port = 8321;
 
     supervisor
@@ -115,7 +116,8 @@ async fn the_supervisor_stops_the_server_it_started() {
     let model = &local[0];
 
     let mut supervisor = Supervisor::new(binary, home.join("state"));
-    let options = LaunchOptions::parse("");
+    // A small context: the KV cache of the default context of the model is several gigabytes.
+    let options = LaunchOptions::parse("--ctx-size 4096");
     supervisor
         .start(model, &options, 8322)
         .await

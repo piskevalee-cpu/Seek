@@ -7,6 +7,11 @@ repository.workspace = true
 description = "SEEK: a thin, local-first coding-agent harness for the terminal"
 build = "build.rs"
 
+
+[lib]
+name = "seek"
+path = "src/lib.rs"
+
 [[bin]]
 name = "seek"
 path = "src/main.rs"

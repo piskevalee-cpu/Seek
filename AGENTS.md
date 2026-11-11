@@ -44,6 +44,10 @@ cargo build --workspace --release                  # release binaries
 
 Before every push: `cargo fmt && cargo clippy -- -D warnings && cargo test`.
 
+This machine has 15 GB of RAM and **no swap**. A full parallel build of this dependency tree plus
+a running local server can exhaust it and take the shell down with it. Build with `cargo build -j 2`
+or `cargo test -j 2` when a server is running, and keep the context of local servers small.
+
 ## Spec precedence (spec §0)
 
 - When sections conflict, **the UI ownership table (10.2) and the contracts list (2.4) win**.
@@ -121,6 +125,10 @@ Before every push: `cargo fmt && cargo clippy -- -D warnings && cargo test`.
 - The supervisor is tested against a **real** llama.cpp server in
   `crates/seek-local/tests/supervisor.rs`. The test skips itself when there is no `llama` binary
   or no model in `~/LLMs`.
+- **Memory:** a local server allocates the KV cache for its whole context. The default context of
+  the test model is 131072 tokens, which is a **6.5 GB** allocation — enough to OOM the machine
+  when a build runs at the same time. The tests start the server with `--ctx-size 4096`
+  (about 200 MB). If you start a server by hand, pass a small context too, or add swap.
 
 ## Dependencies
 
