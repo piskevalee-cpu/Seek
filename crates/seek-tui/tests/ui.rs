@@ -3,12 +3,18 @@
 //! These tests render the real application into a buffer and check what ends up on the screen:
 //! the Home screen, the Chat layout, the sidebar, the permission ask and the ownership table.
 
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use seek_core::AgentEvent;
 use seek_tui::app::{App, Message, Overlay};
 use seek_tui::theme::Theme;
 use seek_tui::transcript::Row;
+
+/// A key press.
+fn key(code: KeyCode) -> KeyEvent {
+    KeyEvent::new(code, KeyModifiers::NONE)
+}
 
 /// Render the app into a buffer and return the screen as text.
 fn render(app: &App, width: u16, height: u16) -> String {
@@ -216,4 +222,67 @@ fn the_ownership_table_holds_for_the_regions_that_exist() {
         !transcript.contains("ASK"),
         "the mode must not be shown outside the footer"
     );
+}
+
+#[test]
+fn the_model_picker_lists_the_catalog() {
+    let mut app = app();
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&app, 100, 30);
+    assert!(screen.contains("Claude Sonnet 4.5"));
+    assert!(screen.contains("GPT-5.4"));
+}
+
+#[test]
+fn choosing_a_model_shows_it_in_the_footer() {
+    let mut app = app();
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    // Enter takes the first model.
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let lines = render_lines(&app, 100, 30);
+    let footer = lines.last().expect("there is a footer");
+    assert!(
+        footer.contains("Claude Sonnet 4.5"),
+        "the model is in the footer"
+    );
+}
+
+#[test]
+fn the_provider_picker_is_empty_without_configuration() {
+    let mut app = app();
+    for c in "/provider".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&app, 100, 30);
+    assert!(screen.contains("Add a provider"));
+}
+
+#[test]
+fn the_picker_can_be_filtered_and_closed() {
+    let mut app = app();
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    for c in "gpt".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let screen = render(&app, 100, 30);
+    assert!(screen.contains("GPT-5.4"));
+    assert!(!screen.contains("Claude Sonnet 4.5"));
+
+    app.update(Message::Key(key(KeyCode::Esc)));
+    let screen = render(&app, 100, 30);
+    assert!(!screen.contains("GPT-5.4"));
 }

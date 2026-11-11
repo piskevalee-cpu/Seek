@@ -9,6 +9,8 @@
 /// The slash commands the prompt bar offers.
 pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/help", "Show the key reference"),
+    ("/model", "Pick a model"),
+    ("/provider", "Add or edit providers"),
     ("/quit", "Exit SEEK"),
     ("/thoughts", "Show or hide reasoning text"),
 ];

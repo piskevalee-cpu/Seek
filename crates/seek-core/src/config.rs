@@ -1,0 +1,335 @@
+//! The configuration files (SPEC 5, 6).
+//!
+//! `~/seek/providers.toml` holds the cloud providers and their models, `~/seek/config.toml` the
+//! theme, the default mode, the default model and the path to the llama.cpp server.
+//!
+//! Every file carries `schema = 1`. Changing a format needs a migration (SPEC 2.4).
+//!
+//! API keys never live in these files: a provider names the environment variables its key is in
+//! (SPEC 5).
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// The schema version of the configuration files.
+pub const SCHEMA: u32 = 1;
+
+/// The SEEK home, `~/seek` by default.
+///
+/// `SEEK_HOME` overrides it, which is handy for tests.
+pub fn seek_home() -> PathBuf {
+    if let Some(home) = std::env::var_os("SEEK_HOME") {
+        return PathBuf::from(home);
+    }
+    std::env::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("seek")
+}
+
+/// The folder inside the SEEK home that holds the cloud providers.
+pub const PROVIDERS_FILE: &str = "providers.toml";
+/// The file inside the SEEK home that holds the settings.
+pub const CONFIG_FILE: &str = "config.toml";
+
+/// The kind of a provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProviderKind {
+    /// The Anthropic Messages API.
+    AnthropicMessages,
+    /// Any OpenAI-compatible server.
+    OpenaiChat,
+}
+
+impl ProviderKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ProviderKind::AnthropicMessages => "anthropic-messages",
+            ProviderKind::OpenaiChat => "openai-chat",
+        }
+    }
+
+    /// The kind of a name, if it is one.
+    pub fn parse(kind: &str) -> Option<Self> {
+        match kind {
+            "anthropic-messages" => Some(ProviderKind::AnthropicMessages),
+            "openai-chat" => Some(ProviderKind::OpenaiChat),
+            _ => None,
+        }
+    }
+}
+
+/// One model of a provider.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ModelConfig {
+    /// The name shown in the picker.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// The context window in tokens.
+    #[serde(default)]
+    pub context: Option<u32>,
+    /// Client-side requests per minute.
+    #[serde(default)]
+    pub rpm: Option<u32>,
+    /// Client-side tokens per minute.
+    #[serde(default)]
+    pub tpm: Option<u32>,
+    /// The variant used when the user has not chosen one.
+    #[serde(default)]
+    pub variant_default: Option<String>,
+    /// The variants this model declares.
+    #[serde(default)]
+    pub variants: BTreeMap<String, serde_json::Value>,
+    /// A disabled model is not offered.
+    #[serde(default)]
+    pub disabled: Option<bool>,
+}
+
+/// One provider.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProviderConfig {
+    /// The name shown in the picker.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// The wire protocol.
+    #[serde(default)]
+    pub kind: Option<String>,
+    /// The base URL, without a trailing slash.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// The environment variables the key is in.
+    #[serde(default)]
+    pub env: Vec<String>,
+    /// The models of this provider.
+    #[serde(default)]
+    pub models: BTreeMap<String, ModelConfig>,
+}
+
+impl ProviderConfig {
+    /// The display name of the provider.
+    pub fn display_name(&self, id: &str) -> String {
+        self.name.clone().unwrap_or_else(|| id.to_string())
+    }
+
+    /// The kind of the provider, if it has a known one.
+    pub fn provider_kind(&self) -> Option<ProviderKind> {
+        self.kind.as_deref().and_then(ProviderKind::parse)
+    }
+
+    /// The key of the provider, read from the first environment variable that is set.
+    ///
+    /// The key is never stored in the file (SPEC 5).
+    pub fn api_key(&self) -> Option<String> {
+        for name in &self.env {
+            if let Ok(value) = std::env::var(name)
+                && !value.is_empty()
+            {
+                return Some(value);
+            }
+        }
+        None
+    }
+}
+
+/// The contents of `providers.toml`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProvidersConfig {
+    /// The schema version; always 1 for now.
+    #[serde(default = "default_schema")]
+    pub schema: u32,
+    /// The providers, by id.
+    #[serde(default)]
+    pub provider: BTreeMap<String, ProviderConfig>,
+}
+
+fn default_schema() -> u32 {
+    SCHEMA
+}
+
+impl Default for ProvidersConfig {
+    fn default() -> Self {
+        ProvidersConfig {
+            schema: SCHEMA,
+            provider: BTreeMap::new(),
+        }
+    }
+}
+
+impl ProvidersConfig {
+    /// Parse the file.
+    pub fn parse(text: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(text)
+    }
+
+    /// Read the file.
+    pub fn read(path: &Path) -> std::io::Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        Self::parse(&text).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+        })
+    }
+
+    /// Write the file.
+    pub fn write(&self, path: &Path) -> std::io::Result<()> {
+        let text = toml::to_string_pretty(self)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        std::fs::write(path, text)
+    }
+
+    /// The providers that are not empty.
+    pub fn names(&self) -> Vec<&str> {
+        self.provider.keys().map(String::as_str).collect()
+    }
+
+    /// The models of a provider, with their ids.
+    pub fn models(&self, provider: &str) -> Vec<(&str, &ModelConfig)> {
+        match self.provider.get(provider) {
+            Some(config) => config
+                .models
+                .iter()
+                .filter(|(_, model)| !model.disabled.unwrap_or(false))
+                .map(|(id, model)| (id.as_str(), model))
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// The contents of `config.toml`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Config {
+    /// The schema version; always 1 for now.
+    #[serde(default = "default_schema")]
+    pub schema: u32,
+    /// The name of the theme.
+    #[serde(default)]
+    pub theme: Option<String>,
+    /// The default permission mode.
+    #[serde(default)]
+    pub default_mode: Option<String>,
+    /// The default model, as `provider/model`.
+    #[serde(default)]
+    pub default_model: Option<String>,
+    /// The path to the llama.cpp server binary.
+    #[serde(default)]
+    pub llama_server_path: Option<String>,
+    /// Whether reasoning text is shown.
+    #[serde(default)]
+    pub show_reasoning: Option<bool>,
+    /// Whether the animations are replaced by static text.
+    #[serde(default)]
+    pub reduce_motion: Option<bool>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            schema: SCHEMA,
+            theme: None,
+            default_mode: None,
+            default_model: None,
+            llama_server_path: None,
+            show_reasoning: None,
+            reduce_motion: None,
+        }
+    }
+}
+
+impl Config {
+    /// Parse the file.
+    pub fn parse(text: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(text)
+    }
+
+    /// Read the file.
+    pub fn read(path: &Path) -> std::io::Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        Self::parse(&text).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+        })
+    }
+
+    /// Write the file.
+    pub fn write(&self, path: &Path) -> std::io::Result<()> {
+        let text = toml::to_string_pretty(self)
+            .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+        std::fs::write(path, text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EXAMPLE: &str = r#"
+schema = 1
+[provider.anthropic]
+name = 'Anthropic'
+kind = 'anthropic-messages'
+base_url = 'https://api.anthropic.com'
+env = ['ANTHROPIC_API_KEY']
+[provider.anthropic.models.'claude-sonnet-4-5']
+name = 'Claude Sonnet 4.5'
+context = 200000
+rpm = 50
+tpm = 100000
+"#;
+
+    #[test]
+    fn the_example_from_the_spec_is_parsed() {
+        let config = ProvidersConfig::parse(EXAMPLE).expect("the example parses");
+        assert_eq!(config.schema, 1);
+        let provider = &config.provider["anthropic"];
+        assert_eq!(provider.name.as_deref(), Some("Anthropic"));
+        assert_eq!(
+            provider.provider_kind(),
+            Some(ProviderKind::AnthropicMessages)
+        );
+        assert_eq!(provider.env, vec!["ANTHROPIC_API_KEY"]);
+        let model = &provider.models["claude-sonnet-4-5"];
+        assert_eq!(model.context, Some(200_000));
+        assert_eq!(model.rpm, Some(50));
+        assert_eq!(model.tpm, Some(100_000));
+    }
+
+    #[test]
+    fn a_disabled_model_is_not_offered() {
+        let mut config = ProvidersConfig::parse(EXAMPLE).expect("parses");
+        config
+            .provider
+            .get_mut("anthropic")
+            .unwrap()
+            .models
+            .get_mut("claude-sonnet-4-5")
+            .unwrap()
+            .disabled = Some(true);
+        assert!(config.models("anthropic").is_empty());
+    }
+
+    #[test]
+    fn the_config_round_trips() {
+        let config = Config::parse("schema = 1\ndefault_mode = 'ask'\n").expect("parses");
+        assert_eq!(config.schema, 1);
+        assert_eq!(config.default_mode.as_deref(), Some("ask"));
+        let text = toml::to_string_pretty(&config).expect("serializes");
+        let again = Config::parse(&text).expect("parses again");
+        assert_eq!(config, again);
+    }
+
+    #[test]
+    fn the_schema_is_optional_but_always_one_when_given() {
+        let config = ProvidersConfig::parse("[provider.x]\nbase_url = 'y'\n").expect("parses");
+        assert_eq!(config.schema, 1);
+    }
+
+    #[test]
+    fn an_unknown_kind_is_not_a_kind() {
+        assert_eq!(ProviderKind::parse("mystery"), None);
+        assert_eq!(
+            ProviderKind::parse("openai-chat"),
+            Some(ProviderKind::OpenaiChat)
+        );
+    }
+}

@@ -8,11 +8,13 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use seek_core::{AgentEvent, Message as CoreMessage, Role, TurnReason};
+use seek_core::{AgentEvent, Message as CoreMessage, ProvidersConfig, Role, TurnReason};
+use seek_llm::catalog::{ModelInfo, bundled_models};
 
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
 use crate::input::Input;
 use crate::logo;
+use crate::picker::{Picker, PickerItem};
 use crate::prompt_bar;
 use crate::sidebar::{self, Sidebar};
 use crate::spinner::Spinner;
@@ -57,9 +59,11 @@ pub enum Status {
 }
 
 /// A centered overlay.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Overlay {
     Help,
+    /// A filterable list.
+    Picker(Picker),
 }
 
 /// The application state.
@@ -91,6 +95,14 @@ pub struct App {
     pub last_usage: Option<(u32, u32)>,
     /// How often Ctrl+C was pressed in a row.
     last_ctrl_c: u8,
+    /// The configured providers.
+    pub providers: ProvidersConfig,
+    /// The models that ship with the binary.
+    pub catalog: Vec<ModelInfo>,
+    /// The model that is currently selected.
+    pub current: Option<ModelInfo>,
+    /// The reasoning level of the current model.
+    pub reasoning: Option<String>,
 }
 
 impl App {
@@ -120,6 +132,10 @@ impl App {
             dirty: true,
             last_usage: None,
             last_ctrl_c: 0,
+            providers: ProvidersConfig::default(),
+            catalog: bundled_models(),
+            current: None,
+            reasoning: None,
         }
     }
 
@@ -148,6 +164,11 @@ impl App {
         // Release and repeat events are not presses.
         if key.kind != KeyEventKind::Press {
             return None;
+        }
+
+        // An open overlay takes the keyboard.
+        if let Some(Overlay::Picker(_)) = self.overlay {
+            return self.on_picker_key(key);
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -264,8 +285,161 @@ impl App {
                 self.toggle_selected_row();
                 None
             }
+            KeyCode::Char('t') => {
+                if !self.cycle_reasoning() {
+                    self.rows.push(Row::Error(
+                        "reasoning is not configurable for this model".to_string(),
+                    ));
+                }
+                None
+            }
             _ => None,
         }
+    }
+
+    /// Handle a key while a picker is open.
+    fn on_picker_key(&mut self, key: KeyEvent) -> Option<Command> {
+        let Some(Overlay::Picker(picker)) = self.overlay.as_mut() else {
+            return None;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.overlay = None;
+            }
+            KeyCode::Enter => {
+                let chosen = picker.selected_item().map(|item| item.value.clone());
+                self.overlay = None;
+                if let Some(value) = chosen {
+                    self.apply_picker_value(&value);
+                }
+            }
+            KeyCode::Up => picker.move_prev(),
+            KeyCode::Down => picker.move_next(),
+            KeyCode::Backspace => picker.backspace(),
+            KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                picker.type_char(c);
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Apply what the user chose in a picker.
+    fn apply_picker_value(&mut self, value: &str) {
+        if let Some(model_id) = value.strip_prefix("model:") {
+            self.select_model(model_id);
+        } else if value == "provider:add" {
+            // Adding a provider needs a form; that lands with the provider editor.
+            self.rows.push(Row::Error(
+                "adding a provider needs the provider editor".to_string(),
+            ));
+        } else if let Some(model) = self
+            .catalog
+            .iter()
+            .find(|model| format!("{}/{}", model.protocol.as_str(), model.id) == value)
+        {
+            let id = model.id.clone();
+            self.select_model(&id);
+        }
+    }
+
+    /// Select a model from the catalog.
+    pub fn select_model(&mut self, id: &str) {
+        let Some(model) = self.catalog.iter().find(|model| model.id == id).cloned() else {
+            return;
+        };
+        self.current = Some(model.clone());
+        self.model = ModelChip {
+            provider: model.protocol.as_str().to_string(),
+            model: model.name.clone(),
+            local: model.local,
+        };
+        // Switching to a model restores its level, else its default (SPEC 9.7).
+        self.reasoning = model
+            .resolve(self.reasoning.as_deref())
+            .map(|variant| variant.id.clone());
+    }
+
+    /// Cycle the reasoning level of the current model (SPEC 9.7).
+    pub fn cycle_reasoning(&mut self) -> bool {
+        let Some(model) = &self.current else {
+            return false;
+        };
+        if !model.has_variants() {
+            return false;
+        }
+        let index = model
+            .variants
+            .iter()
+            .position(|variant| Some(&variant.id) == self.reasoning.as_ref())
+            .map(|index| (index + 1) % model.variants.len())
+            .unwrap_or(0);
+        self.reasoning = Some(model.variants[index].id.clone());
+        true
+    }
+
+    /// Set the reasoning level of the current model.
+    pub fn set_reasoning(&mut self, level: &str) -> bool {
+        let Some(model) = &self.current else {
+            return false;
+        };
+        if model.variant(level).is_none() {
+            return false;
+        }
+        self.reasoning = Some(level.to_string());
+        true
+    }
+
+    /// The picker for `/model`: the models of the configured providers, then the bundled catalog.
+    fn model_picker(&self) -> Picker {
+        let mut items: Vec<PickerItem> = Vec::new();
+        for (id, provider) in &self.providers.provider {
+            for (model_id, model) in &provider.models {
+                if model.disabled.unwrap_or(false) {
+                    continue;
+                }
+                let name = model.name.clone().unwrap_or_else(|| model_id.clone());
+                let detail = match model.context {
+                    Some(context) => format!("{context} context"),
+                    None => String::new(),
+                };
+                items.push(
+                    PickerItem::new(name, format!("model:{model_id}"))
+                        .with_group(provider.display_name(id))
+                        .with_detail(detail),
+                );
+            }
+        }
+        if items.is_empty() {
+            for model in &self.catalog {
+                items.push(
+                    PickerItem::new(model.name.clone(), format!("model:{}", model.id))
+                        .with_group("catalog")
+                        .with_detail(format!("{} context", model.context)),
+                );
+            }
+        }
+        Picker::new("models", items).tap_hint("Enter to choose, Esc to close")
+    }
+
+    /// The picker for `/provider`: the configured providers.
+    fn provider_picker(&self) -> Picker {
+        let mut items: Vec<PickerItem> = Vec::new();
+        for (id, provider) in &self.providers.provider {
+            let kind = provider.kind.clone().unwrap_or_default();
+            let detail = match (&provider.base_url, provider.kind.is_some()) {
+                (Some(url), true) => format!("{kind}  {url}"),
+                (Some(url), false) => url.clone(),
+                (None, true) => kind,
+                (None, false) => String::new(),
+            };
+            items.push(PickerItem::new(provider.display_name(id), id.clone()).with_detail(detail));
+        }
+        items.push(
+            PickerItem::new("Add a provider", "provider:add")
+                .with_detail("kind, base URL, key environment variable, models"),
+        );
+        Picker::new("providers", items).tap_hint("Enter to choose, Esc to close")
     }
 
     /// Move the transcript selection up or down.
@@ -353,6 +527,14 @@ impl App {
                 self.show_reasoning = !self.show_reasoning;
                 None
             }
+            "/model" => {
+                self.overlay = Some(Overlay::Picker(self.model_picker()));
+                None
+            }
+            "/provider" => {
+                self.overlay = Some(Overlay::Picker(self.provider_picker()));
+                None
+            }
             _ => None,
         }
     }
@@ -363,6 +545,8 @@ impl App {
             "/quit" => Some("/quit"),
             "/help" => Some("/help"),
             "/thoughts" => Some("/thoughts"),
+            "/model" => Some("/model"),
+            "/provider" => Some("/provider"),
             _ => None,
         }
     }
@@ -530,7 +714,7 @@ impl App {
         let footer = Footer {
             mode: self.mode,
             model: self.model.clone(),
-            reasoning: None,
+            reasoning: self.reasoning.clone(),
             cwd: self.cwd.clone(),
             branch: self.branch.clone(),
         };
@@ -539,8 +723,10 @@ impl App {
             footer_area,
         );
 
-        if let Some(Overlay::Help) = self.overlay {
-            self.render_help(frame, area);
+        match &self.overlay {
+            Some(Overlay::Help) => self.render_help(frame, area),
+            Some(Overlay::Picker(picker)) => picker.render(frame, area, &self.theme),
+            None => {}
         }
     }
 
@@ -604,8 +790,10 @@ impl App {
             width,
             height,
         );
+        frame.render_widget(ratatui::widgets::Clear, rect);
         let block = ratatui::widgets::Block::bordered()
             .border_style(Style::new().fg(self.theme.accent))
+            .style(Style::new().bg(self.theme.bg))
             .title(Span::styled(" Keys ", Style::new().fg(self.theme.accent)));
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
