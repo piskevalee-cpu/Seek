@@ -67,6 +67,10 @@ workspace; each release ships a milestone (SPEC 15).
 - The `fetch` tool can be turned on in `/tools`.
 - The client side limits of the configuration (`rpm` and `tpm`) are honored (SPEC 6).
 - The manual test checklist, `docs/TESTING.md`.
+- The form that adds a provider, with the kind, the base URL, the key environment variable, the
+  models, the context and the rate limits (SPEC 10.3).
+- The providers are detected from the environment when there is no `providers.toml`, so a bare
+  install works (SPEC 6).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

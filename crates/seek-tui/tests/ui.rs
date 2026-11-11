@@ -840,3 +840,20 @@ fn the_tools_picker_has_the_fetch_tool() {
     assert!(screen.contains("fetch"));
     assert!(screen.contains("network"));
 }
+
+#[test]
+fn the_provider_form_opens_and_saves() {
+    let mut app = app();
+    for c in "/provider".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    // The last entry of the picker adds a provider.
+    app.update(Message::Key(key(KeyCode::Down)));
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("add a provider"));
+    assert!(screen.contains("base url"));
+}

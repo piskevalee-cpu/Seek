@@ -42,6 +42,95 @@ pub const SIDEBAR_MIN_WIDTH: u16 = 100;
 /// A tick is sent every 100 ms (SPEC 4.2).
 pub const TICK_MS: u64 = 100;
 
+/// The form that adds a provider (SPEC 10.3).
+///
+/// The fields are edited in place; Tab moves to the next one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProviderForm {
+    /// The fields, as (label, value).
+    pub fields: Vec<(String, String)>,
+    /// The field that is edited.
+    pub current: usize,
+}
+
+impl ProviderForm {
+    /// A form with the fields of the specification.
+    pub fn new() -> Self {
+        ProviderForm {
+            fields: vec![
+                ("name".into(), String::new()),
+                ("kind".into(), "anthropic-messages".into()),
+                ("base url".into(), String::new()),
+                ("key env".into(), String::new()),
+                ("models".into(), String::new()),
+                ("context".into(), String::new()),
+                ("rpm".into(), String::new()),
+                ("tpm".into(), String::new()),
+            ],
+            current: 0,
+        }
+    }
+
+    /// The value of a field.
+    pub fn value(&self, label: &str) -> String {
+        self.fields
+            .iter()
+            .find(|(name, _)| name == label)
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default()
+    }
+
+    /// The provider the form describes, if it is complete enough.
+    pub fn to_config(&self) -> Option<seek_core::ProviderConfig> {
+        let name = self.value("name");
+        let base_url = self.value("base url");
+        if name.is_empty() || base_url.is_empty() {
+            return None;
+        }
+        let kind = match self.value("kind").as_str() {
+            "anthropic-messages" => "anthropic-messages",
+            "openai-chat" => "openai-chat",
+            _ => return None,
+        };
+
+        let mut models = std::collections::BTreeMap::new();
+        for model in self.value("models").split(',') {
+            let model = model.trim();
+            if model.is_empty() {
+                continue;
+            }
+            models.insert(
+                model.to_string(),
+                seek_core::ModelConfig {
+                    name: None,
+                    context: self.value("context").parse().ok(),
+                    rpm: self.value("rpm").parse().ok(),
+                    tpm: self.value("tpm").parse().ok(),
+                    variant_default: None,
+                    variants: std::collections::BTreeMap::new(),
+                    disabled: None,
+                },
+            );
+        }
+
+        let env = self.value("key env");
+        Some(seek_core::ProviderConfig {
+            name: Some(self.value("name")),
+            kind: Some(kind.to_string()),
+            base_url: Some(base_url),
+            env: if env.is_empty() {
+                Vec::new()
+            } else {
+                env.split(',')
+                    .map(|name| name.trim().to_string())
+                    .filter(|name| !name.is_empty())
+                    .collect()
+            },
+            models,
+        })
+    }
+}
+
 /// What the UI receives from outside the agent.
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiMessage {
@@ -76,7 +165,7 @@ pub enum Message {
 }
 
 /// A side effect that the binary has to perform.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Command {
     /// Hand a message to the agent, with the permission mode the user chose.
     Submit { text: String, mode: PermissionMode },
@@ -102,6 +191,8 @@ pub enum Command {
     ResumeSession(String),
     /// Stop the turn that is running (SPEC 9.1).
     Cancel,
+    /// Add a provider (SPEC 10.3).
+    AddProvider(seek_core::ProviderConfig),
     /// Run the home widgets.
     RunWidgets,
     /// Leave.
@@ -149,6 +240,8 @@ pub enum Overlay {
     Help,
     /// A filterable list.
     Picker(Picker),
+    /// The form that adds a provider.
+    ProviderForm(ProviderForm),
     /// The launch options of a local model (SPEC 7.4).
     Options {
         /// The id of the model.
@@ -381,6 +474,7 @@ impl App {
         match &self.overlay {
             Some(Overlay::Picker(_)) => return self.on_picker_key(key),
             Some(Overlay::Options { .. }) => return self.on_options_key(key),
+            Some(Overlay::ProviderForm(_)) => return self.on_provider_form_key(key),
             _ => {}
         }
 
@@ -694,6 +788,44 @@ impl App {
         }
     }
 
+    /// Handle a key while the provider form is open.
+    fn on_provider_form_key(&mut self, key: KeyEvent) -> Option<Command> {
+        let Some(Overlay::ProviderForm(form)) = self.overlay.as_mut() else {
+            return None;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.overlay = None;
+            }
+            KeyCode::Tab | KeyCode::Down => {
+                form.current = (form.current + 1) % form.fields.len();
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                form.current = (form.current + form.fields.len() - 1) % form.fields.len();
+            }
+            KeyCode::Enter => {
+                let config = form.to_config();
+                self.overlay = None;
+                if let Some(config) = config {
+                    return Some(Command::AddProvider(config));
+                }
+                self.rows.push(Row::Error(
+                    "the provider needs a name and a base URL, and a known kind".to_string(),
+                ));
+            }
+            KeyCode::Backspace => {
+                let (_, value) = &mut form.fields[form.current];
+                value.pop();
+            }
+            KeyCode::Char(c) => {
+                let (_, value) = &mut form.fields[form.current];
+                value.push(c);
+            }
+            _ => {}
+        }
+        None
+    }
+
     /// Handle a key while a picker is open.
     fn on_picker_key(&mut self, key: KeyEvent) -> Option<Command> {
         let Some(Overlay::Picker(picker)) = self.overlay.as_mut() else {
@@ -808,10 +940,7 @@ impl App {
             return Some(local_id.to_string());
         }
         if value == "provider:add" {
-            // Adding a provider needs a form; that lands with the provider editor.
-            self.rows.push(Row::Error(
-                "adding a provider needs the provider editor".to_string(),
-            ));
+            self.overlay = Some(Overlay::ProviderForm(ProviderForm::new()));
             return None;
         }
         if let Some(model) = self
@@ -1666,6 +1795,7 @@ impl App {
                 input,
                 ..
             }) => self.render_options(frame, area, name, prefix, input),
+            Some(Overlay::ProviderForm(form)) => self.render_provider_form(frame, area, form),
             None => {}
         }
     }
@@ -1777,6 +1907,49 @@ impl App {
             }
             frame.render_widget(ratatui::widgets::Paragraph::new(lines), rect);
         }
+    }
+
+    /// The form that adds a provider.
+    fn render_provider_form(&self, frame: &mut Frame, area: Rect, form: &ProviderForm) {
+        let width = area.width.min(64);
+        let height = (form.fields.len() as u16 + 4).min(area.height);
+        let rect = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        frame.render_widget(ratatui::widgets::Clear, rect);
+        let block = ratatui::widgets::Block::bordered()
+            .border_style(Style::new().fg(self.theme.accent))
+            .style(Style::new().bg(self.theme.bg))
+            .title(Span::styled(
+                " add a provider ",
+                Style::new().fg(self.theme.accent).bold(),
+            ));
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+
+        let mut lines: Vec<Line> = Vec::new();
+        for (index, (label, value)) in form.fields.iter().enumerate() {
+            let style = if index == form.current {
+                Style::new().fg(self.theme.cube_light)
+            } else {
+                Style::new().fg(self.theme.dim)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {label:<10}"), style),
+                Span::styled(value.clone(), style),
+            ]));
+        }
+        lines.push(Line::from(Span::styled(
+            "  Tab moves, Enter saves, Esc cancels",
+            Style::new().fg(self.theme.dim).italic(),
+        )));
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(lines),
+            Rect::new(inner.x, inner.y, inner.width, inner.height),
+        );
     }
 
     /// The launch options editor.
@@ -2104,6 +2277,47 @@ mod tests {
         app.input.insert_char('x');
         app.update(Message::Key(key(KeyCode::Up)));
         assert_eq!(app.input.text(), "1");
+    }
+
+    #[test]
+    fn the_provider_form_describes_a_provider() {
+        let mut form = ProviderForm::new();
+        // The name.
+        for c in "my provider".chars() {
+            form.fields[0].1.push(c);
+        }
+        // The base URL.
+        for c in "https://example.com/v1".chars() {
+            form.fields[2].1.push(c);
+        }
+        // The key environment variable.
+        for c in "MY_KEY".chars() {
+            form.fields[3].1.push(c);
+        }
+        // The models and the limits.
+        for c in "a,b".chars() {
+            form.fields[4].1.push(c);
+        }
+        for c in "128000".chars() {
+            form.fields[5].1.push(c);
+        }
+        for c in "50".chars() {
+            form.fields[6].1.push(c);
+        }
+
+        let config = form.to_config().expect("the form is complete");
+        assert_eq!(config.name.as_deref(), Some("my provider"));
+        assert_eq!(config.base_url.as_deref(), Some("https://example.com/v1"));
+        assert_eq!(config.env, vec!["MY_KEY".to_string()]);
+        assert_eq!(config.models.len(), 2);
+        assert_eq!(config.models["a"].context, Some(128_000));
+        assert_eq!(config.models["a"].rpm, Some(50));
+    }
+
+    #[test]
+    fn an_incomplete_provider_form_is_no_provider() {
+        let form = ProviderForm::new();
+        assert!(form.to_config().is_none());
     }
 
     #[test]

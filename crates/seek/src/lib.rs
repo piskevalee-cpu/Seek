@@ -41,6 +41,8 @@ pub struct Runtime {
     pub external_tools: Vec<seek_core::ExternalTool>,
     /// The widgets of `~/seek/widgets`.
     pub widgets: Vec<seek_core::Widget>,
+    /// The SEEK home.
+    pub home: std::path::PathBuf,
     /// The session that is open.
     session: tokio::sync::Mutex<Option<seek_core::Session>>,
     /// The token that stops the turn that is running.
@@ -88,6 +90,7 @@ impl Runtime {
         }
 
         Runtime {
+            home: home.to_path_buf(),
             supervisor: tokio::sync::Mutex::new(supervisor),
             local_models,
             current_model: Mutex::new(None),
@@ -331,6 +334,30 @@ pub async fn agent_loop(
                 if let Ok(history) = runtime.resume_session(&id).await {
                     let _ = widgets
                         .send(seek_tui::app::UiMessage::Session(history.messages))
+                        .await;
+                }
+            }
+            Command::AddProvider(config) => {
+                // The provider is added to the configuration and written to the file.
+                let mut providers = providers.clone();
+                let id = config
+                    .name
+                    .clone()
+                    .unwrap_or_default()
+                    .to_lowercase()
+                    .replace(' ', "-");
+                providers.provider.insert(id, config);
+                let path = runtime.home.join(seek_core::config::PROVIDERS_FILE);
+                if let Err(error) = providers.write(&path) {
+                    let _ = events
+                        .send(AgentEvent::Error(format!(
+                            "the provider could not be saved: {error}"
+                        )))
+                        .await;
+                } else {
+                    let sessions = seek_core::Session::list(&runtime.state_dir.join("sessions"));
+                    let _ = widgets
+                        .send(seek_tui::app::UiMessage::Sessions(sessions))
                         .await;
                 }
             }
@@ -677,9 +704,78 @@ pub fn local_model_name(id: &str) -> String {
 }
 
 /// Read `~/seek/providers.toml`, if it is there.
+///
+/// A bare install has no file, so the providers are detected from the environment: the common
+/// keys are looked for and a provider is made for every one that is set (SPEC 6).
 pub fn load_providers(home: &Path) -> ProvidersConfig {
     let path = home.join(seek_core::config::PROVIDERS_FILE);
-    ProvidersConfig::read(&path).unwrap_or_default()
+    let config = ProvidersConfig::read(&path).unwrap_or_default();
+    if config.provider.is_empty() {
+        let detected = detect_providers();
+        if !detected.provider.is_empty() {
+            return detected;
+        }
+    }
+    config
+}
+
+/// The providers that the environment points at.
+pub fn detect_providers() -> ProvidersConfig {
+    let known = [
+        (
+            "anthropic",
+            "ANTHROPIC_API_KEY",
+            "anthropic-messages",
+            "https://api.anthropic.com",
+            "claude-sonnet-4-5",
+        ),
+        (
+            "openai",
+            "OPENAI_API_KEY",
+            "openai-chat",
+            "https://api.openai.com/v1",
+            "gpt-5.4",
+        ),
+        (
+            "openrouter",
+            "OPENROUTER_API_KEY",
+            "openai-chat",
+            "https://openrouter.ai/api/v1",
+            "anthropic/claude-sonnet-4.5",
+        ),
+    ];
+
+    let mut config = ProvidersConfig::default();
+    for (id, variable, kind, base_url, model) in known {
+        match std::env::var(variable) {
+            Ok(value) if !value.is_empty() => {}
+            _ => continue,
+        }
+        let mut models = std::collections::BTreeMap::new();
+        models.insert(
+            model.to_string(),
+            seek_core::ModelConfig {
+                name: None,
+                context: None,
+                rpm: None,
+                tpm: None,
+                variant_default: None,
+                variants: std::collections::BTreeMap::new(),
+                disabled: None,
+            },
+        );
+        config.provider.insert(
+            id.to_string(),
+            seek_core::ProviderConfig {
+                name: Some(id.to_string()),
+                kind: Some(kind.to_string()),
+                base_url: Some(base_url.to_string()),
+                env: vec![variable.to_string()],
+                models,
+            },
+        );
+    }
+    config
 }
 
 /// The llama.cpp binary and the subcommand that starts the server.

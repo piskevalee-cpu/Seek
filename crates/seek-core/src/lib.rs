@@ -21,7 +21,7 @@ pub mod tools;
 pub mod truncate;
 pub mod widget;
 
-pub use config::{Config, ProviderConfig, ProviderKind, ProvidersConfig, seek_home};
+pub use config::{Config, ModelConfig, ProviderConfig, ProviderKind, ProvidersConfig, seek_home};
 pub use context::{ContextWindow, Level, TurnStats};
 pub use event::{AgentEvent, PermissionRequest, ToolOutput, TurnReason, Usage};
 pub use external::{ExternalTool, ExternalToolConfig};
