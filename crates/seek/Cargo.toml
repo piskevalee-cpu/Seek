@@ -1,0 +1,27 @@
+[package]
+name = "seek"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "SEEK: a thin, local-first coding-agent harness for the terminal"
+build = "build.rs"
+
+
+[lib]
+name = "seek"
+path = "src/lib.rs"
+
+[[bin]]
+name = "seek"
+path = "src/main.rs"
+
+[dependencies]
+seek-core.workspace = true
+seek-llm.workspace = true
+seek-local.workspace = true
+seek-tui.workspace = true
+clap.workspace = true
+tokio.workspace = true
+futures.workspace = true
+anyhow.workspace = true

@@ -26,27 +26,34 @@ Option 2 is cleaner but changes a contract (SPEC 2.4), so it needs a migration a
 entry. Until the owner decides, the code resolves the server command by probing, in order:
 `llama_server_path` as given, then `llama serve` on `PATH`, then `llama-server` on `PATH`.
 
-## D-002 — Theme colors sampled from the supplied PNG
+## D-002 — Theme colors sampled from the logo
 
 **Date:** 2026-11-11 · **Affects:** SPEC 12, SPEC 10.6
 
 SPEC 12 estimates a green background (`#22B14C`) with light gray (`#B5B5B5`) foreground and asks
 for the exact values to be sampled from the PNG with a script.
 
-The asset supplied in this repository (`assets/logo.png`, 932x430) is the logo rendered on a **dark**
-background, and contains no green. Sampling it with `tools/extract_logo.py` gives:
+`assets/logo.png` is the green logo, 500x199. `tools/extract_logo.py` samples it:
 
 | Token | Value | Source |
 | --- | --- | --- |
-| `bg` | `#141617` | sampled from the asset background |
-| `cube_light` | `#B4B4B4` | sampled from the lit strokes |
-| `accent` | `#22B14C` | from SPEC 12 (the green variant of the logo) |
+| `cube_light` | `#B4B4B4` | sampled from the strokes of the logo |
+| `accent` | `#22B14C` | sampled from the background of the logo |
+| `bg` | `#141617` | the background of the terminal, **not** of the logo |
+| `cube_dark` | `#2C2E2F` | an unlit cube |
+| `dim` | `#7C7D7E` | the dimmed text |
 
-**Status:** accepted for `bg` and `cube_light`; `accent` is provisional.
+**Status:** accepted. The `bg` token is deliberately dark: a green terminal is unreadable, and the
+logo keeps its green in the asset.
 
-**Open:** the green-background logo asset and a transparent-background variant are still missing
-(SPEC 16, question 8). When the transparent asset arrives, `accent` should be re-sampled from it.
-Until then the logo is drawn in `cube_light` and the accent color is used for UI highlights only.
+**The extraction.** The script finds the cell size from the pitch of the letters (the letters of
+the pixel font are three cells wide and one cell apart, so the pitch of two letters is four
+cells) and takes the bounding box of the ink as the grid. That works for the pixel-perfect source
+and for a scaled, anti-aliased rendering of the same logo, which is what the asset turned out to
+be: 18.75px cells against 35px cells for the same 25x9 grid.
+
+**Open:** the transparent-background variant of the logo is still missing (SPEC 16, question 8).
+The terminal never scales the PNG: the grid is extracted once and committed as a constant.
 
 ## D-003 — Reasoning support is detected via `chat_template_caps`
 

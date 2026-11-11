@@ -124,6 +124,12 @@ def luminance(rgb) -> float:
     return 0.299 * r + 0.587 * g + 0.114 * b
 
 
+def math_gcd(a: int, b: int) -> int:
+    while b:
+        a, b = b, a % b
+    return a
+
+
 def gcd_all(values):
     out = 0
     for value in values:
@@ -131,10 +137,116 @@ def gcd_all(values):
     return out
 
 
-def math_gcd(a: int, b: int) -> int:
-    while b:
-        a, b = b, a % b
-    return a
+def coverage_map(levels):
+    """How much ink every pixel carries: 1 for lit, 0 for the background."""
+    return [[1.0 if level == 2 else (0.5 if level == 1 else 0.0) for level in row] for row in levels]
+
+
+def integral_image(cover):
+    """The summed area table, so that a cell can be measured in constant time."""
+    height = len(cover)
+    width = len(cover[0]) if height else 0
+    table = [[0.0] * (width + 1) for _ in range(height + 1)]
+    for y in range(height):
+        row_sum = 0.0
+        for x in range(width):
+            row_sum += cover[y][x]
+            table[y + 1][x + 1] = table[y][x + 1] + row_sum
+    return table
+
+
+def cell_mean(table, x, y, width, height):
+    """The mean coverage of a rectangle.
+
+    The rectangle may have fractional edges, when the image was scaled down; the integer box
+    that covers it is used, divided by the exact area.
+    """
+    left = int(x // 1)
+    top = int(y // 1)
+    right = min(int(-(-(x + width) // 1)), len(table[0]) - 1)
+    bottom = min(int(-(-(y + height) // 1)), len(table) - 1)
+    if bottom <= top or right <= left:
+        return 0.0
+    total = (
+        table[bottom][right]
+        - table[top][right]
+        - table[bottom][left]
+        + table[top][left]
+    )
+    return total / (width * height)
+
+
+def otsu_score(values):
+    """How well the values split into two classes: inked cells and empty ones.
+
+    A grid that fits the logo well has cells that are either covered or empty, so the
+    separation between the two groups is large.
+    """
+    if len(values) < 4:
+        return 0.0
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    if variance <= 0.0:
+        return 0.0
+    best = 0.0
+    for threshold in sorted(set(values)):
+        low = [value for value in values if value <= threshold]
+        high = [value for value in values if value > threshold]
+        if not low or not high:
+            continue
+        low_mean = sum(low) / len(low)
+        high_mean = sum(high) / len(high)
+        weight = len(low) * len(high)
+        between = weight * (low_mean - high_mean) ** 2
+        if between > best:
+            best = between
+    return best / (len(values) * variance)
+
+
+def crisp_runs(rows, lit_lum):
+    """The runs of the crisp foreground, column by column.
+
+    A stroke of the pixel font is one cell wide, so the runs of the letters are the cells of the
+    font; the gaps between them are one cell as well.
+    """
+    height = len(rows)
+    width = len(rows[0]) if height else 0
+    profile = []
+    for x in range(width):
+        count = 0
+        for y in range(height):
+            if luminance(rows[y][x]) >= lit_lum:
+                count += 1
+        profile.append(count)
+
+    runs = []
+    start = None
+    for x, count in enumerate(profile):
+        if count > 0 and start is None:
+            start = x
+        if count == 0 and start is not None:
+            runs.append((start, x - 1))
+            start = None
+    if start is not None:
+        runs.append((start, width - 1))
+    return runs
+
+
+def cell_size_from_runs(runs):
+    """The cell size, from the pitch of the repeating letters.
+
+    The letters of the pixel font are three cells wide and one cell apart, so the pitch of two
+    letters is four cells. The pitch is exact, even when the image was scaled down.
+    """
+    starts = [run[0] for run in runs]
+    pitches = [starts[i + 1] - starts[i] for i in range(len(starts) - 1)]
+    if not pitches:
+        return None
+    # The pitch of the letters is the most common distance between two runs.
+    pitch = max(set(pitches), key=pitches.count)
+    if pitch <= 0:
+        return None
+    return pitch / 4.0
 
 
 def classify(rows, bg_lum, lit_lum):
@@ -147,68 +259,69 @@ def classify(rows, bg_lum, lit_lum):
     ]
 
 
-def lit_runs(flags):
-    runs = []
-    current = 0
-    for value in flags:
-        if value:
-            current += 1
-        elif current:
-            runs.append(current)
-            current = 0
-    if current:
-        runs.append(current)
-    return runs
-
-
 def extract_grid(png_path: str):
     width, height, rows = read_png(png_path)
     counts = collections.Counter(p for row in rows for p in row)
     bg_rgb = counts.most_common(1)[0][0]
     bg_lum = luminance(bg_rgb)
-    lit_lum = max(luminance(p) for p in counts)
+    lit_rgb = max(counts.items(), key=lambda kv: luminance(kv[0]))[0]
+    lit_lum = luminance(lit_rgb)
 
     levels = classify(rows, bg_lum, lit_lum)
+    cover = coverage_map(levels)
 
-    # Cell size: GCD of every lit run length in both axes.
-    lengths = []
-    for y in range(height):
-        lengths += lit_runs([levels[y][x] > 0 for x in range(width)])
-    for x in range(width):
-        lengths += lit_runs([levels[y][x] > 0 for y in range(height)])
-    cell = gcd_all(lengths)
-    if cell <= 0:
-        raise ValueError("no lit pixels found")
+    # The cell size comes from the pitch of the letters; it is exact, even when the image was
+    # scaled down and the edges are anti-aliased.
+    runs = crisp_runs(rows, lit_lum)
+    cell = cell_size_from_runs(runs)
+    if not cell or cell <= 0:
+        raise ValueError("the cell size of the logo could not be found")
 
-    # Grid origin: bounding box of the non-background pixels.
     xs = [x for y in range(height) for x in range(width) if levels[y][x] > 0]
     ys = [y for y in range(height) for x in range(width) if levels[y][x] > 0]
-    ox, oy = min(xs), min(ys)
-    cols = (max(xs) - ox) // cell + 1
-    rows_n = (max(ys) - oy) // cell + 1
+    if not xs:
+        return [], {}, cell, (0, 0), (width, height)
+
+    # The grid of the logo is exactly the bounding box of its ink, so the origin is the top left
+    # of the ink and the number of cells follows from the cell size.
+    origin_x = float(min(xs))
+    origin_y = float(min(ys))
+    columns = max(1, round((max(xs) - origin_x + 1) / cell))
+    rows_n = max(1, round((max(ys) - origin_y + 1) / cell))
+
+    table = integral_image(cover)
 
     grid = []
-    for r in range(rows_n):
-        row = []
-        for c in range(cols):
-            # Sample the cell centre; fall back to the brightest pixel in the cell.
-            x = min(ox + c * cell + cell // 2, width - 1)
-            y = min(oy + r * cell + cell // 2, height - 1)
-            level = levels[y][x]
-            if level == 0:
-                level = max(
-                    levels[oy + r * cell + dy][ox + c * cell + dx]
-                    for dy in range(min(cell, height - oy - r * cell))
-                    for dx in range(min(cell, width - ox - c * cell))
-                )
-            row.append(level)
-        grid.append(row)
+    for row in range(rows_n):
+        line = []
+        for column in range(columns):
+            x = origin_x + column * cell
+            y = origin_y + row * cell
+            if x >= width or y >= height:
+                line.append(0)
+                continue
+            mean = cell_mean(table, x, y, cell, cell)
+            if mean > 0.6:
+                line.append(2)
+            elif mean > 0.25:
+                line.append(1)
+            else:
+                line.append(0)
+        grid.append(line)
 
-    colors = {
-        "bg": bg_rgb,
-        "light": max(counts.items(), key=lambda kv: luminance(kv[0]))[0],
-    }
-    return grid, colors, cell, (ox, oy), (width, height)
+    # The grid is trimmed: empty rows and columns at the edge are not part of the logo.
+    while grid and all(cell == 0 for cell in grid[0]):
+        grid.pop(0)
+    while grid and all(cell == 0 for cell in grid[-1]):
+        grid.pop()
+    if grid:
+        width_used = max(
+            index for index in range(len(grid[0])) if any(row[index] for row in grid)
+        ) + 1
+        grid = [row[:width_used] for row in grid]
+
+    colors = {"bg": bg_rgb, "light": lit_rgb}
+    return grid, colors, cell, (origin_x, origin_y), (width, height)
 
 
 # ------------------------------------------------------------------------ output

@@ -1,0 +1,129 @@
+//! The whole harness against a real local model.
+//!
+//! The test needs a `llama` binary and a GGUF model. When they are not there, the test skips
+//! itself, so the suite stays green on a machine without them.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use seek::Runtime;
+use seek_core::r#loop::PermissionRequests;
+use seek_core::{AgentEvent, PermissionMode, ProvidersConfig};
+use seek_tui::app::Command;
+use tokio::sync::mpsc;
+
+/// The first model of `~/LLMs`, if there is one.
+fn a_model() -> Option<PathBuf> {
+    let dir = PathBuf::from(std::env::var("HOME").ok()?).join("LLMs");
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut models: Vec<PathBuf> = entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "gguf"))
+        .collect();
+    models.sort();
+    models.into_iter().next()
+}
+
+/// The llama binary, if there is one.
+fn the_binary() -> Option<String> {
+    for candidate in ["llama", "llama-server"] {
+        if seek::which(candidate).is_some() {
+            return Some(candidate.to_string());
+        }
+    }
+    None
+}
+
+#[tokio::test]
+async fn a_local_model_answers_a_message() {
+    let (Some(binary), Some(model_path)) = (the_binary(), a_model()) else {
+        eprintln!("no llama binary or no model: the test skips itself");
+        return;
+    };
+
+    // A SEEK home with one model in it.
+    let home = std::env::temp_dir().join("seek-e2e-test");
+    let _ = std::fs::remove_dir_all(&home);
+    let models = home.join("models");
+    std::fs::create_dir_all(&models).expect("the folder is created");
+    let name = model_path.file_name().expect("the model has a name");
+    std::fs::copy(&model_path, models.join(name)).expect("the model is copied");
+
+    let runtime = Arc::new(Runtime::new(&home, &binary));
+    assert_eq!(runtime.local_models.len(), 1, "the model is found");
+
+    // A small context: the KV cache of the default context of the model is several gigabytes.
+    let sidecar = seek_local::model::Sidecar {
+        schema: 1,
+        port: None,
+        options: Some("--ctx-size 4096".into()),
+    };
+    sidecar
+        .write(&seek_local::model::sidecar_path(
+            &runtime.local_models[0].path,
+        ))
+        .expect("the sidecar is written");
+
+    let (command_tx, command_rx) = mpsc::channel::<Command>(16);
+    let (event_tx, mut event_rx) = mpsc::channel::<AgentEvent>(256);
+    let (widget_tx, _widget_rx) = mpsc::channel::<seek_core::WidgetOutput>(16);
+    let (permission_tx, mut permission_rx) = PermissionRequests::new();
+
+    tokio::spawn(seek::agent_loop(
+        command_rx,
+        event_tx,
+        widget_tx,
+        ProvidersConfig::default(),
+        permission_tx,
+        Arc::clone(&runtime),
+    ));
+
+    // The user picks the local model.
+    let model_id = runtime.local_models[0].id.clone();
+    command_tx
+        .send(Command::SwitchModel {
+            id: model_id.clone(),
+        })
+        .await
+        .expect("the command is sent");
+
+    // And sends a message.
+    command_tx
+        .send(Command::Submit {
+            text: "Say hello in three words.".into(),
+            mode: PermissionMode::Yolo,
+        })
+        .await
+        .expect("the command is sent");
+
+    // The server starts and the model answers.
+    let mut answer = String::new();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(300);
+    while tokio::time::Instant::now() < deadline {
+        let Ok(event) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), event_rx.recv()).await
+        else {
+            continue;
+        };
+        let Some(event) = event else { break };
+        match event {
+            AgentEvent::TextDelta(text) => answer.push_str(&text),
+            AgentEvent::TurnFinished(_) => break,
+            AgentEvent::Error(error) => panic!("the turn failed: {error}"),
+            _ => {}
+        }
+        // A permission request is answered with "yes", so the turn can finish.
+        if let Ok(request) = permission_rx.try_recv() {
+            let _ = request;
+        }
+    }
+
+    assert!(
+        !answer.trim().is_empty(),
+        "the local model answered something"
+    );
+
+    // The server is stopped when SEEK goes.
+    runtime.supervisor.lock().await.stop().await;
+}

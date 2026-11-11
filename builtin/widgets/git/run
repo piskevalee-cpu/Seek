@@ -1,0 +1,20 @@
+#!/bin/sh
+# The recent commits of the working directory.
+#
+# The widget runs in the working directory of the user, so `git` sees the project. The output is
+# at most eight lines of forty columns.
+
+if ! command -v git >/dev/null 2>&1; then
+	echo "git is not installed"
+	exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+	echo "not a git repository"
+	exit 1
+fi
+
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+echo "on ${branch}"
+
+git log --no-color --pretty=format:'%h %s' -n 6 2>/dev/null | cut -c1-40

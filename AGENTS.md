@@ -23,9 +23,16 @@ reference/          read-only third-party checkouts (gitignored)
 Upstream remote: `https://github.com/piskevalee-cpu/Seek.git` (the repo was renamed from
 `Seek-`; see `docs/DECISIONS.md` D-004). The crate and binary are named `seek`.
 
-**Milestone v0.1.0 is in progress**: workspace, CI, theme, logo, Home/Chat layout driven by a fake
-agent, prompt bar, spinners, footer, sidebar shell, reasoning show/hide. Later milestones are
-listed in `docs/SPEC.md` §15 — **do not implement features from later milestones.**
+**Milestones v0.1.0 to v0.7.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
+prompt bar, spinners, footer, sidebar shell, reasoning show/hide, the Anthropic and
+OpenAI-compatible providers, the model catalog, the configuration contracts, sessions, the
+pickers, the agent loop, the four tools, the permission matrix, the llama.cpp supervisor, the
+context accounting with the METRICS block, the skills, the external tool format, the toggles, the
+home widgets, `install.sh`, the rate limits and the `fetch` tool.
+
+Milestone v0.8.0/v0.9.0 is the hardening and the contract review; v1.0.0 freezes the contracts.
+Later milestones are listed in `docs/SPEC.md` §15 — **do not implement features from later
+milestones.**
 
 ## Commands
 
@@ -40,6 +47,10 @@ cargo build --workspace --release                  # release binaries
 ```
 
 Before every push: `cargo fmt && cargo clippy -- -D warnings && cargo test`.
+
+This machine has 15 GB of RAM and **no swap**. A full parallel build of this dependency tree plus
+a running local server can exhaust it and take the shell down with it. Build with `cargo build -j 2`
+or `cargo test -j 2` when a server is running, and keep the context of local servers small.
 
 ## Spec precedence (spec §0)
 
@@ -81,7 +92,8 @@ Before every push: `cargo fmt && cargo clippy -- -D warnings && cargo test`.
 - **The logo bitmap is generated.** `crates/seek-tui/src/logo_bitmap.rs` comes from
   `tools/extract_logo.py`; regenerate it with
   `python3 tools/extract_logo.py --out crates/seek-tui/src/logo_bitmap.rs` after changing
-  `assets/logo.png`. Never scale the PNG at runtime.
+  `assets/logo.png`. Never scale the PNG at runtime. The script finds the cell size from the
+  pitch of the letters, so it works for a scaled, anti-aliased asset as well.
 
 ## Architecture notes that are not obvious from the filenames
 
@@ -97,6 +109,52 @@ Before every push: `cargo fmt && cargo clippy -- -D warnings && cargo test`.
 - The thinking spinner is a 3x3 cube grid lit in the order 1 2 3 6 9 8 7 4 5, three cubes at a
   time. The loading spinner is a row of five cubes. `reduce_motion` (also `--reduce-motion`)
   replaces both with static text.
+- The provider interface (`Provider`, `ChatRequest`, `ProviderEvent`) lives in **seek-core**, not
+  seek-llm, because the agent loop in seek-core uses it. seek-llm re-exports it and implements it
+  for the two wire protocols.
+- The agent loop is `seek_core::r#loop::Agent` (`loop` is a Rust keyword, hence the raw
+  identifier). It owns the iteration limit, the tool timeout and the permission checks.
+- Permissions travel through `PermissionRequests`: the agent sends a request with an id, the UI
+  answers it with `Command::Permission { id, decision }`, and the binary hands the answer back.
+  The App never talks to the agent directly.
+- The permission matrix lives in `seek-core::permission`: reading is **always** allowed, writing
+  and running are denied in `read` mode and asked in `ask` mode. A path outside the project root
+  is always asked in `ask` mode.
+- The context accounting is in `seek-core::context`: the window, the used tokens (the usage of
+  the last response is the ground truth), the estimate and the turn statistics.
+- The METRICS block has exactly one home: the bottom of the sidebar when it is open, the line
+  under the prompt bar otherwise. A UI test checks that the counts appear exactly once.
+- The vitals are sampled at 1 Hz by `seek-tui::vitals`. The GPU needs the `nvml` feature; without
+  it the GPU and the video memory show a dash.
+- The skills are in `seek-core::skill` (the `SKILL.md` format of the Agent Skills
+  specification) and the toggles in `seek-core::toggles`. Only the name, the description and the
+  path of a skill go into the prompt; the body is loaded when the skill runs.
+- A skill runs with `/<name> <prompt>`; the body of the skill is inserted into that turn. The
+  built-in `init` skill lives in `builtin/init/SKILL.md` and is loaded from there when it is not
+  installed in `~/seek/skills`.
+- The external tools are in `seek-core::external`: `tool.toml`, `schema.json` and a `run`
+  executable that gets the arguments as JSON on stdin.
+- The widgets are in `seek-core::widget`: `widget.toml` and a `run` executable that prints up to
+  eight lines. The built-in ones live in `builtin/widgets/` (`git` and `usage`) and are installed
+  into `~/seek/widgets` by `install.sh`.
+- The rate limits are in `seek-llm::ratelimit`: the headers of the providers and the optional
+  `rpm` and `tpm` of the configuration. The state shows in the METRICS block only when the
+  provider reports one.
+- `install.sh` is idempotent: it never overwrites a file of the user.
+- The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
+  caps its output and says how to fetch the rest; `bash` runs in its own process group and
+  registers the process in the sidebar.
+- The local server lives in `seek-local`: `model` scans `~/seek/models`, `port` derives the port
+  from the model id, `options` strips the options SEEK owns and adds the implicit ones, and
+  `supervisor` starts `llama serve`, waits for the health check, reads `/props` and stops the
+  server as a whole process group.
+- The supervisor is tested against a **real** llama.cpp server in
+  `crates/seek-local/tests/supervisor.rs`. The test skips itself when there is no `llama` binary
+  or no model in `~/LLMs`.
+- **Memory:** a local server allocates the KV cache for its whole context. The default context of
+  the test model is 131072 tokens, which is a **6.5 GB** allocation — enough to OOM the machine
+  when a build runs at the same time. The tests start the server with `--ctx-size 4096`
+  (about 200 MB). If you start a server by hand, pass a small context too, or add swap.
 
 ## Dependencies
 
@@ -212,11 +270,21 @@ The clones are shallow and sparse. Refresh one with `git -C reference/<repo> pul
   `FakeProvider` for this.
 - Supervisor: a fake `llama-server` script (v0.4).
 - UI: ratatui `TestBackend` tests in `crates/seek-tui/tests/ui.rs` for Home, Chat, sidebar on/off,
-  the overlays and the ownership table. `cargo run -p seek-tui --example screenshot` prints the
-  rendered screens as text.
+  the overlays, the pickers, the permission selector and the ownership table.
+- End to end: `crates/seek-tui/tests/agent_flow.rs` drives the real agent loop with a scripted
+  provider and checks what lands in the transcript.
+- `cargo run -p seek-tui --example screenshot` prints the rendered screens as text.
 - Prompt budget: `crates/seek-core/tests/prompt_budget.rs`.
 
 Run one package with `cargo test -p seek-core`, one test with `cargo test -p seek-core <name>`.
+
+## Known gaps (deliberate, per the milestone order)
+
+- The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
+- The `fetch` tool is implemented but not in the default tool set: it is a network tool, so it
+  needs the `ask` mode (SPEC 9.4).
+- A background `bash` command leaves the process registry when the shell exits, even though the
+  child keeps running.
 
 ## Open questions for the owner (spec §16) — don't invent answers
 
