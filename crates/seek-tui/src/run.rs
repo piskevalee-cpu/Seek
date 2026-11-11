@@ -46,6 +46,9 @@ pub async fn run(
     let mut ticker = tokio::time::interval(Duration::from_millis(TICK_MS));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // The application starts: the first run asks which model to use.
+    app.update(Message::Start);
+
     loop {
         terminal.draw(|frame| app.view(frame))?;
 

@@ -391,6 +391,7 @@ fn the_model_picker_shows_local_models() {
 fn the_right_arrow_opens_the_launch_options() {
     let mut app = app();
     app.local_models = vec![a_local_model()];
+    app.llama_subcommand = Some("serve".into());
     for c in "/model".chars() {
         app.update(Message::Key(key(KeyCode::Char(c))));
     }
@@ -404,6 +405,31 @@ fn the_right_arrow_opens_the_launch_options() {
     // The implicit prefix is read-only.
     assert!(screen.contains("llama serve -m"));
     assert!(screen.contains("--host 127.0.0.1"));
+}
+
+#[test]
+fn the_first_run_asks_which_model_to_use() {
+    let mut app = app();
+    app.local_models = vec![a_local_model()];
+    app.update(Message::Start);
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("models"), "the picker is open");
+    assert!(screen.contains("LOCAL"), "the local model is in it");
+}
+
+#[test]
+fn the_first_run_asks_nothing_when_a_model_is_configured() {
+    let mut app = app();
+    app.local_models = vec![a_local_model()];
+    app.select_local_model("local/m");
+    app.model_configured = true;
+    app.update(Message::Start);
+
+    let screen = render(&mut app, 100, 30);
+    // The picker is closed; the footer still shows the LOCAL tag of the model.
+    assert!(!screen.contains("models"), "the picker stays closed");
+    assert!(screen.contains("LOCAL"), "the footer shows the tag");
 }
 
 #[test]

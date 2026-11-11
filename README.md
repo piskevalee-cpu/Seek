@@ -1,6 +1,6 @@
 # SEEK
 
-![SEEK](assets/logo.png)
+![SEEK](assets/logo-green.png)
 
 A thin, local-first coding-agent harness for the terminal. SEEK wraps a model with a loop, a
 small toolset and a TUI, and stays thin by design: a short system prompt, four default tools,
@@ -28,6 +28,10 @@ The project is being built milestone by milestone from the [specification](docs/
 | v0.6.0 | Skills, toggles, `/init` | planned |
 | v0.7.0 | Widgets, `install.sh`, rate limits, `fetch` | planned |
 | v1.0.0 | Contracts frozen | planned |
+
+The mark itself is `assets/logo.png`: the logo on a transparent background, cropped to its ink.
+`assets/logo-green.png` is the same mark on the brand green, and `assets/logo.pixil` is the
+editable design it was exported from.
 
 ## Build
 

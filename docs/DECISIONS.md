@@ -28,17 +28,25 @@ entry. Until the owner decides, the code resolves the server command by probing,
 
 ## D-002 — Theme colors sampled from the logo
 
-**Date:** 2026-11-11 · **Affects:** SPEC 12, SPEC 10.6
+**Date:** 2026-11-11 · **Affects:** SPEC 12, SPEC 10.6, SPEC 16.8
 
-SPEC 12 estimates a green background (`#22B14C`) with light gray (`#B5B5B5`) foreground and asks
+SPEC 12 estimates a green background (`#22B14C`) with light gray (`#B5B4B4`) foreground and asks
 for the exact values to be sampled from the PNG with a script.
 
-`assets/logo.png` is the green logo, 500x199. `tools/extract_logo.py` samples it:
+The assets are three files:
+
+| File | What it is |
+| --- | --- |
+| `assets/logo.png` | the mark on a transparent background, cropped to its ink (400x144) |
+| `assets/logo-green.png` | the same mark on the brand green (500x199) |
+| `assets/logo.pixil` | the editable design the two were exported from |
+
+`tools/extract_logo.py` samples them:
 
 | Token | Value | Source |
 | --- | --- | --- |
 | `cube_light` | `#B4B4B4` | sampled from the strokes of the logo |
-| `accent` | `#22B14C` | sampled from the background of the logo |
+| `accent` | `#22B14C` | sampled from the background of the green logo |
 | `bg` | `#141617` | the background of the terminal, **not** of the logo |
 | `cube_dark` | `#2C2E2F` | an unlit cube |
 | `dim` | `#7C7D7E` | the dimmed text |
@@ -46,14 +54,19 @@ for the exact values to be sampled from the PNG with a script.
 **Status:** accepted. The `bg` token is deliberately dark: a green terminal is unreadable, and the
 logo keeps its green in the asset.
 
+**The transparent variant exists now**, which closes SPEC 16 question 8.
+
 **The extraction.** The script finds the cell size from the pitch of the letters (the letters of
 the pixel font are three cells wide and one cell apart, so the pitch of two letters is four
 cells) and takes the bounding box of the ink as the grid. That works for the pixel-perfect source
-and for a scaled, anti-aliased rendering of the same logo, which is what the asset turned out to
-be: 18.75px cells against 35px cells for the same 25x9 grid.
+(35px cells), for a scaled and anti-aliased rendering (18.75px cells) and for the transparent one
+(16px cells): all three give the same 25x9 grid.
 
-**Open:** the transparent-background variant of the logo is still missing (SPEC 16, question 8).
-The terminal never scales the PNG: the grid is extracted once and committed as a constant.
+The levels are measured against the ink when the background is transparent, and against the
+background when it is a color, so the anti-aliased edges of the green logo stay out of the grid.
+
+**Open:** nothing. The terminal never scales the PNG: the grid is extracted once and committed as a
+constant.
 
 ## D-003 — Reasoning support is detected via `chat_template_caps`
 
@@ -80,3 +93,31 @@ renamed the repository to `Seek`; GitHub keeps `Seek-` as a redirect to the new 
 
 **Status:** accepted. The remote is `https://github.com/piskevalee-cpu/Seek.git` and SPEC 2.1 has
 been updated. The crate and binary remain `seek`.
+
+## D-005 — The license stays undecided
+
+**Date:** 2026-11-11 · **Affects:** SPEC 2.1, SPEC 16.2
+
+The repository has no license yet. The owner keeps it that way for now.
+
+**Status:** open. The release archives have no LICENSE file yet, and the Cargo metadata has no
+`license` field. Both have to be settled before the crates are published.
+
+## D-006 — The first run asks which model to use
+
+**Date:** 2026-11-11 · **Affects:** SPEC 16.7
+
+Nothing is configured on the first run. SEEK opens the model picker and asks, instead of guessing
+a default provider, model or reasoning level.
+
+**Status:** accepted. The picker opens when the application starts and a model has not been chosen
+yet, and a local model in `~/seek/models` is enough to make the question worth asking.
+
+## D-007 — The fetch tool is the only network tool
+
+**Date:** 2026-11-11 · **Affects:** SPEC 9.3, SPEC 16.3
+
+There is no browser tool. The `fetch` tool reads a URL and returns it as text.
+
+**Status:** accepted. A browser needs a browser on the machine and is a much bigger thing to
+maintain; `fetch` covers the common case.

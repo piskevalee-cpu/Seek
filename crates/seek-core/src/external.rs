@@ -87,13 +87,8 @@ impl ExternalTool {
             )));
         }
 
-        let mut child = tokio::process::Command::new(&program)
-            .current_dir(&self.dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
+        let mut child = spawn_with_retry(&program, &self.dir)
+            .await
             .map_err(|error| ToolError::Failed(format!("could not start the tool: {error}")))?;
 
         if let Some(mut stdin) = child.stdin.take() {
@@ -134,6 +129,38 @@ impl ExternalTool {
             )))
         }
     }
+}
+
+/// The error number of "the file is still busy" on Linux.
+const TEXT_FILE_BUSY: i32 = 26;
+
+/// Start an executable, waiting for it when the file is still busy.
+///
+/// A program that was written a moment ago can still be open for writing; the kernel refuses to
+/// run it with `ETXTBSY`. That is over in a moment, so it is waited out.
+async fn spawn_with_retry(
+    program: &Path,
+    directory: &Path,
+) -> Result<tokio::process::Child, std::io::Error> {
+    let mut last_error = None;
+    for attempt in 0..3 {
+        match tokio::process::Command::new(program)
+            .current_dir(directory)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+        {
+            Ok(child) => return Ok(child),
+            Err(error) if error.raw_os_error() == Some(TEXT_FILE_BUSY) => {
+                last_error = Some(error);
+                tokio::time::sleep(std::time::Duration::from_millis(50 * (attempt + 1))).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| std::io::Error::other("the tool could not be started")))
 }
 
 /// Scan a folder for external tools.

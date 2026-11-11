@@ -158,6 +158,8 @@ fn signal_group(pid: u32, signal: i32) {
 pub struct Supervisor {
     client: reqwest::Client,
     binary: String,
+    /// The subcommand that starts the server; empty for the legacy binary.
+    subcommand: Option<String>,
     logs: Arc<Mutex<LogBuffer>>,
     state_dir: PathBuf,
     running: Option<RunningServer>,
@@ -166,10 +168,14 @@ pub struct Supervisor {
 
 impl Supervisor {
     /// A supervisor that runs `binary`.
-    pub fn new(binary: impl Into<String>, state_dir: PathBuf) -> Self {
+    ///
+    /// The `subcommand` is the one that starts the server: `serve` for the unified `llama`
+    /// binary, nothing for the legacy `llama-server` (DECISIONS.md D-001).
+    pub fn new(binary: impl Into<String>, subcommand: Option<String>, state_dir: PathBuf) -> Self {
         Supervisor {
             client: reqwest::Client::new(),
             binary: binary.into(),
+            subcommand: subcommand.filter(|subcommand| !subcommand.is_empty()),
             logs: Arc::new(Mutex::new(LogBuffer::default())),
             state_dir,
             running: None,
@@ -225,7 +231,7 @@ impl Supervisor {
     ) -> Result<(), LocalError> {
         self.stop().await;
 
-        let command = options.command(&self.binary, &model.path, port);
+        let command = options.command(&self.binary, self.subcommand.as_deref(), &model.path, port);
         let mut builder = Command::new(&command[0]);
         builder
             .args(&command[1..])
@@ -437,7 +443,11 @@ mod tests {
 
     #[test]
     fn the_port_of_the_model_is_used() {
-        let supervisor = Supervisor::new("llama", PathBuf::from("/tmp/seek-state"));
+        let supervisor = Supervisor::new(
+            "llama",
+            Some("serve".into()),
+            PathBuf::from("/tmp/seek-state"),
+        );
         assert!(!supervisor.is_running());
         assert_eq!(supervisor.port(), None);
     }
@@ -448,7 +458,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("created");
         std::fs::write(dir.join("pids"), "999999\n").expect("written");
-        let supervisor = Supervisor::new("llama", dir.clone());
+        let supervisor = Supervisor::new("llama", Some("serve".into()), dir.clone());
         supervisor.kill_orphans();
         assert!(!dir.join("pids").exists());
     }

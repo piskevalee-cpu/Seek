@@ -101,13 +101,7 @@ impl Widget {
         }
 
         // The widget inherits the working directory of the user, so it sees the project.
-        let child = match tokio::process::Command::new(&program)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true)
-            .spawn()
-        {
+        let child = match spawn_with_retry(&program).await {
             Ok(child) => child,
             Err(_) => {
                 return WidgetOutput::failed(&self.config.name, &self.config.title);
@@ -144,6 +138,34 @@ impl Widget {
             failed: false,
         }
     }
+}
+
+/// The error number of "the file is still busy" on Linux.
+const TEXT_FILE_BUSY: i32 = 26;
+
+/// Start an executable, waiting for it when the file is still busy.
+///
+/// A widget that was written a moment ago can still be open for writing; the kernel refuses to
+/// run it with `ETXTBSY`. That is over in a moment, so it is waited out.
+async fn spawn_with_retry(program: &Path) -> std::io::Result<tokio::process::Child> {
+    let mut last_error = None;
+    for attempt in 0..3 {
+        match tokio::process::Command::new(program)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+        {
+            Ok(child) => return Ok(child),
+            Err(error) if error.raw_os_error() == Some(TEXT_FILE_BUSY) => {
+                last_error = Some(error);
+                tokio::time::sleep(Duration::from_millis(50 * (attempt + 1))).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| std::io::Error::other("the widget could not be started")))
 }
 
 /// Scan a folder for widgets.

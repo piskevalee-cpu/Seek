@@ -59,7 +59,7 @@ async fn the_supervisor_starts_a_server_and_reads_its_properties() {
     assert_eq!(local.len(), 1, "the model is found");
     let model = &local[0];
 
-    let mut supervisor = Supervisor::new(binary, home.join("state"));
+    let mut supervisor = Supervisor::new(binary, Some("serve".into()), home.join("state"));
     // A small context: the KV cache of the default context of the model is several gigabytes.
     let options = LaunchOptions::parse("--ctx-size 4096");
     let port = 8321;
@@ -115,7 +115,7 @@ async fn the_supervisor_stops_the_server_it_started() {
     let local = scan(&models);
     let model = &local[0];
 
-    let mut supervisor = Supervisor::new(binary, home.join("state"));
+    let mut supervisor = Supervisor::new(binary, Some("serve".into()), home.join("state"));
     // A small context: the KV cache of the default context of the model is several gigabytes.
     let options = LaunchOptions::parse("--ctx-size 4096");
     supervisor

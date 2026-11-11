@@ -47,11 +47,11 @@ pub struct Runtime {
 
 impl Runtime {
     /// The runtime for a SEEK home.
-    pub fn new(home: &Path, binary: &str) -> Self {
+    pub fn new(home: &Path, binary: &str, subcommand: Option<String>) -> Self {
         let models_dir = home.join(seek_local::MODELS_DIR);
         let local_models = seek_local::model::scan(&models_dir);
         let state_dir = seek_local::supervisor::state_dir(home);
-        let supervisor = Supervisor::new(binary.to_string(), state_dir.clone());
+        let supervisor = Supervisor::new(binary.to_string(), subcommand, state_dir.clone());
         // A server of a previous run does not survive SEEK.
         supervisor.kill_orphans();
 
@@ -507,23 +507,38 @@ pub fn load_providers(home: &Path) -> ProvidersConfig {
     ProvidersConfig::read(&path).unwrap_or_default()
 }
 
-/// The llama.cpp binary: the one in the config, else `llama` on the PATH.
+/// The llama.cpp binary and the subcommand that starts the server.
 ///
-/// The spec still says `llama-server`, but the shipped llama.cpp since 0.9.0 is one `llama`
-/// binary whose server is the `serve` subcommand (DECISIONS.md D-001).
-pub fn find_llama(home: &Path) -> String {
-    if let Ok(config) = seek_core::Config::read(&home.join(seek_core::config::CONFIG_FILE))
-        && let Some(path) = config.llama_server_path
-    {
-        return path;
+/// The spec says `llama-server`, but the shipped llama.cpp since 0.9.0 is one `llama` binary
+/// whose server is the `serve` subcommand (DECISIONS.md D-001). The config points at the binary
+/// and at the subcommand; the legacy binary has no subcommand at all.
+pub fn find_llama(home: &Path) -> (String, Option<String>) {
+    if let Ok(config) = seek_core::Config::read(&home.join(seek_core::config::CONFIG_FILE)) {
+        let (path, subcommand) = config.llama_command();
+        if config.llama_path.is_some() {
+            return (path, subcommand);
+        }
     }
     if which("llama").is_some() {
-        return "llama".to_string();
+        return ("llama".to_string(), Some("serve".to_string()));
     }
     if which("llama-server").is_some() {
-        return "llama-server".to_string();
+        // The legacy binary is the server itself.
+        return ("llama-server".to_string(), None);
     }
-    "llama".to_string()
+    ("llama".to_string(), Some("serve".to_string()))
+}
+
+/// Read the configuration and migrate it, if it is old.
+pub fn load_config(home: &Path) -> seek_core::Config {
+    let path = home.join(seek_core::config::CONFIG_FILE);
+    let Ok(mut config) = seek_core::Config::read(&path) else {
+        return seek_core::Config::default();
+    };
+    if config.migrate() {
+        let _ = config.write(&path);
+    }
+    config
 }
 
 /// The path of a program on `PATH`.
