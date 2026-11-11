@@ -100,10 +100,10 @@ impl ExternalTool {
             let payload = serde_json::to_vec(input)
                 .map_err(|error| ToolError::InvalidInput(error.to_string()))?;
             use tokio::io::AsyncWriteExt;
-            stdin
-                .write_all(&payload)
-                .await
-                .map_err(|error| ToolError::Failed(format!("the tool did not read: {error}")))?;
+            // A tool that does not read its input closes the pipe; that is not a failure of the
+            // tool, so the broken pipe is ignored. What the tool answered is what counts.
+            let _ = stdin.write_all(&payload).await;
+            let _ = stdin.shutdown().await;
         }
 
         let timeout = self.config.timeout();
@@ -230,6 +230,16 @@ mod tests {
             .expect("the tool runs");
         assert!(output.contains("who"));
         assert!(output.contains("world"));
+    }
+
+    #[tokio::test]
+    async fn a_tool_that_exits_at_once_is_still_reported() {
+        // The tool does not read its input, so the pipe is closed while the arguments are
+        // written. That is not a failure of the tool.
+        let dir = temp_dir("early-exit");
+        let tool = a_tool(&dir, "#!/bin/sh\nexit 3\n");
+        let error = tool.run(&serde_json::json!({})).await.unwrap_err();
+        assert!(error.to_string().contains("exited with 3"), "{error}");
     }
 
     #[tokio::test]
