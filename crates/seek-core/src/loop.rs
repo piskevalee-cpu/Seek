@@ -54,6 +54,12 @@ pub struct ToolRegistry {
     pub write: Option<WriteTool>,
     pub edit: Option<EditTool>,
     pub bash: Option<BashTool>,
+    /// The read-only helpers; they are off by default (SPEC 9.2).
+    pub ls: Option<crate::tools::LsTool>,
+    pub grep: Option<crate::tools::GrepTool>,
+    pub find: Option<crate::tools::FindTool>,
+    /// The network tools; they are off by default (SPEC 9.4).
+    pub fetch: Option<crate::tools::FetchTool>,
 }
 
 /// The agent: a provider, the tools and the permission mode.
@@ -335,6 +341,38 @@ impl Agent {
                         .ok_or_else(|| ToolError::NotFound("bash is off".into()))?;
                     tool.call(input).await
                 }
+                "ls" => {
+                    let tool = self
+                        .tools
+                        .ls
+                        .as_ref()
+                        .ok_or_else(|| ToolError::NotFound("ls is off".into()))?;
+                    tool.call(input).await
+                }
+                "grep" => {
+                    let tool = self
+                        .tools
+                        .grep
+                        .as_ref()
+                        .ok_or_else(|| ToolError::NotFound("grep is off".into()))?;
+                    tool.call(input).await
+                }
+                "find" => {
+                    let tool = self
+                        .tools
+                        .find
+                        .as_ref()
+                        .ok_or_else(|| ToolError::NotFound("find is off".into()))?;
+                    tool.call(input).await
+                }
+                "fetch" => {
+                    let tool = self
+                        .tools
+                        .fetch
+                        .as_ref()
+                        .ok_or_else(|| ToolError::NotFound("fetch is off".into()))?;
+                    tool.call(input).await
+                }
                 other => {
                     // An external tool runs its own executable.
                     let Some(tool) = self
@@ -394,6 +432,18 @@ impl Agent {
         }
         if self.tools.bash.is_some() {
             schemas.push(crate::tools::bash_schema());
+        }
+        if self.tools.ls.is_some() {
+            schemas.push(crate::tools::ls_schema());
+        }
+        if self.tools.grep.is_some() {
+            schemas.push(crate::tools::grep_schema());
+        }
+        if self.tools.find.is_some() {
+            schemas.push(crate::tools::find_schema());
+        }
+        if self.tools.fetch.is_some() {
+            schemas.push(crate::tools::fetch_schema());
         }
         for tool in &self.external_tools {
             schemas.push(tool.tool_schema());
@@ -545,6 +595,10 @@ mod tests {
             write: Some(WriteTool::new(root.clone())),
             edit: Some(EditTool::new(root.clone())),
             bash: Some(BashTool::new(root.clone(), processes.clone())),
+            ls: None,
+            grep: None,
+            find: None,
+            fetch: None,
         };
         let (permissions, requests) = PermissionRequests::new();
         (

@@ -66,6 +66,10 @@ fn agent(provider: Arc<dyn Provider>, mode: PermissionMode, root: std::path::Pat
         write: Some(WriteTool::new(root.clone())),
         edit: Some(EditTool::new(root.clone())),
         bash: Some(BashTool::new(root.clone(), processes.clone())),
+        ls: None,
+        grep: None,
+        find: None,
+        fetch: None,
     };
     let (permissions, _requests) = PermissionRequests::new();
     Agent::new(provider, tools, mode, root, processes, permissions)

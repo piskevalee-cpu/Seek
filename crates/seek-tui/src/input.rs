@@ -8,11 +8,19 @@
 
 /// The slash commands the prompt bar offers.
 pub const SLASH_COMMANDS: &[(&str, &str)] = &[
+    ("/compact", "Summarize the older turns"),
     ("/help", "Show the key reference"),
+    ("/mode", "Set the permission mode"),
     ("/model", "Pick a model"),
+    ("/new", "Start a new session"),
     ("/provider", "Add or edit providers"),
     ("/quit", "Exit SEEK"),
+    ("/resume", "Open the sessions"),
+    ("/skills", "Toggle the skills"),
+    ("/think", "Set the reasoning level"),
     ("/thoughts", "Show or hide reasoning text"),
+    ("/tools", "Toggle the tools"),
+    ("/truncate", "Drop the oldest turns"),
 ];
 
 /// A multi-line text input.
@@ -319,11 +327,25 @@ mod tests {
     fn suggestions_only_appear_for_a_slash() {
         let mut input = Input::new();
         assert!(input.suggestions().is_empty());
-        for c in "/th".chars() {
+        for c in "/thoughts".chars() {
             input.insert_char(c);
         }
         assert_eq!(input.suggestions(), vec!["/thoughts"]);
+        assert_eq!(input.slash_command(), Some("/thoughts"));
+
+        // A prefix that is not a command yet is not one.
+        let mut input = Input::new();
+        for c in "/th".chars() {
+            input.insert_char(c);
+        }
         assert_eq!(input.slash_command(), None);
+
+        // A shorter prefix offers every command that starts with it.
+        let mut input = Input::new();
+        for c in "/th".chars() {
+            input.insert_char(c);
+        }
+        assert_eq!(input.suggestions(), vec!["/think", "/thoughts"]);
     }
 
     #[test]

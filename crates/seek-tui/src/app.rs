@@ -169,6 +169,8 @@ pub struct App {
     pub current: Option<ModelInfo>,
     /// The reasoning level of the current model.
     pub reasoning: Option<String>,
+    /// The last level that was not off, so that `/think` can toggle back to it (SPEC 9.7).
+    pub last_reasoning: Option<String>,
     /// What the prompt bar is doing.
     pub prompt_mode: PromptMode,
     /// The processes the agent started.
@@ -239,6 +241,7 @@ impl App {
             catalog: bundled_models(),
             current: None,
             reasoning: None,
+            last_reasoning: None,
             prompt_mode: PromptMode::Normal,
             processes: None,
             process_selected: 0,
@@ -653,6 +656,14 @@ impl App {
         };
 
         match picker.title.as_str() {
+            "mode" => {
+                if let Some(value) = picker.selected_item().map(|item| item.value.clone())
+                    && let Some(label) = value.strip_prefix("mode:")
+                    && let Some(mode) = PermissionMode::parse(label)
+                {
+                    self.mode = mode;
+                }
+            }
             "skills" => {
                 for item in &picker.items {
                     if let Some(checked) = item.checked {
@@ -802,7 +813,11 @@ impl App {
             .position(|variant| Some(&variant.id) == self.reasoning.as_ref())
             .map(|index| (index + 1) % model.variants.len())
             .unwrap_or(0);
-        self.reasoning = Some(model.variants[index].id.clone());
+        let level = model.variants[index].id.clone();
+        self.reasoning = Some(level.clone());
+        if level != "off" {
+            self.last_reasoning = Some(level);
+        }
         true
     }
 
@@ -815,6 +830,9 @@ impl App {
             return false;
         }
         self.reasoning = Some(level.to_string());
+        if level != "off" {
+            self.last_reasoning = Some(level.to_string());
+        }
         true
     }
 
@@ -856,6 +874,60 @@ impl App {
             }
         }
         Picker::new("models", items).tap_hint("Enter to choose, Esc to close")
+    }
+
+    /// The picker for `/mode`: the three permission modes.
+    fn mode_picker(&self) -> Picker {
+        let items = [
+            (PermissionMode::Read, "read only"),
+            (PermissionMode::Ask, "ask before writing or running"),
+            (PermissionMode::Yolo, "allow everything"),
+        ]
+        .into_iter()
+        .map(|(mode, description)| {
+            let label = mode.label();
+            let checked = self.mode == mode;
+            PickerItem::new(label, format!("mode:{label}"))
+                .with_check(checked)
+                .with_detail(description)
+        })
+        .collect();
+        Picker::new("mode", items).tap_hint("Enter to choose, Esc to close")
+    }
+
+    /// Toggle the reasoning level: off and the last one that was not off.
+    fn toggle_reasoning(&mut self) {
+        let Some(model) = &self.current else {
+            self.rows.push(Row::Error(
+                "reasoning is not configurable for this model".to_string(),
+            ));
+            return;
+        };
+        if !model.has_variants() {
+            self.rows.push(Row::Error(
+                "reasoning is not configurable for this model".to_string(),
+            ));
+            return;
+        }
+        if self.reasoning.as_deref() == Some("off") {
+            // The last level that was not off, else the first one.
+            let level = self
+                .last_reasoning
+                .clone()
+                .or_else(|| {
+                    model
+                        .variants
+                        .iter()
+                        .find(|variant| variant.id != "off")
+                        .map(|variant| variant.id.clone())
+                })
+                .unwrap_or_else(|| "off".to_string());
+            self.set_reasoning(&level);
+        } else {
+            let level = self.reasoning.clone();
+            self.reasoning = Some("off".to_string());
+            self.last_reasoning = level;
+        }
     }
 
     /// The picker for `/skills`: a checklist of the installed skills.
@@ -1028,6 +1100,19 @@ impl App {
         }
         self.input = Input::new();
 
+        // `/think <level>` sets the level of the model.
+        if let Some(level) = text.strip_prefix("/think ") {
+            let level = level.trim();
+            if !level.is_empty() {
+                if !self.set_reasoning(level) {
+                    self.rows.push(Row::Error(
+                        "reasoning is not configurable for this model".to_string(),
+                    ));
+                }
+                return None;
+            }
+        }
+
         if let Some(command) = self.slash_command(&text) {
             return self.run_slash_command(command);
         }
@@ -1073,6 +1158,28 @@ impl App {
             }
             "/thoughts" => {
                 self.show_reasoning = !self.show_reasoning;
+                None
+            }
+            "/mode" => {
+                self.overlay = Some(Overlay::Picker(self.mode_picker()));
+                None
+            }
+            "/think" => {
+                // With no argument, the level toggles between off and the last one (SPEC 9.7).
+                self.toggle_reasoning();
+                None
+            }
+            "/new" => {
+                // A new session: the transcript starts empty again.
+                self.rows.clear();
+                self.queued.clear();
+                self.scroll = 0;
+                self.selected = None;
+                None
+            }
+            "/resume" => {
+                // The sidebar opens on the sessions (SPEC 10.2).
+                self.sidebar.open = true;
                 None
             }
             "/compact" => {
@@ -1131,6 +1238,10 @@ impl App {
             "/provider" => Some("/provider"),
             "/compact" => Some("/compact"),
             "/skills" => Some("/skills"),
+            "/mode" => Some("/mode"),
+            "/think" => Some("/think"),
+            "/new" => Some("/new"),
+            "/resume" => Some("/resume"),
             "/tools" => Some("/tools"),
             "/truncate" => Some("/truncate"),
             _ => None,

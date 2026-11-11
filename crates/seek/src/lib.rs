@@ -259,6 +259,18 @@ pub async fn agent_loop(
                     bash: toggles
                         .tool_enabled("bash")
                         .then(|| BashTool::new(root.clone(), processes.clone())),
+                    ls: toggles
+                        .tool_enabled("ls")
+                        .then(|| seek_core::tools::LsTool::new(root.clone())),
+                    grep: toggles
+                        .tool_enabled("grep")
+                        .then(|| seek_core::tools::GrepTool::new(root.clone())),
+                    find: toggles
+                        .tool_enabled("find")
+                        .then(|| seek_core::tools::FindTool::new(root.clone())),
+                    fetch: toggles
+                        .tool_enabled("fetch")
+                        .then(seek_core::tools::FetchTool::new),
                 };
                 let external_tools: Vec<_> = runtime
                     .external_tools

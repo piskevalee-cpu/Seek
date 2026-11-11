@@ -701,3 +701,72 @@ fn the_rate_limit_only_shows_when_it_is_reported() {
     let screen = render(&mut app, 100, 30);
     assert!(screen.contains("49/50"));
 }
+
+#[test]
+fn the_mode_picker_sets_the_permission_mode() {
+    let mut app = app();
+    for c in "/mode".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("ASK"));
+
+    // Choose "read": the first one.
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.mode, seek_tui::PermissionMode::Read);
+}
+
+#[test]
+fn the_think_command_toggles_the_reasoning_level() {
+    let mut app = app();
+    app.select_model("claude-sonnet-4-5");
+    assert_eq!(app.reasoning.as_deref(), Some("medium"));
+
+    for c in "/think".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.reasoning.as_deref(), Some("off"));
+
+    // And back on.
+    for c in "/think".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.reasoning.as_deref(), Some("medium"));
+}
+
+#[test]
+fn the_think_command_takes_a_level() {
+    let mut app = app();
+    app.select_model("claude-sonnet-4-5");
+    for c in "/think high".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.reasoning.as_deref(), Some("high"));
+}
+
+#[test]
+fn a_new_session_clears_the_transcript() {
+    let mut app = app();
+    app.rows.push(Row::User("hello".into()));
+    for c in "/new".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert!(app.rows.is_empty());
+}
+
+#[test]
+fn resume_opens_the_sidebar() {
+    let mut app = app();
+    assert!(!app.sidebar.open);
+    for c in "/resume".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert!(app.sidebar.open);
+}

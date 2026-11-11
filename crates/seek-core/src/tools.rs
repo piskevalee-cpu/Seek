@@ -95,6 +95,36 @@ pub fn edit_schema() -> ToolSchema {
     )
 }
 
+/// The schema of the `ls` tool.
+pub fn ls_schema() -> ToolSchema {
+    ToolSchema::new(
+        "ls",
+        "List a directory.",
+        r#"{"type":"object","properties":{"path":{"type":"string"}}}"#,
+        Risk::Read,
+    )
+}
+
+/// The schema of the `grep` tool.
+pub fn grep_schema() -> ToolSchema {
+    ToolSchema::new(
+        "grep",
+        "Search the files of a directory for a pattern.",
+        r#"{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}"#,
+        Risk::Read,
+    )
+}
+
+/// The schema of the `find` tool.
+pub fn find_schema() -> ToolSchema {
+    ToolSchema::new(
+        "find",
+        "Find the files of a directory by name.",
+        r#"{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}"#,
+        Risk::Read,
+    )
+}
+
 /// The schema of the `fetch` tool.
 pub fn fetch_schema() -> ToolSchema {
     ToolSchema::new(
@@ -391,6 +421,150 @@ impl Tool for EditTool {
     }
 }
 
+/// Lists a directory.
+#[derive(Debug, Clone)]
+pub struct LsTool {
+    root: PathBuf,
+}
+
+impl LsTool {
+    pub fn new(root: PathBuf) -> Self {
+        LsTool { root }
+    }
+
+    /// The entries of the directory.
+    pub fn list(&self, path: Option<&str>) -> Result<String, ToolError> {
+        let directory = match path {
+            Some(path) => resolve(&self.root, path),
+            None => self.root.clone(),
+        };
+        let entries = std::fs::read_dir(&directory)
+            .map_err(|error| ToolError::Failed(format!("{}: {error}", directory.display())))?;
+
+        let mut lines: Vec<String> = Vec::new();
+        let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+        entries.sort_by_key(|entry| entry.file_name());
+
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let kind = match entry.file_type() {
+                Ok(file_type) if file_type.is_dir() => "/",
+                Ok(file_type) if file_type.is_symlink() => "@",
+                _ => "",
+            };
+            lines.push(format!("{name}{kind}"));
+            if lines.len() >= MAX_LINES {
+                break;
+            }
+        }
+        Ok(cap_output(&lines.join("\n")))
+    }
+}
+
+/// Searches the files of a directory for a pattern.
+#[derive(Debug, Clone)]
+pub struct GrepTool {
+    root: PathBuf,
+}
+
+impl GrepTool {
+    pub fn new(root: PathBuf) -> Self {
+        GrepTool { root }
+    }
+
+    /// The lines that match.
+    pub fn search(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+        let directory = match path {
+            Some(path) => resolve(&self.root, path),
+            None => self.root.clone(),
+        };
+        let mut lines: Vec<String> = Vec::new();
+
+        for entry in walk(&directory) {
+            if lines.len() >= MAX_LINES {
+                break;
+            }
+            let Ok(text) = std::fs::read_to_string(&entry) else {
+                continue;
+            };
+            for (number, line) in text.lines().enumerate() {
+                if line.contains(pattern) {
+                    lines.push(format!(
+                        "{}:{}: {}",
+                        entry.strip_prefix(&self.root).unwrap_or(&entry).display(),
+                        number + 1,
+                        line.trim()
+                    ));
+                    if lines.len() >= MAX_LINES {
+                        break;
+                    }
+                }
+            }
+        }
+        Ok(cap_output(&lines.join("\n")))
+    }
+}
+
+/// Finds the files of a directory by name.
+#[derive(Debug, Clone)]
+pub struct FindTool {
+    root: PathBuf,
+}
+
+impl FindTool {
+    pub fn new(root: PathBuf) -> Self {
+        FindTool { root }
+    }
+
+    /// The files whose name matches.
+    pub fn find(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+        let directory = match path {
+            Some(path) => resolve(&self.root, path),
+            None => self.root.clone(),
+        };
+        let mut lines: Vec<String> = Vec::new();
+        for entry in walk(&directory) {
+            let name = entry
+                .file_name()
+                .map(|name| name.to_string_lossy().to_string())
+                .unwrap_or_default();
+            if name.contains(pattern) {
+                lines.push(
+                    entry
+                        .strip_prefix(&self.root)
+                        .unwrap_or(&entry)
+                        .display()
+                        .to_string(),
+                );
+                if lines.len() >= MAX_LINES {
+                    break;
+                }
+            }
+        }
+        Ok(cap_output(&lines.join("\n")))
+    }
+}
+
+/// The files of a directory, without the ones the git ignores.
+fn walk(directory: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in ignore::WalkBuilder::new(directory)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(false)
+        .build()
+        .flatten()
+    {
+        if entry.file_type().is_some_and(|kind| kind.is_file()) {
+            files.push(entry.path().to_path_buf());
+        }
+        if files.len() >= 2_000 {
+            break;
+        }
+    }
+    files
+}
+
 /// Fetches a URL and returns it as text.
 #[derive(Debug, Clone)]
 pub struct FetchTool {
@@ -437,6 +611,71 @@ impl FetchTool {
             .await
             .map_err(|error| ToolError::Failed(format!("could not read {url}: {error}")))?;
         Ok(cap_output(&text))
+    }
+}
+
+/// The `ls` tool.
+impl Tool for LsTool {
+    fn schema(&self) -> ToolSchema {
+        ls_schema()
+    }
+
+    fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let path = input.get("path").and_then(Value::as_str);
+            let content = self.list(path)?;
+            Ok(ToolOutput {
+                id: String::new(),
+                name: "ls".into(),
+                content,
+                is_error: false,
+                duration: Duration::ZERO,
+            })
+        })
+    }
+}
+
+/// The `grep` tool.
+impl Tool for GrepTool {
+    fn schema(&self) -> ToolSchema {
+        grep_schema()
+    }
+
+    fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let pattern = string_field(&input, "pattern")?;
+            let path = input.get("path").and_then(Value::as_str);
+            let content = self.search(&pattern, path)?;
+            Ok(ToolOutput {
+                id: String::new(),
+                name: "grep".into(),
+                content,
+                is_error: false,
+                duration: Duration::ZERO,
+            })
+        })
+    }
+}
+
+/// The `find` tool.
+impl Tool for FindTool {
+    fn schema(&self) -> ToolSchema {
+        find_schema()
+    }
+
+    fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let pattern = string_field(&input, "pattern")?;
+            let path = input.get("path").and_then(Value::as_str);
+            let content = self.find(&pattern, path)?;
+            Ok(ToolOutput {
+                id: String::new(),
+                name: "find".into(),
+                content,
+                is_error: false,
+                duration: Duration::ZERO,
+            })
+        })
     }
 }
 
@@ -592,6 +831,35 @@ mod tests {
             .with_timeout(Duration::from_millis(200));
         // The command sleeps; the tool waits for it, so the test only checks that it returns.
         let _ = tool.run("sleep 5");
+    }
+
+    #[test]
+    fn listing_a_directory_shows_the_entries() {
+        let dir = temp_dir("ls");
+        std::fs::write(dir.join("a.txt"), b"x").expect("written");
+        std::fs::create_dir_all(dir.join("sub")).expect("created");
+        let tool = LsTool::new(dir.clone());
+        let out = tool.list(None).expect("listed");
+        assert!(out.contains("a.txt"));
+        assert!(out.contains("sub/"));
+    }
+
+    #[test]
+    fn searching_finds_the_lines() {
+        let dir = temp_dir("grep");
+        std::fs::write(dir.join("a.txt"), b"one\ntwo\nthree").expect("written");
+        let tool = GrepTool::new(dir.clone());
+        let out = tool.search("two", None).expect("searched");
+        assert!(out.contains("a.txt:2: two"), "{out}");
+    }
+
+    #[test]
+    fn finding_shows_the_paths() {
+        let dir = temp_dir("find");
+        std::fs::write(dir.join("needle.txt"), b"x").expect("written");
+        let tool = FindTool::new(dir.clone());
+        let out = tool.find("needle", None).expect("found");
+        assert!(out.contains("needle.txt"), "{out}");
     }
 
     #[tokio::test]
