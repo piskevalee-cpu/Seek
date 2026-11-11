@@ -64,8 +64,14 @@ impl AnthropicProvider {
             "stream": true,
         });
 
-        if let Some(system) = system {
-            body["system"] = system;
+        // The system prompt of the request wins over the system messages of the history.
+        match &request.system {
+            Some(prompt) => body["system"] = json!({ "type": "text", "text": prompt }),
+            None => {
+                if let Some(system) = system {
+                    body["system"] = system;
+                }
+            }
         }
         body["messages"] = Value::Array(messages);
 

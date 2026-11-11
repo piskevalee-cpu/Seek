@@ -16,6 +16,8 @@ use crate::theme::Theme;
 pub struct PickerItem {
     /// The main text.
     pub label: String,
+    /// Whether the item is checked. A checked list is a checklist.
+    pub checked: Option<bool>,
     /// A second line with details.
     pub detail: String,
     /// The group the item belongs to, e.g. the provider name.
@@ -30,10 +32,24 @@ impl PickerItem {
     pub fn new(label: impl Into<String>, value: impl Into<String>) -> Self {
         PickerItem {
             label: label.into(),
+            checked: None,
             detail: String::new(),
             group: None,
             tag: None,
             value: value.into(),
+        }
+    }
+
+    /// Make the item a checkbox.
+    pub fn with_check(mut self, checked: bool) -> Self {
+        self.checked = Some(checked);
+        self
+    }
+
+    /// Turn the check on or off.
+    pub fn toggle(&mut self) {
+        if let Some(checked) = self.checked.as_mut() {
+            *checked = !*checked;
         }
     }
 
@@ -92,6 +108,25 @@ impl Picker {
                         .as_ref()
                         .is_some_and(|group| group.to_lowercase().contains(&filter))
             })
+            .collect()
+    }
+
+    /// The indices of the items that pass the filter.
+    pub fn visible_indices(&self) -> Vec<usize> {
+        let filter = self.filter.to_lowercase();
+        self.items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                filter.is_empty()
+                    || item.label.to_lowercase().contains(&filter)
+                    || item.detail.to_lowercase().contains(&filter)
+                    || item
+                        .group
+                        .as_ref()
+                        .is_some_and(|group| group.to_lowercase().contains(&filter))
+            })
+            .map(|(index, _)| index)
             .collect()
     }
 
@@ -190,7 +225,11 @@ impl Picker {
             } else {
                 Style::new().fg(theme.cube_light)
             };
-            let mut spans = vec![Span::styled(format!("  {}", item.label), style)];
+            let mut spans = Vec::new();
+            if let Some(checked) = item.checked {
+                spans.push(Span::styled(if checked { "[x] " } else { "[ ] " }, style));
+            }
+            spans.push(Span::styled(format!("  {}", item.label), style));
             if let Some(tag) = &item.tag {
                 spans.push(Span::styled(
                     format!("  {tag}"),

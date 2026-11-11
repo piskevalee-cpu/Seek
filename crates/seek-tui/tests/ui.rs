@@ -517,3 +517,104 @@ fn the_compacted_conversation_becomes_one_message() {
     assert!(text.contains("the user wanted a test"));
     assert!(!text.contains("add a test"));
 }
+
+/// A skill for the tests.
+fn a_skill(name: &str, description: &str) -> seek_core::Skill {
+    seek_core::Skill {
+        name: name.to_string(),
+        description: description.to_string(),
+        path: std::path::PathBuf::from("/skills")
+            .join(name)
+            .join("SKILL.md"),
+        body: format!("the body of {name}"),
+        allowed_tools: Vec::new(),
+        license: None,
+        compatibility: None,
+        metadata: None,
+    }
+}
+
+#[test]
+fn the_skills_picker_is_a_checklist() {
+    let mut app = app();
+    app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
+
+    for c in "/skills".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("[x]"));
+    assert!(screen.contains("init"));
+    assert!(screen.contains("Write an AGENTS.md."));
+}
+
+#[test]
+fn space_toggles_a_skill() {
+    let mut app = app();
+    app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
+
+    for c in "/skills".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    // Space toggles the selected skill off.
+    app.update(Message::Key(key(KeyCode::Char(' '))));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("[ ]"));
+
+    // Closing the picker takes the state over into the toggles.
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert!(!app.toggles.skill_enabled("init"));
+}
+
+#[test]
+fn a_skill_is_run_with_its_body() {
+    let mut app = app();
+    app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
+
+    for c in "/init write it".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    match command {
+        Some(seek_tui::Command::Submit { text, .. }) => {
+            assert!(text.contains("the body of init"), "{text}");
+            assert!(text.contains("write it"), "{text}");
+        }
+        other => panic!("expected a submit, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_disabled_skill_is_not_run() {
+    let mut app = app();
+    app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
+    app.toggles.set_skill("init", false);
+
+    for c in "/init".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    match command {
+        Some(seek_tui::Command::Submit { text, .. }) => {
+            assert_eq!(text, "/init", "the skill did not run");
+        }
+        other => panic!("expected a submit, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_tools_picker_shows_the_built_in_tools() {
+    let mut app = app();
+    for c in "/tools".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("read"));
+    assert!(screen.contains("bash"));
+    assert!(screen.contains("[x]"));
+}

@@ -31,6 +31,16 @@ pub struct Runtime {
     pub local_models: Vec<LocalModel>,
     /// The model the user picked.
     current_model: Mutex<Option<String>>,
+    /// The installed skills.
+    pub skills: Vec<seek_core::Skill>,
+    /// Which tools and skills are enabled.
+    pub toggles: seek_core::Toggles,
+    /// The instructions of the project: the AGENTS.md of the working directory.
+    pub project_context: String,
+    /// The external tools of `~/seek/tools`.
+    pub external_tools: Vec<seek_core::ExternalTool>,
+    /// Where the state of SEEK lives.
+    pub state_dir: std::path::PathBuf,
 }
 
 impl Runtime {
@@ -38,15 +48,60 @@ impl Runtime {
     pub fn new(home: &Path, binary: &str) -> Self {
         let models_dir = home.join(seek_local::MODELS_DIR);
         let local_models = seek_local::model::scan(&models_dir);
-        let supervisor =
-            Supervisor::new(binary.to_string(), seek_local::supervisor::state_dir(home));
+        let state_dir = seek_local::supervisor::state_dir(home);
+        let supervisor = Supervisor::new(binary.to_string(), state_dir.clone());
         // A server of a previous run does not survive SEEK.
         supervisor.kill_orphans();
+
+        // The skills of ~/seek/skills, and the built-in ones that are not installed yet.
+        let mut skills = seek_core::skill::scan(&home.join("skills"));
+        for skill in seek_core::skill::scan(&builtin_skills()) {
+            if !skills.iter().any(|installed| installed.name == skill.name) {
+                skills.push(skill);
+            }
+        }
+        let toggles = seek_core::Toggles::read(&state_dir.join("toggles.toml")).unwrap_or_default();
+
+        // The instructions of the project, if there are any (SPEC 9.5).
+        let project_context = std::env::current_dir()
+            .ok()
+            .map(|cwd| cwd.join("AGENTS.md"))
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .unwrap_or_default();
+
+        // The external tools of ~/seek/tools.
+        let external_tools = seek_core::external::scan(&home.join("tools"));
+
         Runtime {
             supervisor: tokio::sync::Mutex::new(supervisor),
             local_models,
             current_model: Mutex::new(None),
+            skills,
+            toggles,
+            project_context,
+            external_tools,
+            state_dir,
         }
+    }
+
+    /// The context that goes into the prompt: the catalog of the skills and the instructions of
+    /// the project.
+    pub fn context(&self) -> String {
+        let mut context =
+            seek_core::skill::catalog(&self.skills, &|name| self.toggles.skill_enabled(name));
+        if !self.project_context.is_empty() {
+            if !context.is_empty() {
+                context.push_str("\n\n");
+            }
+            context.push_str("Instructions of the project (AGENTS.md):\n");
+            context.push_str(&self.project_context);
+        }
+        context
+    }
+
+    /// Write the toggles to the state.
+    pub fn save_toggles(&self, toggles: &seek_core::Toggles) {
+        let _ = toggles.write(&self.state_dir.join("toggles.toml"));
     }
 
     /// The model the user picked.
@@ -134,6 +189,9 @@ pub async fn agent_loop(
     while let Some(command) = commands.recv().await {
         match command {
             Command::Quit => break,
+            Command::SetToggles(toggles) => {
+                runtime.save_toggles(&toggles);
+            }
             Command::Permission { id, decision } => {
                 permissions.answer(id, decision);
             }
@@ -153,12 +211,28 @@ pub async fn agent_loop(
                 runtime.set_current_model(Some(id.clone()));
             }
             Command::Submit { text, mode } => {
+                // Only the enabled tools are given to the agent (SPEC 9.2, 9.6).
+                let toggles = &runtime.toggles;
                 let tools = ToolRegistry {
-                    read: Some(ReadTool::new(root.clone())),
-                    write: Some(WriteTool::new(root.clone())),
-                    edit: Some(EditTool::new(root.clone())),
-                    bash: Some(BashTool::new(root.clone(), processes.clone())),
+                    read: toggles
+                        .tool_enabled("read")
+                        .then(|| ReadTool::new(root.clone())),
+                    write: toggles
+                        .tool_enabled("write")
+                        .then(|| WriteTool::new(root.clone())),
+                    edit: toggles
+                        .tool_enabled("edit")
+                        .then(|| EditTool::new(root.clone())),
+                    bash: toggles
+                        .tool_enabled("bash")
+                        .then(|| BashTool::new(root.clone(), processes.clone())),
                 };
+                let external_tools: Vec<_> = runtime
+                    .external_tools
+                    .iter()
+                    .filter(|tool| toggles.tool_enabled(&tool.config.name))
+                    .cloned()
+                    .collect();
 
                 let mut history = History::new();
                 history.push(seek_core::Message::user(text));
@@ -190,7 +264,9 @@ pub async fn agent_loop(
                             root.clone(),
                             processes.clone(),
                             permissions.clone(),
-                        );
+                        )
+                        .with_context(runtime.context())
+                        .with_external_tools(external_tools);
                         agent.run_turn(&mut history, &events).await;
                     }
                     None => {
@@ -300,6 +376,28 @@ pub fn build_provider(providers: &ProvidersConfig) -> Option<Box<dyn Provider>> 
         });
     }
     None
+}
+
+/// The folder with the built-in skills.
+///
+/// The skills are shipped with the binary and copied into `~/seek/skills` by the install script.
+pub fn builtin_skills() -> std::path::PathBuf {
+    if let Ok(path) = std::env::var("SEEK_BUILTIN") {
+        return std::path::PathBuf::from(path);
+    }
+    // The binary lives in target/{debug,release}; the skills are two levels up.
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(folder) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+    {
+        let candidate = folder.join("builtin");
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+    std::path::PathBuf::from("builtin")
 }
 
 /// The name of a local model, without the `local/` prefix.

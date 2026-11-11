@@ -37,5 +37,9 @@ workspace; each release ships a milestone (SPEC 15).
 - The METRICS block with the context bar, the speed, the think time and the vitals (SPEC 10.3).
 - `/compact` and `/truncate`, and the model switch that would overflow the window is blocked
   (SPEC 8).
+- The skills: the `SKILL.md` format, the catalog in the prompt, `/<skill> <prompt>` and the
+  built-in `init` skill (SPEC 9.5).
+- The external tool format and the toggles, with `/tools` and `/skills` as checklists (SPEC 9.3,
+  9.6).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...HEAD

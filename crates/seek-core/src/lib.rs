@@ -6,6 +6,7 @@
 pub mod config;
 pub mod context;
 pub mod event;
+pub mod external;
 pub mod r#loop;
 pub mod message;
 pub mod permission;
@@ -13,18 +14,23 @@ pub mod process;
 pub mod prompt;
 pub mod provider;
 pub mod session;
+pub mod skill;
+pub mod toggles;
 pub mod tool;
 pub mod tools;
 
 pub use config::{Config, ProviderConfig, ProviderKind, ProvidersConfig, seek_home};
 pub use context::{ContextWindow, Level, TurnStats};
 pub use event::{AgentEvent, PermissionRequest, ToolOutput, TurnReason, Usage};
+pub use external::{ExternalTool, ExternalToolConfig};
 pub use message::{Block, History, Message, Role};
 pub use permission::{Decision, PermissionDecision, PermissionMode};
 pub use process::{ProcessEntry, ProcessRegistry};
 pub use prompt::{DEFAULT_TOOLS, HELPER_TOOLS, SYSTEM_PROMPT};
 pub use provider::{ChatRequest, Protocol, Provider, ProviderError, ProviderEvent};
 pub use session::{ModelTag, Session, SessionEvent, SessionHeader};
+pub use skill::Skill;
+pub use toggles::Toggles;
 pub use tool::{Risk, Tool, ToolError, ToolSchema};
 
 /// The crate version, taken from the workspace.

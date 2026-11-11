@@ -62,6 +62,8 @@ pub enum Command {
     SwitchModel { id: String },
     /// Summarize the older turns into one message (SPEC 8).
     Compact { messages: Vec<CoreMessage> },
+    /// Write the toggles to the state.
+    SetToggles(seek_core::Toggles),
     /// Leave.
     Quit,
 }
@@ -171,6 +173,12 @@ pub struct App {
     pub metrics: Metrics,
     /// The sampler of the vitals.
     pub vitals: VitalsSampler,
+    /// The installed skills.
+    pub skills: Vec<seek_core::Skill>,
+    /// The external tools of `~/seek/tools`.
+    pub external_tools: Vec<seek_core::ExternalTool>,
+    /// Which tools and skills are enabled.
+    pub toggles: seek_core::Toggles,
     /// When the turn started.
     turn_started: Option<std::time::Instant>,
     /// When the first reasoning token arrived.
@@ -215,6 +223,9 @@ impl App {
             logs: None,
             metrics: Metrics::default(),
             vitals: VitalsSampler::new(),
+            skills: Vec::new(),
+            external_tools: Vec::new(),
+            toggles: seek_core::Toggles::default(),
             turn_started: None,
             think_started: None,
         }
@@ -556,14 +567,10 @@ impl App {
         };
         match key.code {
             KeyCode::Esc => {
-                self.overlay = None;
+                return self.close_picker(false);
             }
             KeyCode::Enter => {
-                let chosen = picker.selected_item().map(|item| item.value.clone());
-                self.overlay = None;
-                if let Some(value) = chosen {
-                    return self.apply_picker_value(&value);
-                }
+                return self.close_picker(true);
             }
             KeyCode::Up => picker.move_prev(),
             KeyCode::Down => picker.move_next(),
@@ -577,12 +584,60 @@ impl App {
                 }
             }
             KeyCode::Backspace => picker.backspace(),
+            KeyCode::Char(' ') => {
+                // Space toggles the selected item of a checklist.
+                let index = picker.selected;
+                let visible = picker.visible_indices();
+                if let Some(position) = visible.get(index)
+                    && let Some(item) = picker.items.get_mut(*position)
+                {
+                    item.toggle();
+                }
+            }
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 picker.type_char(c);
             }
             _ => {}
         }
         None
+    }
+
+    /// Close the picker and take the state of the checklist over into the toggles.
+    fn close_picker(&mut self, choose: bool) -> Option<Command> {
+        let Some(Overlay::Picker(picker)) = self.overlay.take() else {
+            return None;
+        };
+
+        match picker.title.as_str() {
+            "skills" => {
+                for item in &picker.items {
+                    if let Some(checked) = item.checked {
+                        self.toggles.set_skill(&item.value, checked);
+                    }
+                }
+            }
+            "tools" => {
+                for item in &picker.items {
+                    if let Some(checked) = item.checked {
+                        self.toggles.set_tool(&item.value, checked);
+                    }
+                }
+            }
+            _ => {}
+        }
+
+        let command = if choose {
+            let chosen = picker.selected_item().map(|item| item.value.clone());
+            match chosen {
+                Some(value) => self.apply_picker_value(&value),
+                None => None,
+            }
+        } else {
+            None
+        };
+
+        // The toggles are written by the binary.
+        Some(Command::SetToggles(self.toggles.clone())).or(command)
     }
 
     /// Apply what the user chose in a picker.
@@ -757,6 +812,45 @@ impl App {
         Picker::new("models", items).tap_hint("Enter to choose, Esc to close")
     }
 
+    /// The picker for `/skills`: a checklist of the installed skills.
+    fn skills_picker(&self) -> Picker {
+        let items: Vec<PickerItem> = self
+            .skills
+            .iter()
+            .map(|skill| {
+                PickerItem::new(skill.name.clone(), skill.name.clone())
+                    .with_check(self.toggles.skill_enabled(&skill.name))
+                    .with_detail(skill.description.clone())
+            })
+            .collect();
+        Picker::new("skills", items).tap_hint("Space toggles, Enter closes, Esc closes")
+    }
+
+    /// The picker for `/tools`: a checklist of the built-in and the external tools.
+    fn tools_picker(&self) -> Picker {
+        let mut items: Vec<PickerItem> = Vec::new();
+        for tool in seek_core::DEFAULT_TOOLS
+            .iter()
+            .chain(seek_core::HELPER_TOOLS.iter())
+        {
+            items.push(
+                PickerItem::new(tool.name.clone(), tool.name.clone())
+                    .with_check(self.toggles.tool_enabled(&tool.name))
+                    .with_group("built-in")
+                    .with_detail(tool.description.clone()),
+            );
+        }
+        for tool in &self.external_tools {
+            items.push(
+                PickerItem::new(tool.config.name.clone(), tool.config.name.clone())
+                    .with_check(self.toggles.tool_enabled(&tool.config.name))
+                    .with_group("external")
+                    .with_detail(tool.config.description.clone()),
+            );
+        }
+        Picker::new("tools", items).tap_hint("Space toggles, Enter closes, Esc closes")
+    }
+
     /// The picker for `/provider`: the configured providers.
     fn provider_picker(&self) -> Picker {
         let mut items: Vec<PickerItem> = Vec::new();
@@ -892,6 +986,18 @@ impl App {
             return self.run_slash_command(command);
         }
 
+        // A skill is run with `/<skill-name> <prompt>`; its body goes into the turn (SPEC 9.5).
+        let text = match self.match_skill(&text) {
+            Some((skill, prompt)) => {
+                if prompt.trim().is_empty() {
+                    format!("{}\n", skill.body)
+                } else {
+                    format!("{}\n\n{prompt}", skill.body)
+                }
+            }
+            None => text,
+        };
+
         self.rows.push(Row::User(text.clone()));
         self.scroll = 0;
         self.selected = None;
@@ -934,6 +1040,14 @@ impl App {
                 self.truncate_to_fit();
                 None
             }
+            "/skills" => {
+                self.overlay = Some(Overlay::Picker(self.skills_picker()));
+                None
+            }
+            "/tools" => {
+                self.overlay = Some(Overlay::Picker(self.tools_picker()));
+                None
+            }
             "/model" => {
                 self.overlay = Some(Overlay::Picker(self.model_picker()));
                 None
@@ -946,6 +1060,21 @@ impl App {
         }
     }
 
+    /// The skill a text runs, and the prompt that goes with it.
+    fn match_skill(&self, text: &str) -> Option<(seek_core::Skill, String)> {
+        let (name, prompt) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
+        let name = name.strip_prefix('/')?;
+        let skill = self
+            .skills
+            .iter()
+            .find(|skill| skill.name == name)
+            .cloned()?;
+        if !self.toggles.skill_enabled(&skill.name) {
+            return None;
+        }
+        Some((skill, prompt.trim().to_string()))
+    }
+
     /// The slash command a text is, if any.
     fn slash_command(&self, text: &str) -> Option<&'static str> {
         match text {
@@ -955,6 +1084,8 @@ impl App {
             "/model" => Some("/model"),
             "/provider" => Some("/provider"),
             "/compact" => Some("/compact"),
+            "/skills" => Some("/skills"),
+            "/tools" => Some("/tools"),
             "/truncate" => Some("/truncate"),
             _ => None,
         }

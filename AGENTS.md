@@ -23,12 +23,13 @@ reference/          read-only third-party checkouts (gitignored)
 Upstream remote: `https://github.com/piskevalee-cpu/Seek.git` (the repo was renamed from
 `Seek-`; see `docs/DECISIONS.md` D-004). The crate and binary are named `seek`.
 
-**Milestones v0.1.0 to v0.5.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
+**Milestones v0.1.0 to v0.6.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
 prompt bar, spinners, footer, sidebar shell, reasoning show/hide, the Anthropic and
 OpenAI-compatible providers, the model catalog, the configuration contracts, sessions, the
-pickers, the agent loop, the four tools, the permission matrix, the llama.cpp supervisor and the
-context accounting with the METRICS block. Later milestones are listed in `docs/SPEC.md` §15 —
-**do not implement features from later milestones.**
+pickers, the agent loop, the four tools, the permission matrix, the llama.cpp supervisor, the
+context accounting with the METRICS block, the skills, the external tool format and the toggles.
+Later milestones are listed in `docs/SPEC.md` §15 — **do not implement features from later
+milestones.**
 
 ## Commands
 
@@ -121,6 +122,14 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
   under the prompt bar otherwise. A UI test checks that the counts appear exactly once.
 - The vitals are sampled at 1 Hz by `seek-tui::vitals`. The GPU needs the `nvml` feature; without
   it the GPU and the video memory show a dash.
+- The skills are in `seek-core::skill` (the `SKILL.md` format of the Agent Skills
+  specification) and the toggles in `seek-core::toggles`. Only the name, the description and the
+  path of a skill go into the prompt; the body is loaded when the skill runs.
+- A skill runs with `/<name> <prompt>`; the body of the skill is inserted into that turn. The
+  built-in `init` skill lives in `builtin/init/SKILL.md` and is loaded from there when it is not
+  installed in `~/seek/skills`.
+- The external tools are in `seek-core::external`: `tool.toml`, `schema.json` and a `run`
+  executable that gets the arguments as JSON on stdin.
 - The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
   caps its output and says how to fetch the rest; `bash` runs in its own process group and
   registers the process in the sidebar.
@@ -260,8 +269,9 @@ Run one package with `cargo test -p seek-core`, one test with `cargo test -p see
 
 ## Known gaps (deliberate, per the milestone order)
 
-- Skills, the external tool format and the toggles (SPEC 9.3, 9.5, 9.6) are v0.6.
 - Widgets and `install.sh` (SPEC 10.5, 13) are v0.7.
+- The rate limits and the `fetch` tool are v0.7 as well.
+- The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
 - The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
 - A background `bash` command leaves the process registry when the shell exits, even though the
   child keeps running.

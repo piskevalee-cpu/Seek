@@ -65,6 +65,10 @@ pub struct Agent {
     config: AgentConfig,
     permissions: PermissionRequests,
     processes: Arc<ProcessRegistry>,
+    /// What else goes into the prompt: the skills and the instructions of the project.
+    context: String,
+    /// The external tools of `~/seek/tools`.
+    external_tools: Vec<crate::external::ExternalTool>,
 }
 
 impl Agent {
@@ -85,7 +89,33 @@ impl Agent {
             config: AgentConfig::default(),
             permissions,
             processes,
+            context: String::new(),
+            external_tools: Vec::new(),
         }
+    }
+
+    /// The external tools the agent may call.
+    pub fn with_external_tools(mut self, tools: Vec<crate::external::ExternalTool>) -> Self {
+        self.external_tools = tools;
+        self
+    }
+
+    /// What else goes into the prompt.
+    ///
+    /// The catalog of the enabled skills and the instructions of the project (SPEC 9.5).
+    pub fn with_context(mut self, context: impl Into<String>) -> Self {
+        self.context = context.into();
+        self
+    }
+
+    /// The system prompt of the request.
+    fn system_prompt(&self) -> String {
+        let mut prompt = crate::prompt::SYSTEM_PROMPT.to_string();
+        if !self.context.is_empty() {
+            prompt.push_str("\n\n");
+            prompt.push_str(&self.context);
+        }
+        prompt
     }
 
     /// The tools the agent may call.
@@ -114,6 +144,7 @@ impl Agent {
                 messages: history.messages.clone(),
                 tools: self.schemas(),
                 max_tokens: self.config.max_tokens,
+                system: Some(self.system_prompt()),
             };
 
             let mut text = String::new();
@@ -291,7 +322,26 @@ impl Agent {
                         .ok_or_else(|| ToolError::NotFound("bash is off".into()))?;
                     tool.call(input).await
                 }
-                other => Err(ToolError::NotFound(other.to_string())),
+                other => {
+                    // An external tool runs its own executable.
+                    let Some(tool) = self
+                        .external_tools
+                        .iter()
+                        .find(|tool| tool.config.name == other)
+                    else {
+                        return Err(ToolError::NotFound(other.to_string()));
+                    };
+                    match tool.run(&input).await {
+                        Ok(content) => Ok(ToolOutput {
+                            id: String::new(),
+                            name: tool.config.name.clone(),
+                            content,
+                            is_error: false,
+                            duration: Duration::ZERO,
+                        }),
+                        Err(error) => Err(error),
+                    }
+                }
             }
         };
 
@@ -316,6 +366,8 @@ impl Agent {
     }
 
     /// The schemas of the enabled tools.
+    ///
+    /// Only the enabled tools are sent (SPEC 9.2).
     fn schemas(&self) -> Vec<crate::tool::ToolSchema> {
         let mut schemas = Vec::new();
         if self.tools.read.is_some() {
@@ -329,6 +381,9 @@ impl Agent {
         }
         if self.tools.bash.is_some() {
             schemas.push(crate::tools::bash_schema());
+        }
+        for tool in &self.external_tools {
+            schemas.push(tool.tool_schema());
         }
         schemas
     }

@@ -81,6 +81,9 @@ async fn main() -> Result<()> {
     app.processes = Some(Arc::new(seek_core::ProcessRegistry::new()));
     app.local_models = runtime.local_models.clone();
     app.logs = Some(logs);
+    app.skills = runtime.skills.clone();
+    app.toggles = runtime.toggles.clone();
+    app.external_tools = runtime.external_tools.clone();
 
     // `ratatui::init` installs a panic hook that restores the terminal.
     let terminal = init_terminal();

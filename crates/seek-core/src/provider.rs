@@ -37,6 +37,8 @@ pub struct ChatRequest {
     /// Only the enabled tools are sent (SPEC 9.2).
     pub tools: Vec<ToolSchema>,
     pub max_tokens: Option<u32>,
+    /// The system prompt: the harness, the skills and the instructions of the project.
+    pub system: Option<String>,
 }
 
 /// What a provider emits while it works.
