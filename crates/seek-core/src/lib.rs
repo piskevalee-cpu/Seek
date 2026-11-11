@@ -18,6 +18,7 @@ pub mod skill;
 pub mod toggles;
 pub mod tool;
 pub mod tools;
+pub mod widget;
 
 pub use config::{Config, ProviderConfig, ProviderKind, ProvidersConfig, seek_home};
 pub use context::{ContextWindow, Level, TurnStats};
@@ -32,6 +33,7 @@ pub use session::{ModelTag, Session, SessionEvent, SessionHeader};
 pub use skill::Skill;
 pub use toggles::Toggles;
 pub use tool::{Risk, Tool, ToolError, ToolSchema};
+pub use widget::{Widget, WidgetConfig, WidgetOutput};
 
 /// The crate version, taken from the workspace.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

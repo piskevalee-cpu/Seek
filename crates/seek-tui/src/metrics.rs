@@ -138,19 +138,33 @@ impl Metrics {
     }
 
     /// The one-line form, dropping the elements from the right when it is narrow.
+    ///
+    /// The order is the same as in the sidebar: the context bar, the speed, the rate limit and
+    /// the vitals.
     pub fn one_line(&self, theme: &Theme, width: u16) -> Line<'static> {
         let mut spans: Vec<Span<'static>> = Vec::new();
         spans.extend(self.context_line(theme).spans);
 
         let speed = self.speed_line(theme);
+        let limit = self.rate_limit_line(theme);
         let vitals = self.vitals_line(theme);
-        let speed_width = speed.width() as u16;
-        let vitals_width = vitals.width() as u16;
-        let used = spans.iter().map(|span| span.width() as u16).sum::<u16>();
 
-        if used + speed_width + vitals_width <= width {
+        let used = spans.iter().map(|span| span.width() as u16).sum::<u16>();
+        let speed_width = speed.width() as u16;
+        let limit_width = limit.as_ref().map(|line| line.width() as u16).unwrap_or(0);
+        let vitals_width = vitals.width() as u16;
+
+        if used + speed_width + limit_width + vitals_width <= width {
             spans.extend(speed.spans);
+            if let Some(limit) = limit {
+                spans.extend(limit.spans);
+            }
             spans.extend(vitals.spans);
+        } else if used + speed_width + limit_width <= width {
+            spans.extend(speed.spans);
+            if let Some(limit) = limit {
+                spans.extend(limit.spans);
+            }
         } else if used + speed_width <= width {
             spans.extend(speed.spans);
         }

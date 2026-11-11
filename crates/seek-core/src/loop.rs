@@ -69,6 +69,8 @@ pub struct Agent {
     context: String,
     /// The external tools of `~/seek/tools`.
     external_tools: Vec<crate::external::ExternalTool>,
+    /// The tokens of the last turn.
+    usage: std::sync::Arc<std::sync::Mutex<(u32, u32)>>,
 }
 
 impl Agent {
@@ -91,7 +93,14 @@ impl Agent {
             processes,
             context: String::new(),
             external_tools: Vec::new(),
+            usage: std::sync::Arc::new(std::sync::Mutex::new((0, 0))),
         }
+    }
+
+    /// Where the tokens of the turn are counted.
+    pub fn with_usage(mut self, usage: std::sync::Arc<std::sync::Mutex<(u32, u32)>>) -> Self {
+        self.usage = usage;
+        self
     }
 
     /// The external tools the agent may call.
@@ -186,9 +195,13 @@ impl Agent {
                         calls.push((id, name, input));
                     }
                     ProviderEvent::Usage { input, output } => {
+                        *self.usage.lock().expect("the usage is not poisoned") = (input, output);
                         let _ = events
                             .send(AgentEvent::Usage(Usage { input, output }))
                             .await;
+                    }
+                    ProviderEvent::RateLimit(limit) => {
+                        let _ = events.send(AgentEvent::RateLimit(limit)).await;
                     }
                     ProviderEvent::Done => {}
                 }

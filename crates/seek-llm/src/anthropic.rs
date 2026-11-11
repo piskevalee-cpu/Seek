@@ -232,6 +232,12 @@ impl Provider for AnthropicProvider {
                 return;
             }
 
+            // The provider may report its rate limit in the headers (SPEC 6).
+            let limit = crate::ratelimit::from_headers(response.headers());
+            if limit.is_reported() {
+                yield Ok(ProviderEvent::RateLimit(limit));
+            }
+
             let mut bytes = response.bytes_stream();
             let mut sse = crate::sse::SseDecoder::new();
             let mut decoder = AnthropicDecoder::default();

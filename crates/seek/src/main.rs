@@ -40,6 +40,7 @@ async fn main() -> Result<()> {
 
     let (command_tx, command_rx) = mpsc::channel::<Command>(16);
     let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(256);
+    let (widget_tx, widget_rx) = mpsc::channel::<seek_core::WidgetOutput>(16);
     let (permission_tx, mut permission_rx) = PermissionRequests::new();
 
     // The permission requests of the agent are forwarded to the UI.
@@ -66,6 +67,7 @@ async fn main() -> Result<()> {
     tokio::spawn(seek::agent_loop(
         command_rx,
         event_tx,
+        widget_tx,
         providers.clone(),
         permission_tx.clone(),
         Arc::clone(&runtime),
@@ -84,10 +86,11 @@ async fn main() -> Result<()> {
     app.skills = runtime.skills.clone();
     app.toggles = runtime.toggles.clone();
     app.external_tools = runtime.external_tools.clone();
+    app.widgets = runtime.widgets.clone();
 
     // `ratatui::init` installs a panic hook that restores the terminal.
     let terminal = init_terminal();
-    let result = run(terminal, app, event_rx, command_tx).await;
+    let result = run(terminal, app, event_rx, widget_rx, command_tx).await;
     restore_terminal();
 
     result

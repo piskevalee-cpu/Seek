@@ -28,6 +28,9 @@ use crate::theme::Theme;
 use crate::transcript::{Row, transcript_lines};
 use crate::vitals::VitalsSampler;
 
+/// How many rows a widget takes in the grid.
+const MAX_WIDGET_ROWS: usize = 8;
+
 /// The smallest usable terminal.
 pub const MIN_WIDTH: u16 = 80;
 /// The smallest usable terminal.
@@ -46,6 +49,8 @@ pub enum Message {
     Resize(u16, u16),
     Tick,
     Agent(AgentEvent),
+    /// The output of a home widget (SPEC 10.5).
+    Widget(seek_core::WidgetOutput),
 }
 
 /// A side effect that the binary has to perform.
@@ -64,6 +69,8 @@ pub enum Command {
     Compact { messages: Vec<CoreMessage> },
     /// Write the toggles to the state.
     SetToggles(seek_core::Toggles),
+    /// Run the home widgets.
+    RunWidgets,
     /// Leave.
     Quit,
 }
@@ -177,6 +184,12 @@ pub struct App {
     pub skills: Vec<seek_core::Skill>,
     /// The external tools of `~/seek/tools`.
     pub external_tools: Vec<seek_core::ExternalTool>,
+    /// The widgets of `~/seek/widgets`.
+    pub widgets: Vec<seek_core::Widget>,
+    /// What the widgets printed.
+    pub widget_outputs: Vec<seek_core::WidgetOutput>,
+    /// Whether the widgets have been run for this home screen.
+    widgets_ran: bool,
     /// Which tools and skills are enabled.
     pub toggles: seek_core::Toggles,
     /// When the turn started.
@@ -225,6 +238,9 @@ impl App {
             vitals: VitalsSampler::new(),
             skills: Vec::new(),
             external_tools: Vec::new(),
+            widgets: Vec::new(),
+            widget_outputs: Vec::new(),
+            widgets_ran: false,
             toggles: seek_core::Toggles::default(),
             turn_started: None,
             think_started: None,
@@ -239,7 +255,7 @@ impl App {
     /// Handle a message.
     pub fn update(&mut self, message: Message) -> Option<Command> {
         self.dirty = true;
-        match message {
+        let command = match message {
             Message::Key(key) => self.on_key(key),
             Message::Resize(_, _) => None,
             Message::Tick => {
@@ -253,7 +269,18 @@ impl App {
                 None
             }
             Message::Agent(event) => self.on_agent_event(event),
+            Message::Widget(output) => {
+                self.widget_outputs.push(output);
+                None
+            }
+        };
+
+        // The home screen runs the widgets (SPEC 10.5).
+        if !self.widgets_ran && self.rows.is_empty() && !self.widgets.is_empty() {
+            self.widgets_ran = true;
+            return Some(Command::RunWidgets);
         }
+        command
     }
 
     fn on_key(&mut self, key: KeyEvent) -> Option<Command> {
@@ -1174,6 +1201,12 @@ impl App {
                     });
                 }
             }
+            AgentEvent::RateLimit(limit) => {
+                // The rate limit only shows when the provider reports one (SPEC 6).
+                if limit.is_reported() {
+                    self.metrics.rate_limit = Some(limit.text());
+                }
+            }
             AgentEvent::Compacted(summary) => {
                 // The older turns become one message (SPEC 8).
                 self.rows.clear();
@@ -1272,6 +1305,7 @@ impl App {
 
     /// Draw the application.
     pub fn view(&mut self, frame: &mut Frame) {
+        self.dirty = false;
         let area = frame.area();
         if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
             frame.render_widget(ratatui::widgets::Paragraph::new("terminal too small"), area);
@@ -1388,10 +1422,10 @@ impl App {
     }
 
     /// Draw the transcript, or the home screen when there is nothing to show.
-    fn render_transcript(&self, frame: &mut Frame, area: Rect) {
+    fn render_transcript(&mut self, frame: &mut Frame, area: Rect) {
         if self.rows.is_empty() && self.status == Status::Idle {
-            // Home: the logo, centered. Widgets land in milestone v0.7.
-            logo::render(frame, area, &self.theme);
+            // Home: the logo, centered, with the widgets below it (SPEC 10.5).
+            self.render_home(frame, area);
             return;
         }
 
@@ -1435,6 +1469,65 @@ impl App {
         let visible: Vec<Line> = lines[start.min(total)..end].to_vec();
 
         frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
+    }
+
+    /// The home screen: the logo and the widgets.
+    fn render_home(&mut self, frame: &mut Frame, area: Rect) {
+        // The logo takes the upper half, the widgets the lower one.
+        let logo_height = 9.min(area.height / 2);
+        let logo_area = Rect::new(area.x, area.y, area.width, logo_height);
+        logo::render(frame, logo_area, &self.theme);
+
+        let widget_area = Rect::new(
+            area.x,
+            area.y + logo_height,
+            area.width,
+            area.height.saturating_sub(logo_height),
+        );
+        self.render_widgets(frame, widget_area);
+    }
+
+    /// The widgets, in a grid of one to three columns.
+    fn render_widgets(&self, frame: &mut Frame, area: Rect) {
+        if self.widget_outputs.is_empty() {
+            return;
+        }
+        // The grid has one, two or three columns, depending on the width.
+        let columns = match area.width {
+            width if width < 60 => 1,
+            width if width < 100 => 2,
+            _ => 3,
+        };
+        let column_width = (area.width / columns).max(20);
+        let row_height = (MAX_WIDGET_ROWS + 2) as u16;
+
+        for (index, output) in self.widget_outputs.iter().enumerate() {
+            let index = index as u16;
+            let column = index % columns;
+            let row = index / columns;
+            let x = area.x + column * column_width;
+            let y = area.y + row * row_height;
+            if y + row_height > area.y + area.height {
+                break;
+            }
+            let rect = Rect::new(x, y, column_width, row_height);
+
+            let mut lines = vec![Line::from(Span::styled(
+                output.title.clone(),
+                Style::new().fg(self.theme.accent).bold(),
+            ))];
+            for line in &output.lines {
+                lines.push(Line::from(Span::styled(
+                    line.clone(),
+                    Style::new().fg(if output.failed {
+                        self.theme.dim
+                    } else {
+                        self.theme.cube_light
+                    }),
+                )));
+            }
+            frame.render_widget(ratatui::widgets::Paragraph::new(lines), rect);
+        }
     }
 
     /// The launch options editor.

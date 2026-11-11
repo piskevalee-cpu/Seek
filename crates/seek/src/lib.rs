@@ -39,6 +39,8 @@ pub struct Runtime {
     pub project_context: String,
     /// The external tools of `~/seek/tools`.
     pub external_tools: Vec<seek_core::ExternalTool>,
+    /// The widgets of `~/seek/widgets`.
+    pub widgets: Vec<seek_core::Widget>,
     /// Where the state of SEEK lives.
     pub state_dir: std::path::PathBuf,
 }
@@ -69,8 +71,17 @@ impl Runtime {
             .and_then(|path| std::fs::read_to_string(path).ok())
             .unwrap_or_default();
 
-        // The external tools of ~/seek/tools.
+        // The external tools of ~/seek/tools and the widgets of ~/seek/widgets.
         let external_tools = seek_core::external::scan(&home.join("tools"));
+        let mut widgets = seek_core::widget::scan(&home.join("widgets"));
+        for widget in seek_core::widget::scan(&builtin_widgets()) {
+            if !widgets
+                .iter()
+                .any(|installed| installed.config.name == widget.config.name)
+            {
+                widgets.push(widget);
+            }
+        }
 
         Runtime {
             supervisor: tokio::sync::Mutex::new(supervisor),
@@ -80,6 +91,7 @@ impl Runtime {
             toggles,
             project_context,
             external_tools,
+            widgets,
             state_dir,
         }
     }
@@ -102,6 +114,17 @@ impl Runtime {
     /// Write the toggles to the state.
     pub fn save_toggles(&self, toggles: &seek_core::Toggles) {
         let _ = toggles.write(&self.state_dir.join("toggles.toml"));
+    }
+
+    /// Add to the lifetime usage and write it to the state.
+    ///
+    /// The `usage` widget of the home screen reads it.
+    pub fn add_usage(&self, input: u32, output: u32) {
+        let path = self.state_dir.join("usage.toml");
+        let mut usage = LifetimeUsage::read(&path);
+        usage.input = usage.input.saturating_add(input);
+        usage.output = usage.output.saturating_add(output);
+        let _ = usage.write(&path);
     }
 
     /// The model the user picked.
@@ -177,6 +200,7 @@ pub fn find_free_port(model_id: &str) -> Option<u16> {
 pub async fn agent_loop(
     mut commands: mpsc::Receiver<Command>,
     events: mpsc::Sender<AgentEvent>,
+    widgets: mpsc::Sender<seek_core::WidgetOutput>,
     providers: ProvidersConfig,
     permissions: PermissionRequests,
     runtime: Arc<Runtime>,
@@ -191,6 +215,15 @@ pub async fn agent_loop(
             Command::Quit => break,
             Command::SetToggles(toggles) => {
                 runtime.save_toggles(&toggles);
+            }
+            Command::RunWidgets => {
+                // The widgets run when the home screen is shown (SPEC 10.5).
+                for widget in &runtime.widgets {
+                    let output = widget.run().await;
+                    if widgets.send(output).await.is_err() {
+                        return;
+                    }
+                }
             }
             Command::Permission { id, decision } => {
                 permissions.answer(id, decision);
@@ -236,6 +269,8 @@ pub async fn agent_loop(
 
                 let mut history = History::new();
                 history.push(seek_core::Message::user(text));
+                // The usage of the turn is counted for the lifetime usage.
+                let usage = Arc::new(Mutex::new((0, 0)));
 
                 let provider = match runtime.current_model() {
                     Some(id) if id.starts_with("local/") => {
@@ -266,8 +301,11 @@ pub async fn agent_loop(
                             permissions.clone(),
                         )
                         .with_context(runtime.context())
-                        .with_external_tools(external_tools);
+                        .with_external_tools(external_tools)
+                        .with_usage(Arc::clone(&usage));
                         agent.run_turn(&mut history, &events).await;
+                        let (input, output) = *usage.lock().expect("the usage is not poisoned");
+                        runtime.add_usage(input, output);
                     }
                     None => {
                         // No provider is configured: the scripted provider keeps the UI alive.
@@ -288,6 +326,7 @@ pub async fn agent_loop(
                                 ProviderEvent::Usage { input, output } => {
                                     AgentEvent::Usage(seek_core::Usage { input, output })
                                 }
+                                ProviderEvent::RateLimit(limit) => AgentEvent::RateLimit(limit),
                                 ProviderEvent::Done => {
                                     AgentEvent::TurnFinished(seek_core::TurnReason::Stop)
                                 }
@@ -386,6 +425,63 @@ pub fn builtin_skills() -> std::path::PathBuf {
         return std::path::PathBuf::from(path);
     }
     // The binary lives in target/{debug,release}; the skills are two levels up.
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(folder) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
+    {
+        let candidate = folder.join("builtin");
+        if candidate.is_dir() {
+            return candidate;
+        }
+    }
+    std::path::PathBuf::from("builtin")
+}
+
+/// The tokens SEEK has used, over all the sessions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LifetimeUsage {
+    pub input: u32,
+    pub output: u32,
+}
+
+impl LifetimeUsage {
+    /// Read the usage of the state.
+    pub fn read(path: &std::path::Path) -> Self {
+        let Ok(text) = std::fs::read_to_string(path) else {
+            return LifetimeUsage::default();
+        };
+        let number = |key: &str| -> u32 {
+            text.lines()
+                .find_map(|line| line.strip_prefix(key))
+                .map(|value| value.trim_start_matches([' ', '=']))
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0)
+        };
+        LifetimeUsage {
+            input: number("input"),
+            output: number("output"),
+        }
+    }
+
+    /// Write the usage to the state.
+    pub fn write(&self, path: &std::path::Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(
+            path,
+            format!("input = {}\noutput = {}\n", self.input, self.output),
+        )
+    }
+}
+
+/// The folder with the built-in widgets.
+pub fn builtin_widgets() -> std::path::PathBuf {
+    if let Ok(path) = std::env::var("SEEK_BUILTIN") {
+        return std::path::PathBuf::from(path);
+    }
     if let Ok(exe) = std::env::current_exe()
         && let Some(folder) = exe
             .parent()

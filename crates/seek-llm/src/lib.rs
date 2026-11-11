@@ -9,6 +9,7 @@ pub mod catalog;
 pub mod fake;
 pub mod openai;
 pub mod provider;
+pub mod ratelimit;
 pub mod sse;
 
 pub use anthropic::AnthropicProvider;
@@ -16,4 +17,5 @@ pub use catalog::{ModelInfo, Variant};
 pub use fake::FakeProvider;
 pub use openai::OpenAiProvider;
 pub use provider::{ChatRequest, Protocol, Provider, ProviderError, ProviderEvent};
+pub use ratelimit::{Limit, Limiter};
 pub use sse::{SseDecoder, SseEvent};

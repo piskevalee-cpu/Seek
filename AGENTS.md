@@ -23,11 +23,14 @@ reference/          read-only third-party checkouts (gitignored)
 Upstream remote: `https://github.com/piskevalee-cpu/Seek.git` (the repo was renamed from
 `Seek-`; see `docs/DECISIONS.md` D-004). The crate and binary are named `seek`.
 
-**Milestones v0.1.0 to v0.6.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
+**Milestones v0.1.0 to v0.7.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
 prompt bar, spinners, footer, sidebar shell, reasoning show/hide, the Anthropic and
 OpenAI-compatible providers, the model catalog, the configuration contracts, sessions, the
 pickers, the agent loop, the four tools, the permission matrix, the llama.cpp supervisor, the
-context accounting with the METRICS block, the skills, the external tool format and the toggles.
+context accounting with the METRICS block, the skills, the external tool format, the toggles, the
+home widgets, `install.sh`, the rate limits and the `fetch` tool.
+
+Milestone v0.8.0/v0.9.0 is the hardening and the contract review; v1.0.0 freezes the contracts.
 Later milestones are listed in `docs/SPEC.md` §15 — **do not implement features from later
 milestones.**
 
@@ -130,6 +133,13 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
   installed in `~/seek/skills`.
 - The external tools are in `seek-core::external`: `tool.toml`, `schema.json` and a `run`
   executable that gets the arguments as JSON on stdin.
+- The widgets are in `seek-core::widget`: `widget.toml` and a `run` executable that prints up to
+  eight lines. The built-in ones live in `builtin/widgets/` (`git` and `usage`) and are installed
+  into `~/seek/widgets` by `install.sh`.
+- The rate limits are in `seek-llm::ratelimit`: the headers of the providers and the optional
+  `rpm` and `tpm` of the configuration. The state shows in the METRICS block only when the
+  provider reports one.
+- `install.sh` is idempotent: it never overwrites a file of the user.
 - The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
   caps its output and says how to fetch the rest; `bash` runs in its own process group and
   registers the process in the sidebar.
@@ -269,10 +279,9 @@ Run one package with `cargo test -p seek-core`, one test with `cargo test -p see
 
 ## Known gaps (deliberate, per the milestone order)
 
-- Widgets and `install.sh` (SPEC 10.5, 13) are v0.7.
-- The rate limits and the `fetch` tool are v0.7 as well.
 - The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
-- The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
+- The `fetch` tool is implemented but not in the default tool set: it is a network tool, so it
+  needs the `ask` mode (SPEC 9.4).
 - A background `bash` command leaves the process registry when the shell exits, even though the
   child keeps running.
 

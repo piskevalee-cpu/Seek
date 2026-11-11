@@ -68,5 +68,7 @@ pub enum AgentEvent {
     TurnFinished(TurnReason),
     /// The older turns were summarized into one message (SPEC 8).
     Compacted(String),
+    /// The state of the rate limit of the provider (SPEC 6).
+    RateLimit(crate::provider::RateLimit),
     Error(String),
 }

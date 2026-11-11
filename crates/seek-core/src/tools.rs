@@ -126,6 +126,16 @@ pub fn edit_schema() -> ToolSchema {
     )
 }
 
+/// The schema of the `fetch` tool.
+pub fn fetch_schema() -> ToolSchema {
+    ToolSchema::new(
+        "fetch",
+        "Fetch a URL and return it as text.",
+        r#"{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}"#,
+        Risk::Network,
+    )
+}
+
 /// The schema of the `bash` tool.
 pub fn bash_schema() -> ToolSchema {
     ToolSchema::new(
@@ -410,6 +420,76 @@ impl Tool for EditTool {
     }
 }
 
+/// Fetches a URL and returns it as text.
+#[derive(Debug, Clone)]
+pub struct FetchTool {
+    client: reqwest::Client,
+    timeout: Duration,
+}
+
+impl Default for FetchTool {
+    fn default() -> Self {
+        FetchTool::new()
+    }
+}
+
+impl FetchTool {
+    pub fn new() -> Self {
+        FetchTool {
+            client: reqwest::Client::new(),
+            timeout: Duration::from_secs(30),
+        }
+    }
+
+    /// Set the timeout of a request.
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Fetch the URL.
+    pub async fn fetch(&self, url: &str) -> Result<String, ToolError> {
+        let response = self
+            .client
+            .get(url)
+            .timeout(self.timeout)
+            .send()
+            .await
+            .map_err(|error| ToolError::Failed(format!("could not fetch {url}: {error}")))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(ToolError::Failed(format!("{url} answered {status}")));
+        }
+        let text = response
+            .text()
+            .await
+            .map_err(|error| ToolError::Failed(format!("could not read {url}: {error}")))?;
+        Ok(cap_output(&text))
+    }
+}
+
+/// The `fetch` tool.
+impl Tool for FetchTool {
+    fn schema(&self) -> ToolSchema {
+        fetch_schema()
+    }
+
+    fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let url = string_field(&input, "url")?;
+            let content = self.fetch(&url).await?;
+            Ok(ToolOutput {
+                id: String::new(),
+                name: "fetch".into(),
+                content,
+                is_error: false,
+                duration: Duration::ZERO,
+            })
+        })
+    }
+}
+
 /// The `bash` tool.
 impl Tool for BashTool {
     fn schema(&self) -> ToolSchema {
@@ -541,6 +621,14 @@ mod tests {
             .with_timeout(Duration::from_millis(200));
         // The command sleeps; the tool waits for it, so the test only checks that it returns.
         let _ = tool.run("sleep 5");
+    }
+
+    #[tokio::test]
+    async fn a_url_that_answers_is_fetched() {
+        let tool = FetchTool::new();
+        // There is no server in the test, so the request has to fail, not hang.
+        let error = tool.fetch("http://127.0.0.1:1/nothing").await.unwrap_err();
+        assert!(error.to_string().contains("could not fetch"));
     }
 
     #[test]

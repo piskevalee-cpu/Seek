@@ -618,3 +618,60 @@ fn the_tools_picker_shows_the_built_in_tools() {
     assert!(screen.contains("bash"));
     assert!(screen.contains("[x]"));
 }
+
+#[test]
+fn the_home_screen_shows_the_widgets() {
+    let mut app = app();
+    app.widget_outputs = vec![seek_core::WidgetOutput {
+        name: "git".into(),
+        title: "recent commits".into(),
+        lines: vec!["on develop".into(), "abc1234 feat: something".into()],
+        failed: false,
+    }];
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("recent commits"));
+    assert!(screen.contains("on develop"));
+    assert!(screen.contains("abc1234"));
+}
+
+#[test]
+fn a_failing_widget_shows_its_title_and_a_dash() {
+    let mut app = app();
+    app.widget_outputs = vec![seek_core::WidgetOutput {
+        name: "git".into(),
+        title: "recent commits".into(),
+        lines: vec!["-".into()],
+        failed: true,
+    }];
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("recent commits"));
+    assert!(screen.contains("-"));
+}
+
+#[test]
+fn the_widgets_disappear_with_the_first_message() {
+    let mut app = app();
+    app.widget_outputs = vec![seek_core::WidgetOutput {
+        name: "git".into(),
+        title: "recent commits".into(),
+        lines: vec!["on develop".into()],
+        failed: false,
+    }];
+    app.rows.push(Row::User("hello".into()));
+    let screen = render(&mut app, 100, 30);
+    assert!(!screen.contains("recent commits"));
+}
+
+#[test]
+fn the_rate_limit_only_shows_when_it_is_reported() {
+    let mut app = app();
+    app.update(Message::Agent(AgentEvent::RateLimit(
+        seek_core::provider::RateLimit {
+            limit: Some(50),
+            remaining: Some(49),
+            resets_in: None,
+        },
+    )));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("49/50"));
+}

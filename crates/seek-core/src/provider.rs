@@ -41,6 +41,34 @@ pub struct ChatRequest {
     pub system: Option<String>,
 }
 
+/// The rate limit of a provider, as it reported it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RateLimit {
+    /// How many requests are allowed in the window.
+    pub limit: Option<u32>,
+    /// How many requests are left.
+    pub remaining: Option<u32>,
+    /// When the window starts again.
+    pub resets_in: Option<std::time::Duration>,
+}
+
+impl RateLimit {
+    /// Whether the provider reported anything at all.
+    pub fn is_reported(&self) -> bool {
+        self.limit.is_some() || self.remaining.is_some()
+    }
+
+    /// The state, as it is shown in the metrics.
+    pub fn text(&self) -> String {
+        match (self.limit, self.remaining) {
+            (Some(limit), Some(remaining)) => format!("rate limit {remaining}/{limit}"),
+            (Some(limit), None) => format!("rate limit {limit}"),
+            (None, Some(remaining)) => format!("rate limit {remaining} left"),
+            (None, None) => "rate limit".to_string(),
+        }
+    }
+}
+
 /// What a provider emits while it works.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProviderEvent {
@@ -56,6 +84,8 @@ pub enum ProviderEvent {
     },
     /// Token accounting for the response.
     Usage { input: u32, output: u32 },
+    /// The state of the rate limit.
+    RateLimit(RateLimit),
     /// The response is complete.
     Done,
 }

@@ -1,0 +1,28 @@
+#!/bin/sh
+# The tokens SEEK has used, over all the sessions.
+#
+# The lifetime usage lives in the state folder of SEEK. It is written by the usage widget of the
+# next session, so this widget shows what the last one used.
+
+home="${SEEK_HOME:-$HOME/seek}"
+usage_file="$home/state/usage.toml"
+
+if [ ! -f "$usage_file" ]; then
+	echo "no usage yet"
+	exit 0
+fi
+
+read_value() {
+	sed -n "s/^$1 *= *//p" "$usage_file" | head -1 | tr -d '"'
+}
+
+input=$(read_value input)
+output=$(read_value output)
+
+if [ -z "$input" ] && [ -z "$output" ]; then
+	echo "no usage yet"
+	exit 0
+fi
+
+echo "input  ${input:-0}"
+echo "output ${output:-0}"

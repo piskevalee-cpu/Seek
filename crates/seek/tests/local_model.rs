@@ -67,11 +67,13 @@ async fn a_local_model_answers_a_message() {
 
     let (command_tx, command_rx) = mpsc::channel::<Command>(16);
     let (event_tx, mut event_rx) = mpsc::channel::<AgentEvent>(256);
+    let (widget_tx, _widget_rx) = mpsc::channel::<seek_core::WidgetOutput>(16);
     let (permission_tx, mut permission_rx) = PermissionRequests::new();
 
     tokio::spawn(seek::agent_loop(
         command_rx,
         event_tx,
+        widget_tx,
         ProvidersConfig::default(),
         permission_tx,
         Arc::clone(&runtime),

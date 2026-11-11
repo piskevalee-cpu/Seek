@@ -41,5 +41,10 @@ workspace; each release ships a milestone (SPEC 15).
   built-in `init` skill (SPEC 9.5).
 - The external tool format and the toggles, with `/tools` and `/skills` as checklists (SPEC 9.3,
   9.6).
+- The home widgets, with the built-in `git` and `usage` ones (SPEC 10.5).
+- `install.sh`: the folders, the built-in files and the checks (SPEC 13).
+- The rate limits: the headers of the providers and the `rpm` and `tpm` of the configuration
+  (SPEC 6).
+- The `fetch` tool, the first network tool (SPEC 9.3).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...HEAD
