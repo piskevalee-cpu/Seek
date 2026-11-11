@@ -150,3 +150,17 @@ compaction.
 
 **The license.** grok-build is Apache-2.0. Nothing was copied verbatim; the ideas were written
 again in SEEK's own style. The license of SEEK itself is still undecided (D-005).
+
+## D-009 — SEEK asks for a context of 32768 tokens
+
+**Date:** 2026-11-11 · **Affects:** SPEC 7.2
+
+The context of a model can be huge: the GGUF of a small model says 131072 tokens. llama.cpp
+allocates the key and value cache of the whole context up front, and that is 6.5 GB for that
+model — enough to take the machine down while a build runs.
+
+The launch options already have an implicit set (SPEC 7.2), so `--ctx-size 32768` joins them. The
+user can override it in the launch options of the model, and the editor shows the implicit part.
+
+**Status:** accepted. A coding agent does not need 131k tokens of context, and 32k fits on a
+normal machine (about 1.6 GB for that model).

@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
 
     let (command_tx, command_rx) = mpsc::channel::<Command>(16);
     let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(256);
-    let (widget_tx, widget_rx) = mpsc::channel::<seek_core::WidgetOutput>(16);
+    let (widget_tx, widget_rx) = mpsc::channel::<seek_tui::app::UiMessage>(16);
     let (permission_tx, mut permission_rx) = PermissionRequests::new();
 
     // The permission requests of the agent are forwarded to the UI.

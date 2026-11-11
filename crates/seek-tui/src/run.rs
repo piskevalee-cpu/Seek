@@ -39,7 +39,7 @@ pub async fn run(
     mut terminal: SeekTerminal,
     mut app: App,
     mut agent_events: mpsc::Receiver<AgentEvent>,
-    mut widget_events: mpsc::Receiver<seek_core::WidgetOutput>,
+    mut ui_events: mpsc::Receiver<crate::app::UiMessage>,
     commands: mpsc::Sender<Command>,
 ) -> anyhow::Result<()> {
     let mut events = EventStream::new();
@@ -74,8 +74,12 @@ pub async fn run(
                     break;
                 }
             }
-            Some(output) = widget_events.recv() => {
-                if let Some(command) = app.update(Message::Widget(output))
+            Some(message) = ui_events.recv() => {
+                let message = match message {
+                    crate::app::UiMessage::Widget(output) => Message::Widget(output),
+                    crate::app::UiMessage::Context(total) => Message::Context(total),
+                };
+                if let Some(command) = app.update(message)
                     && commands.send(command).await.is_err()
                 {
                     break;

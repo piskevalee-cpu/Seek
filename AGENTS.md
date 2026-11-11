@@ -126,6 +126,8 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
 - The permission matrix lives in `seek-core::permission`: reading is **always** allowed, writing
   and running are denied in `read` mode and asked in `ask` mode. A path outside the project root
   is always asked in `ask` mode.
+- The local server is asked for a context of 32768 tokens (D-009): the default of a model can
+  be a key and value cache of several gigabytes.
 - The context accounting is in `seek-core::context`: the window, the used tokens (the usage of
   the last response is the ground truth), the estimate and the turn statistics.
 - The METRICS block has exactly one home: the bottom of the sidebar when it is open, the line

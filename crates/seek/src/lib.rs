@@ -200,7 +200,7 @@ pub fn find_free_port(model_id: &str) -> Option<u16> {
 pub async fn agent_loop(
     mut commands: mpsc::Receiver<Command>,
     events: mpsc::Sender<AgentEvent>,
-    widgets: mpsc::Sender<seek_core::WidgetOutput>,
+    widgets: mpsc::Sender<seek_tui::app::UiMessage>,
     providers: ProvidersConfig,
     permissions: PermissionRequests,
     runtime: Arc<Runtime>,
@@ -216,11 +216,21 @@ pub async fn agent_loop(
             Command::SetToggles(toggles) => {
                 runtime.save_toggles(&toggles);
             }
+            Command::PickerClosed { toggles, model } => {
+                runtime.save_toggles(&toggles);
+                if let Some(model) = model {
+                    runtime.set_current_model(Some(model));
+                }
+            }
             Command::RunWidgets => {
                 // The widgets run when the home screen is shown (SPEC 10.5).
                 for widget in &runtime.widgets {
                     let output = widget.run().await;
-                    if widgets.send(output).await.is_err() {
+                    if widgets
+                        .send(seek_tui::app::UiMessage::Widget(output))
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
                 }
@@ -284,17 +294,37 @@ pub async fn agent_loop(
                 // The usage of the turn is counted for the lifetime usage.
                 let usage = Arc::new(Mutex::new((0, 0)));
 
+                // A local model that cannot be started is an error: the scripted provider
+                // would answer as if nothing had happened.
+                let mut local_failed = false;
                 let provider = match runtime.current_model() {
                     Some(id) if id.starts_with("local/") => {
                         match runtime.ensure_local_server(&id).await {
-                            Ok(port) => Some(Box::new(OpenAiProvider::new(
-                                format!("http://127.0.0.1:{port}/v1"),
-                                None,
-                                local_model_name(&id),
-                                8_192,
-                            )) as Box<dyn Provider>),
+                            Ok(port) => {
+                                // The real context size of the server goes to the metrics
+                                // (SPEC 8).
+                                if let Some(props) =
+                                    runtime.supervisor.lock().await.read_props().await
+                                {
+                                    let context = props.n_ctx;
+                                    let _ = widgets
+                                        .send(seek_tui::app::UiMessage::Context(context))
+                                        .await;
+                                }
+                                Some(Box::new(OpenAiProvider::new(
+                                    format!("http://127.0.0.1:{port}/v1"),
+                                    None,
+                                    local_model_name(&id),
+                                    8_192,
+                                )) as Box<dyn Provider>)
+                            }
                             Err(error) => {
-                                let _ = events.send(AgentEvent::Error(error)).await;
+                                let _ = events
+                                    .send(AgentEvent::Error(format!(
+                                        "the local model could not be started: {error}"
+                                    )))
+                                    .await;
+                                local_failed = true;
                                 None
                             }
                         }
@@ -318,6 +348,9 @@ pub async fn agent_loop(
                         agent.run_turn(&mut history, &events).await;
                         let (input, output) = *usage.lock().expect("the usage is not poisoned");
                         runtime.add_usage(input, output);
+                    }
+                    None if local_failed => {
+                        // The error is already in the transcript.
                     }
                     None => {
                         // No provider is configured: the scripted provider keeps the UI alive.

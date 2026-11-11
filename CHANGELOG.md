@@ -54,6 +54,12 @@ workspace; each release ships a milestone (SPEC 15).
 - The first run asks which model to use (SPEC 16.7).
 - The capping of the tool output lands on a character boundary and wraps the long lines instead
   of cutting them; the first version could panic on a multi-byte character.
+- SEEK asks the local server for a context of 32768 tokens; the default of the model can be
+  several gigabytes of key and value cache.
+- The model that is chosen in a picker now reaches the agent; the command that carried the
+  toggles swallowed it.
+- The real context size of a local server reaches the metrics.
+- A local server that cannot be started is an error, not a scripted answer.
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

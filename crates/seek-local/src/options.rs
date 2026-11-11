@@ -16,6 +16,14 @@ pub const IMPLICIT_PORT: &str = "--port";
 pub const IMPLICIT_REASONING_FORMAT: &str = "--reasoning-format";
 pub const IMPLICIT_PARALLEL: &str = "--parallel";
 pub const IMPLICIT_JINJA: &str = "--jinja";
+/// The context size SEEK asks for, unless the user sets one.
+///
+/// The context of a model can be huge (131072 tokens for a small model), and the key and value
+/// cache of the whole context is allocated up front: 6.5 GB for that model. A coding agent does
+/// not need that much, so SEEK asks for a sane one and the user can override it.
+pub const IMPLICIT_CONTEXT: &str = "--ctx-size";
+/// The context size SEEK asks for.
+pub const DEFAULT_CONTEXT: u32 = 32_768;
 
 /// The options of the user, with the ones SEEK owns removed.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -92,6 +100,10 @@ impl LaunchOptions {
         }
         if !self.has(IMPLICIT_JINJA) {
             implicit.push(IMPLICIT_JINJA.to_string());
+        }
+        if !self.has(IMPLICIT_CONTEXT) {
+            implicit.push(IMPLICIT_CONTEXT.to_string());
+            implicit.push(DEFAULT_CONTEXT.to_string());
         }
         implicit
     }
@@ -172,6 +184,18 @@ mod tests {
         let options = LaunchOptions::parse("--model other.gguf --host 0.0.0.0 --port 1234");
         assert_eq!(options.stripped.len(), 6);
         assert!(options.words.is_empty());
+    }
+
+    #[test]
+    fn the_context_size_is_implicit_but_can_be_overridden() {
+        let options = LaunchOptions::parse("");
+        let command = options.command("llama", Some("serve"), &model(), 8123);
+        assert!(command.contains(&"32768".to_string()), "{command:?}");
+
+        let options = LaunchOptions::parse("--ctx-size 8192");
+        let command = options.command("llama", Some("serve"), &model(), 8123);
+        assert_eq!(command.iter().filter(|word| *word == "8192").count(), 1);
+        assert!(!command.contains(&"32768".to_string()));
     }
 
     #[test]

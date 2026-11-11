@@ -42,6 +42,15 @@ pub const SIDEBAR_MIN_WIDTH: u16 = 100;
 /// A tick is sent every 100 ms (SPEC 4.2).
 pub const TICK_MS: u64 = 100;
 
+/// What the UI receives from outside the agent.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UiMessage {
+    /// The output of a home widget (SPEC 10.5).
+    Widget(seek_core::WidgetOutput),
+    /// The size of the window of the model that is running (SPEC 8).
+    Context(u32),
+}
+
 /// Everything that can happen to the application.
 #[derive(Debug)]
 pub enum Message {
@@ -54,6 +63,8 @@ pub enum Message {
     Agent(AgentEvent),
     /// The output of a home widget (SPEC 10.5).
     Widget(seek_core::WidgetOutput),
+    /// The size of the window of the model that is running (SPEC 8).
+    Context(u32),
 }
 
 /// A side effect that the binary has to perform.
@@ -72,6 +83,11 @@ pub enum Command {
     Compact { messages: Vec<CoreMessage> },
     /// Write the toggles to the state.
     SetToggles(seek_core::Toggles),
+    /// A picker closed: the toggles changed and a model may have been chosen.
+    PickerClosed {
+        toggles: seek_core::Toggles,
+        model: Option<String>,
+    },
     /// Run the home widgets.
     RunWidgets,
     /// Leave.
@@ -294,6 +310,11 @@ impl App {
             Message::Agent(event) => self.on_agent_event(event),
             Message::Widget(output) => {
                 self.widget_outputs.push(output);
+                None
+            }
+            Message::Context(total) => {
+                // The window of the model that is running (SPEC 8).
+                self.metrics.context.total = total;
                 None
             }
         };
@@ -681,7 +702,9 @@ impl App {
             _ => {}
         }
 
-        let command = if choose {
+        // A model may have been chosen; the picker of the tools and the skills only changes
+        // the toggles.
+        let model = if choose {
             let chosen = picker.selected_item().map(|item| item.value.clone());
             match chosen {
                 Some(value) => self.apply_picker_value(&value),
@@ -692,20 +715,23 @@ impl App {
         };
 
         // The toggles are written by the binary.
-        Some(Command::SetToggles(self.toggles.clone())).or(command)
+        Some(Command::PickerClosed {
+            toggles: self.toggles.clone(),
+            model,
+        })
     }
 
     /// Apply what the user chose in a picker.
-    fn apply_picker_value(&mut self, value: &str) -> Option<Command> {
+    ///
+    /// Returns the model that was chosen, if any.
+    fn apply_picker_value(&mut self, value: &str) -> Option<String> {
         if let Some(model_id) = value.strip_prefix("model:") {
             if !self.switch_fits(model_id) {
                 return None;
             }
             self.select_model(model_id);
             self.model_configured = true;
-            return Some(Command::SwitchModel {
-                id: model_id.to_string(),
-            });
+            return Some(model_id.to_string());
         }
         if let Some(local_id) = value.strip_prefix("local:") {
             if !self.switch_fits(local_id) {
@@ -713,9 +739,7 @@ impl App {
             }
             self.select_local_model(local_id);
             self.model_configured = true;
-            return Some(Command::SwitchModel {
-                id: local_id.to_string(),
-            });
+            return Some(local_id.to_string());
         }
         if value == "provider:add" {
             // Adding a provider needs a form; that lands with the provider editor.
@@ -731,7 +755,8 @@ impl App {
         {
             let id = model.id.clone();
             self.select_model(&id);
-            return Some(Command::SwitchModel { id });
+            self.model_configured = true;
+            return Some(id);
         }
         None
     }
