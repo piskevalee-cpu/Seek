@@ -71,11 +71,25 @@ async fn main() -> Result<()> {
     tokio::spawn(seek::agent_loop(
         command_rx,
         event_tx,
-        widget_tx,
+        widget_tx.clone(),
         providers.clone(),
         permission_tx.clone(),
         Arc::clone(&runtime),
     ));
+
+    // The models the endpoints know are fetched once at the start (SPEC 6).
+    {
+        let providers = providers.clone();
+        let widget_tx = widget_tx.clone();
+        tokio::spawn(async move {
+            let models = seek::discover_models(&providers).await;
+            if !models.is_empty() {
+                let _ = widget_tx
+                    .send(seek_tui::app::UiMessage::Models(models))
+                    .await;
+            }
+        });
+    }
 
     let mut app = App::new(Theme::for_terminal());
     app.cwd = std::env::current_dir()

@@ -51,6 +51,29 @@ impl OpenAiProvider {
         }
     }
 
+    /// The models the endpoint knows (SPEC 6).
+    ///
+    /// The entries of `providers.toml` override the discovered ones (the rule opencode uses).
+    pub async fn list_models(&self) -> Vec<String> {
+        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        let mut builder = self.client.get(&url);
+        if let Some(key) = &self.api_key {
+            builder = builder.header("authorization", format!("Bearer {key}"));
+        }
+        let Ok(response) = builder.send().await else {
+            return Vec::new();
+        };
+        let Ok(value) = response.json::<Value>().await else {
+            return Vec::new();
+        };
+        let Some(data) = value.get("data").and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        data.iter()
+            .filter_map(|model| model.get("id").and_then(Value::as_str).map(str::to_string))
+            .collect()
+    }
+
     /// The client side limits of the configuration (SPEC 6).
     pub fn with_limit(mut self, limit: crate::ratelimit::Limit) -> Self {
         self.limiter = std::sync::Mutex::new(crate::ratelimit::Limiter::new(limit));

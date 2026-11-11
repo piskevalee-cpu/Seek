@@ -71,6 +71,9 @@ workspace; each release ships a milestone (SPEC 15).
   models, the context and the rate limits (SPEC 10.3).
 - The providers are detected from the environment when there is no `providers.toml`, so a bare
   install works (SPEC 6).
+- The keys can live in `state/auth.json`, readable by their owner only (SPEC 5).
+- The models an endpoint knows are discovered and shown in the picker; the entries of
+  `providers.toml` override them (SPEC 6).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

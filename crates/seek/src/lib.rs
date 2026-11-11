@@ -2,6 +2,7 @@
 //!
 //! The binary in `main.rs` is only the command line; everything that can be tested lives here.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 use std::sync::{Arc, Mutex};
@@ -585,13 +586,36 @@ async fn summarize(
     Ok(summary)
 }
 
+/// The models an endpoint knows (SPEC 6).
+///
+/// Only the openai-chat providers are asked; the entries of `providers.toml` override the
+/// discovered ones.
+pub async fn discover_models(providers: &ProvidersConfig) -> BTreeMap<String, Vec<String>> {
+    let mut discovered = BTreeMap::new();
+    for (id, provider) in &providers.provider {
+        if provider.provider_kind() != Some(seek_core::ProviderKind::OpenaiChat) {
+            continue;
+        }
+        let (Some(base_url), Some(key)) = (&provider.base_url, provider.api_key()) else {
+            continue;
+        };
+        let client = OpenAiProvider::new(base_url.clone(), Some(key), "", 1_024);
+        let models = client.list_models().await;
+        if !models.is_empty() {
+            discovered.insert(id.clone(), models);
+        }
+    }
+    discovered
+}
+
 /// Build a provider from the configuration.
 ///
 /// The first provider that has a key in the environment wins. Without one, SEEK runs on the
 /// scripted provider.
 pub fn build_provider(providers: &ProvidersConfig) -> Option<Box<dyn Provider>> {
+    let auth = load_auth();
     for (id, provider) in &providers.provider {
-        let Some(key) = provider.api_key() else {
+        let Some(key) = provider.api_key_with(&auth) else {
             continue;
         };
         let Some(base_url) = &provider.base_url else {
@@ -717,6 +741,12 @@ pub fn load_providers(home: &Path) -> ProvidersConfig {
         }
     }
     config
+}
+
+/// The keys of the user, in `state/auth.json`.
+pub fn load_auth() -> seek_core::Auth {
+    let path = seek_core::seek_home().join("state").join("auth.json");
+    seek_core::Auth::read(&path).unwrap_or_default()
 }
 
 /// The providers that the environment points at.

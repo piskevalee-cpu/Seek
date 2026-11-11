@@ -148,6 +148,8 @@ pub enum UiMessage {
     Sessions(Vec<seek_core::SessionInfo>),
     /// The messages of a session that was resumed (SPEC 11).
     Session(Vec<seek_core::Message>),
+    /// The models an endpoint knows (SPEC 6).
+    Models(std::collections::BTreeMap<String, Vec<String>>),
 }
 
 /// Everything that can happen to the application.
@@ -168,6 +170,8 @@ pub enum Message {
     Sessions(Vec<seek_core::SessionInfo>),
     /// The messages of a session that was resumed (SPEC 11).
     Session(Vec<seek_core::Message>),
+    /// The models an endpoint knows (SPEC 6).
+    Models(std::collections::BTreeMap<String, Vec<String>>),
 }
 
 /// A side effect that the binary has to perform.
@@ -333,6 +337,8 @@ pub struct App {
     pub llama_subcommand: Option<String>,
     /// The sessions of the sidebar (SPEC 10.2).
     pub sessions: Vec<seek_core::SessionInfo>,
+    /// The models the endpoints know, by provider (SPEC 6).
+    pub discovered: std::collections::BTreeMap<String, Vec<String>>,
     /// The selected session.
     pub session_selected: usize,
     /// Whether the keyboard is in the sidebar.
@@ -396,6 +402,7 @@ impl App {
             model_configured: false,
             llama_subcommand: None,
             sessions: Vec::new(),
+            discovered: std::collections::BTreeMap::new(),
             session_selected: 0,
             sidebar_focused: false,
         }
@@ -441,6 +448,11 @@ impl App {
             }
             Message::Sessions(sessions) => {
                 self.sessions = sessions;
+                None
+            }
+            Message::Models(models) => {
+                // The models an endpoint knows (SPEC 6).
+                self.discovered = models;
                 None
             }
             Message::Session(messages) => {
@@ -1072,6 +1084,20 @@ impl App {
     fn model_picker(&self) -> Picker {
         let mut items: Vec<PickerItem> = Vec::new();
         for (id, provider) in &self.providers.provider {
+            // The models the endpoint knows come first; the entries of the configuration
+            // override them (SPEC 6).
+            if let Some(discovered) = self.discovered.get(id) {
+                for model_id in discovered {
+                    if provider.models.contains_key(model_id) {
+                        continue;
+                    }
+                    items.push(
+                        PickerItem::new(model_id.clone(), format!("model:{model_id}"))
+                            .with_group(provider.display_name(id))
+                            .with_detail("found on the endpoint"),
+                    );
+                }
+            }
             for (model_id, model) in &provider.models {
                 if model.disabled.unwrap_or(false) {
                     continue;

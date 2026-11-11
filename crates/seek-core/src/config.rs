@@ -131,6 +131,16 @@ impl ProviderConfig {
         }
         None
     }
+
+    /// The key of the provider, from the environment or from the auth file.
+    pub fn api_key_with(&self, auth: &Auth) -> Option<String> {
+        if let Some(key) = self.api_key() {
+            return Some(key);
+        }
+        self.env
+            .iter()
+            .find_map(|name| auth.key(name).map(str::to_string))
+    }
 }
 
 /// The contents of `providers.toml`.
@@ -195,6 +205,55 @@ impl ProvidersConfig {
             None => Vec::new(),
         }
     }
+}
+
+/// The keys of the user, in `state/auth.json`.
+///
+/// The file is written with the mode 0600; the keys are never in `config.toml` or
+/// `providers.toml` (SPEC 5).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Auth {
+    /// The keys, by the name of the environment variable they stand in for.
+    #[serde(default)]
+    pub keys: BTreeMap<String, String>,
+}
+
+impl Auth {
+    /// Read the file.
+    pub fn read(path: &Path) -> std::io::Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        serde_json::from_str(&text).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+        })
+    }
+
+    /// Write the file, readable by the owner only.
+    pub fn write(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(self).unwrap_or_default())?;
+        restrict_to_the_owner(path)
+    }
+
+    /// The key with that name.
+    pub fn key(&self, name: &str) -> Option<&str> {
+        self.keys.get(name).map(String::as_str)
+    }
+}
+
+/// Make a file readable and writable by its owner only.
+fn restrict_to_the_owner(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
 }
 
 /// The contents of `config.toml`.
@@ -350,6 +409,47 @@ tpm = 100000
             .unwrap()
             .disabled = Some(true);
         assert!(config.models("anthropic").is_empty());
+    }
+
+    #[test]
+    fn the_keys_live_in_the_auth_file() {
+        let dir = std::env::temp_dir().join("seek-auth-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("state").join("auth.json");
+
+        let mut auth = Auth::default();
+        auth.keys
+            .insert("ANTHROPIC_API_KEY".into(), "secret".into());
+        auth.write(&path).expect("written");
+
+        let read = Auth::read(&path).expect("read");
+        assert_eq!(read.key("ANTHROPIC_API_KEY"), Some("secret"));
+
+        // The file is readable by its owner only.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path)
+                .expect("metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "the mode is {mode:o}");
+        }
+    }
+
+    #[test]
+    fn a_provider_finds_its_key_in_the_auth_file() {
+        let mut auth = Auth::default();
+        auth.keys.insert("MY_KEY".into(), "secret".into());
+        let provider = ProviderConfig {
+            name: None,
+            kind: None,
+            base_url: None,
+            env: vec!["MY_KEY".into()],
+            models: BTreeMap::new(),
+        };
+        // The environment has nothing, so the auth file is used.
+        assert_eq!(provider.api_key_with(&auth).as_deref(), Some("secret"));
     }
 
     #[test]
