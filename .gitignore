@@ -1,0 +1,9 @@
+# Rust build artifacts
+/target/
+
+# Read-only third-party reference checkouts (see AGENTS.md)
+/reference/
+
+# Editor / OS
+.DS_Store
+*.swp
