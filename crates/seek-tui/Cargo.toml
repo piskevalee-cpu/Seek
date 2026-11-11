@@ -9,6 +9,7 @@ description = "SEEK terminal UI: model, update, view, components, theme"
 [dependencies]
 seek-core.workspace = true
 seek-llm.workspace = true
+seek-local.workspace = true
 crossterm.workspace = true
 ratatui.workspace = true
 futures.workspace = true

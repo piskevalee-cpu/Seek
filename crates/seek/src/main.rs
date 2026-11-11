@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use clap::Parser;
@@ -14,6 +14,10 @@ use seek_llm::FakeProvider;
 use seek_llm::anthropic::AnthropicProvider;
 use seek_llm::openai::OpenAiProvider;
 use seek_llm::provider::{ChatRequest, Provider, ProviderEvent};
+use seek_local::model::{LocalModel, sidecar_path};
+use seek_local::options::LaunchOptions;
+use seek_local::port::find_free_port;
+use seek_local::supervisor::Supervisor;
 use seek_tui::app::{App, Command};
 use seek_tui::run::{init_terminal, restore_terminal, run};
 use seek_tui::theme::Theme;
@@ -64,6 +68,24 @@ async fn main() -> Result<()> {
         }
     });
 
+    // The local models of ~/seek/models, and the supervisor of the local server.
+    let models_dir = home.join(seek_local::MODELS_DIR);
+    let local_models = seek_local::model::scan(&models_dir);
+    let llama_binary = find_llama(&home);
+    let supervisor = Supervisor::new(
+        llama_binary.clone(),
+        seek_local::supervisor::state_dir(&home),
+    );
+    // A server of a previous run does not survive SEEK.
+    supervisor.kill_orphans();
+    let logs = supervisor.logs_handle();
+
+    let runtime = Arc::new(Runtime {
+        supervisor: tokio::sync::Mutex::new(supervisor),
+        local_models,
+        current_model: Mutex::new(None),
+    });
+
     // The agent task. It talks to the real provider when one is configured, and to the scripted
     // provider otherwise.
     tokio::spawn(agent_loop(
@@ -71,6 +93,7 @@ async fn main() -> Result<()> {
         event_tx,
         providers.clone(),
         permission_tx.clone(),
+        Arc::clone(&runtime),
     ));
 
     let mut app = App::new(Theme::for_terminal());
@@ -81,6 +104,8 @@ async fn main() -> Result<()> {
     app.reduce_motion = cli.reduce_motion;
     app.providers = providers;
     app.processes = Some(Arc::new(ProcessRegistry::new()));
+    app.local_models = runtime.local_models.clone();
+    app.logs = Some(logs);
 
     // `ratatui::init` installs a panic hook that restores the terminal.
     let terminal = init_terminal();
@@ -88,6 +113,76 @@ async fn main() -> Result<()> {
     restore_terminal();
 
     result
+}
+
+/// The state the binary keeps between turns.
+struct Runtime {
+    supervisor: tokio::sync::Mutex<Supervisor>,
+    local_models: Vec<LocalModel>,
+    /// The model the user picked, `local/<stem>` or a cloud model id.
+    current_model: Mutex<Option<String>>,
+}
+
+impl Runtime {
+    /// The model the user picked.
+    fn current_model(&self) -> Option<String> {
+        self.current_model
+            .lock()
+            .expect("the model is not poisoned")
+            .clone()
+    }
+
+    /// Remember the model the user picked.
+    fn set_current_model(&self, id: Option<String>) {
+        *self
+            .current_model
+            .lock()
+            .expect("the model is not poisoned") = id;
+    }
+
+    /// The local model with that id.
+    fn local_model(&self, id: &str) -> Option<LocalModel> {
+        self.local_models
+            .iter()
+            .find(|model| model.id == id)
+            .cloned()
+    }
+
+    /// Make sure the server of the local model runs, and return its port.
+    async fn ensure_local_server(&self, id: &str) -> Result<u16, String> {
+        let Some(model) = self.local_model(id) else {
+            return Err(format!("the local model {id} is gone"));
+        };
+
+        let mut supervisor = self.supervisor.lock().await;
+
+        // The server of another model is stopped first (SPEC 7.3).
+        if supervisor.running_model() != Some(id) {
+            supervisor.stop().await;
+        } else if let Some(port) = supervisor.port() {
+            return Ok(port);
+        }
+
+        // The port of the model is remembered in its sidecar.
+        let port = match model.sidecar.port {
+            Some(port) => port,
+            None => {
+                let port = find_free_port(&model.id)
+                    .ok_or_else(|| format!("no free port for {}", model.id))?;
+                let mut sidecar = model.sidecar.clone();
+                sidecar.port = Some(port);
+                let _ = sidecar.write(&sidecar_path(&model.path));
+                port
+            }
+        };
+
+        let options = LaunchOptions::parse(model.sidecar.options.as_deref().unwrap_or_default());
+        supervisor
+            .start(&model, &options, port)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(port)
+    }
 }
 
 /// Read `~/seek/providers.toml`, if it is there.
@@ -142,6 +237,27 @@ fn doctor(home: &Path, providers: &ProvidersConfig) -> Result<()> {
     Ok(())
 }
 
+/// The name of a local model, without the `local/` prefix.
+fn local_model_name(id: &str) -> String {
+    id.strip_prefix("local/").unwrap_or(id).to_string()
+}
+
+/// The llama.cpp binary: the one in the config, else `llama` on the PATH.
+fn find_llama(home: &Path) -> String {
+    if let Ok(config) = seek_core::Config::read(&home.join(seek_core::config::CONFIG_FILE))
+        && let Some(path) = config.llama_server_path
+    {
+        return path;
+    }
+    if which("llama").is_some() {
+        return "llama".to_string();
+    }
+    if which("llama-server").is_some() {
+        return "llama-server".to_string();
+    }
+    "llama".to_string()
+}
+
 /// The path of a program on `PATH`.
 fn which(program: &str) -> Option<PathBuf> {
     let paths = std::env::var_os("PATH")?;
@@ -160,6 +276,7 @@ async fn agent_loop(
     events: mpsc::Sender<AgentEvent>,
     providers: ProvidersConfig,
     permissions: PermissionRequests,
+    runtime: Arc<Runtime>,
 ) {
     use futures::StreamExt;
 
@@ -172,6 +289,10 @@ async fn agent_loop(
             Command::Permission { id, decision } => {
                 permissions.answer(id, decision);
             }
+            Command::SwitchModel { id } => {
+                // A model switch happens between turns (SPEC 7.3).
+                runtime.set_current_model(Some(id.clone()));
+            }
             Command::Submit { text, mode } => {
                 let tools = ToolRegistry {
                     read: Some(ReadTool::new(root.clone())),
@@ -183,7 +304,25 @@ async fn agent_loop(
                 let mut history = History::new();
                 history.push(seek_core::Message::user(text));
 
-                match build_provider(&providers) {
+                let provider = match runtime.current_model() {
+                    Some(id) if id.starts_with("local/") => {
+                        match runtime.ensure_local_server(&id).await {
+                            Ok(port) => Some(Box::new(OpenAiProvider::new(
+                                format!("http://127.0.0.1:{port}/v1"),
+                                None,
+                                local_model_name(&id),
+                                8_192,
+                            )) as Box<dyn Provider>),
+                            Err(error) => {
+                                let _ = events.send(AgentEvent::Error(error)).await;
+                                None
+                            }
+                        }
+                    }
+                    _ => build_provider(&providers),
+                };
+
+                match provider {
                     Some(provider) => {
                         let agent = Agent::new(
                             Arc::from(provider),

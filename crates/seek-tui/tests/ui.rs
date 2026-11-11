@@ -362,3 +362,67 @@ fn telling_seek_what_to_do_opens_a_text_input() {
         other => panic!("expected a permission answer, got {other:?}"),
     }
 }
+
+/// A local model for the tests.
+fn a_local_model() -> seek_local::LocalModel {
+    let dir = std::env::temp_dir().join("seek-ui-local-test");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("created");
+    std::fs::write(dir.join("m.gguf"), b"x").expect("written");
+    let models = seek_local::model::scan(&dir);
+    models.into_iter().next().expect("the model is found")
+}
+
+#[test]
+fn the_model_picker_shows_local_models() {
+    let mut app = app();
+    app.local_models = vec![a_local_model()];
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("LOCAL"));
+    assert!(screen.contains("m"));
+}
+
+#[test]
+fn the_right_arrow_opens_the_launch_options() {
+    let mut app = app();
+    app.local_models = vec![a_local_model()];
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    // The local model is the only one, so it is selected.
+    app.update(Message::Key(key(KeyCode::Right)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("launch options"));
+    // The implicit prefix is read-only.
+    assert!(screen.contains("llama serve -m"));
+    assert!(screen.contains("--host 127.0.0.1"));
+}
+
+#[test]
+fn the_launch_options_are_saved_to_the_sidecar() {
+    let mut app = app();
+    let model = a_local_model();
+    app.local_models = vec![model.clone()];
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    app.update(Message::Key(key(KeyCode::Right)));
+
+    for c in "--ctx-size 4096".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let sidecar = seek_local::model::Sidecar::read(&seek_local::model::sidecar_path(&model.path))
+        .expect("the sidecar is written");
+    assert_eq!(sidecar.options.as_deref(), Some("--ctx-size 4096"));
+}

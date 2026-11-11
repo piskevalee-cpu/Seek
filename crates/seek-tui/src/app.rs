@@ -13,6 +13,8 @@ use seek_core::{
     TurnReason,
 };
 use seek_llm::catalog::{ModelInfo, bundled_models};
+use seek_local::model::{LocalModel, sidecar_path};
+use seek_local::options::LaunchOptions;
 
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
 use crate::input::Input;
@@ -54,6 +56,8 @@ pub enum Command {
         id: u64,
         decision: PermissionDecision,
     },
+    /// Switch to another model. The switch happens between turns (SPEC 7.3).
+    SwitchModel { id: String },
     /// Leave.
     Quit,
 }
@@ -99,6 +103,17 @@ pub enum Overlay {
     Help,
     /// A filterable list.
     Picker(Picker),
+    /// The launch options of a local model (SPEC 7.4).
+    Options {
+        /// The id of the model.
+        id: String,
+        /// The name of the model.
+        name: String,
+        /// The read-only prefix of the command.
+        prefix: String,
+        /// The options of the user.
+        input: Input,
+    },
 }
 
 /// The application state.
@@ -144,6 +159,10 @@ pub struct App {
     pub processes: Option<std::sync::Arc<ProcessRegistry>>,
     /// The selected process in the sidebar.
     pub process_selected: usize,
+    /// The local models of `~/seek/models`.
+    pub local_models: Vec<LocalModel>,
+    /// The log of the local server, shown in the log strip.
+    pub logs: Option<std::sync::Arc<std::sync::Mutex<seek_local::LogBuffer>>>,
 }
 
 impl App {
@@ -180,6 +199,8 @@ impl App {
             prompt_mode: PromptMode::Normal,
             processes: None,
             process_selected: 0,
+            local_models: Vec::new(),
+            logs: None,
         }
     }
 
@@ -211,8 +232,10 @@ impl App {
         }
 
         // An open overlay takes the keyboard.
-        if let Some(Overlay::Picker(_)) = self.overlay {
-            return self.on_picker_key(key);
+        match &self.overlay {
+            Some(Overlay::Picker(_)) => return self.on_picker_key(key),
+            Some(Overlay::Options { .. }) => return self.on_options_key(key),
+            _ => {}
         }
 
         // The permission selector takes the keyboard too.
@@ -442,6 +465,70 @@ impl App {
         }
     }
 
+    /// Handle a key while the launch options are edited.
+    fn on_options_key(&mut self, key: KeyEvent) -> Option<Command> {
+        let Some(Overlay::Options { id, input, .. }) = self.overlay.as_mut() else {
+            return None;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.overlay = None;
+            }
+            KeyCode::Enter => {
+                // The text is taken out first, so the model can be written to.
+                let text = input.text();
+                let id = id.clone();
+                self.overlay = None;
+                self.save_options(&id, &text);
+            }
+            KeyCode::Backspace => {
+                input.backspace();
+            }
+            KeyCode::Char(c) => {
+                input.insert_char(c);
+            }
+            _ => {}
+        }
+        None
+    }
+
+    /// Open the launch options of a local model.
+    fn open_options_editor(&mut self, id: &str) {
+        let Some(local) = self.local_models.iter().find(|model| model.id == id) else {
+            return;
+        };
+        let port = local.port().unwrap_or(0);
+        let options = LaunchOptions::parse(local.sidecar.options.as_deref().unwrap_or_default());
+        let mut input = Input::new();
+        input.set_text(local.sidecar.options.as_deref().unwrap_or_default());
+        let _ = options;
+        self.overlay = Some(Overlay::Options {
+            id: local.id.clone(),
+            name: local.name.clone(),
+            prefix: format!(
+                "llama serve -m {} --host 127.0.0.1 --port {port}",
+                local.path.display()
+            ),
+            input,
+        });
+    }
+
+    /// Save the launch options of a local model.
+    fn save_options(&mut self, id: &str, text: &str) {
+        let Some(local) = self.local_models.iter_mut().find(|model| model.id == id) else {
+            return;
+        };
+        let mut sidecar = local.sidecar.clone();
+        sidecar.options = if text.trim().is_empty() {
+            None
+        } else {
+            Some(text.trim().to_string())
+        };
+        if sidecar.write(&sidecar_path(&local.path)).is_ok() {
+            local.sidecar = sidecar;
+        }
+    }
+
     /// Handle a key while a picker is open.
     fn on_picker_key(&mut self, key: KeyEvent) -> Option<Command> {
         let Some(Overlay::Picker(picker)) = self.overlay.as_mut() else {
@@ -455,11 +542,20 @@ impl App {
                 let chosen = picker.selected_item().map(|item| item.value.clone());
                 self.overlay = None;
                 if let Some(value) = chosen {
-                    self.apply_picker_value(&value);
+                    return self.apply_picker_value(&value);
                 }
             }
             KeyCode::Up => picker.move_prev(),
             KeyCode::Down => picker.move_next(),
+            KeyCode::Right => {
+                // The right arrow opens the launch options of a local model (SPEC 7.4).
+                let selected = picker.selected_item().map(|item| item.value.clone());
+                if let Some(value) = selected
+                    && let Some(local_id) = value.strip_prefix("local:")
+                {
+                    self.open_options_editor(local_id);
+                }
+            }
             KeyCode::Backspace => picker.backspace(),
             KeyCode::Char(c) if !key.modifiers.contains(KeyModifiers::CONTROL) => {
                 picker.type_char(c);
@@ -470,22 +566,36 @@ impl App {
     }
 
     /// Apply what the user chose in a picker.
-    fn apply_picker_value(&mut self, value: &str) {
+    fn apply_picker_value(&mut self, value: &str) -> Option<Command> {
         if let Some(model_id) = value.strip_prefix("model:") {
             self.select_model(model_id);
-        } else if value == "provider:add" {
+            return Some(Command::SwitchModel {
+                id: model_id.to_string(),
+            });
+        }
+        if let Some(local_id) = value.strip_prefix("local:") {
+            self.select_local_model(local_id);
+            return Some(Command::SwitchModel {
+                id: local_id.to_string(),
+            });
+        }
+        if value == "provider:add" {
             // Adding a provider needs a form; that lands with the provider editor.
             self.rows.push(Row::Error(
                 "adding a provider needs the provider editor".to_string(),
             ));
-        } else if let Some(model) = self
+            return None;
+        }
+        if let Some(model) = self
             .catalog
             .iter()
             .find(|model| format!("{}/{}", model.protocol.as_str(), model.id) == value)
         {
             let id = model.id.clone();
             self.select_model(&id);
+            return Some(Command::SwitchModel { id });
         }
+        None
     }
 
     /// Select a model from the catalog.
@@ -503,6 +613,25 @@ impl App {
         self.reasoning = model
             .resolve(self.reasoning.as_deref())
             .map(|variant| variant.id.clone());
+    }
+
+    /// Select a local model.
+    pub fn select_local_model(&mut self, id: &str) {
+        let Some(local) = self
+            .local_models
+            .iter()
+            .find(|model| model.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        self.current = None;
+        self.model = ModelChip {
+            provider: "local".to_string(),
+            model: local.name.clone(),
+            local: true,
+        };
+        self.reasoning = None;
     }
 
     /// Cycle the reasoning level of the current model (SPEC 9.7).
@@ -555,6 +684,14 @@ impl App {
                 );
             }
         }
+        for local in &self.local_models {
+            items.push(
+                PickerItem::new(local.name.clone(), format!("local:{}", local.id))
+                    .with_group("local")
+                    .with_tag("LOCAL")
+                    .with_detail(local.path.display().to_string()),
+            );
+        }
         if items.is_empty() {
             for model in &self.catalog {
                 items.push(
@@ -585,6 +722,35 @@ impl App {
                 .with_detail("kind, base URL, key environment variable, models"),
         );
         Picker::new("providers", items).tap_hint("Enter to choose, Esc to close")
+    }
+
+    /// The lines of the log strip.
+    ///
+    /// The strip shows the last three lines of the local server and hides after ten seconds of
+    /// silence (SPEC 10.3).
+    fn log_strip_lines(&self) -> Vec<Line<'static>> {
+        let Some(logs) = &self.logs else {
+            return Vec::new();
+        };
+        let Ok(logs) = logs.lock() else {
+            return Vec::new();
+        };
+        if logs.is_quiet(std::time::Duration::from_secs(10)) {
+            return Vec::new();
+        }
+        logs.last(3)
+            .into_iter()
+            .map(|line| {
+                Line::from(Span::styled(
+                    line.text.clone(),
+                    Style::new().fg(if line.error {
+                        self.theme.warn
+                    } else {
+                        self.theme.dim
+                    }),
+                ))
+            })
+            .collect()
     }
 
     /// Copy the running processes into the sidebar.
@@ -877,13 +1043,26 @@ impl App {
             prompt_height = prompt_height.max(5);
         }
 
-        let [transcript_area, suggestions_area, prompt_area, footer_area] = Layout::vertical([
+        let log_lines = self.log_strip_lines();
+
+        let [
+            transcript_area,
+            log_area,
+            suggestions_area,
+            prompt_area,
+            footer_area,
+        ] = Layout::vertical([
             Constraint::Min(3),
+            Constraint::Length(log_lines.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(prompt_height),
             Constraint::Length(1),
         ])
         .areas(main_area);
+
+        if !log_lines.is_empty() {
+            frame.render_widget(ratatui::widgets::Paragraph::new(log_lines), log_area);
+        }
 
         if !suggestions.is_empty() {
             frame.render_widget(
@@ -919,6 +1098,12 @@ impl App {
         match &self.overlay {
             Some(Overlay::Help) => self.render_help(frame, area),
             Some(Overlay::Picker(picker)) => picker.render(frame, area, &self.theme),
+            Some(Overlay::Options {
+                name,
+                prefix,
+                input,
+                ..
+            }) => self.render_options(frame, area, name, prefix, input),
             None => {}
         }
     }
@@ -971,6 +1156,55 @@ impl App {
         let visible: Vec<Line> = lines[start.min(total)..end].to_vec();
 
         frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
+    }
+
+    /// The launch options editor.
+    fn render_options(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        name: &str,
+        prefix: &str,
+        input: &Input,
+    ) {
+        let width = area.width.min(76);
+        let height = 7.min(area.height);
+        let rect = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        frame.render_widget(ratatui::widgets::Clear, rect);
+        let block = ratatui::widgets::Block::bordered()
+            .border_style(Style::new().fg(self.theme.accent))
+            .style(Style::new().bg(self.theme.bg))
+            .title(Span::styled(
+                format!(" launch options: {name} "),
+                Style::new().fg(self.theme.accent).bold(),
+            ));
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+
+        let lines = vec![
+            Line::from(Span::styled(prefix, Style::new().fg(self.theme.dim))),
+            Line::from(Span::styled(
+                "the options above are set by SEEK",
+                Style::new().fg(self.theme.dim).italic(),
+            )),
+            Line::from(vec![
+                Span::styled("> ", Style::new().fg(self.theme.accent).bold()),
+                Span::styled(input.text(), Style::new().fg(self.theme.cube_light)),
+            ]),
+            Line::from(Span::styled(
+                "Enter saves, Esc returns",
+                Style::new().fg(self.theme.dim).italic(),
+            )),
+        ];
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(lines),
+            Rect::new(inner.x, inner.y, inner.width, inner.height),
+        );
     }
 
     /// The `/help` overlay.

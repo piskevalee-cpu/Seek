@@ -23,11 +23,12 @@ reference/          read-only third-party checkouts (gitignored)
 Upstream remote: `https://github.com/piskevalee-cpu/Seek.git` (the repo was renamed from
 `Seek-`; see `docs/DECISIONS.md` D-004). The crate and binary are named `seek`.
 
-**Milestones v0.1.0 to v0.3.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
+**Milestones v0.1.0 to v0.4.0 are implemented**: workspace, CI, theme, logo, Home/Chat layout,
 prompt bar, spinners, footer, sidebar shell, reasoning show/hide, the Anthropic and
 OpenAI-compatible providers, the model catalog, the configuration contracts, sessions, the
-pickers, the agent loop, the four tools and the permission matrix. Later milestones are listed in
-`docs/SPEC.md` §15 — **do not implement features from later milestones.**
+pickers, the agent loop, the four tools, the permission matrix and the llama.cpp supervisor.
+Later milestones are listed in `docs/SPEC.md` §15 — **do not implement features from later
+milestones.**
 
 ## Commands
 
@@ -113,6 +114,13 @@ Before every push: `cargo fmt && cargo clippy -- -D warnings && cargo test`.
 - The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
   caps its output and says how to fetch the rest; `bash` runs in its own process group and
   registers the process in the sidebar.
+- The local server lives in `seek-local`: `model` scans `~/seek/models`, `port` derives the port
+  from the model id, `options` strips the options SEEK owns and adds the implicit ones, and
+  `supervisor` starts `llama serve`, waits for the health check, reads `/props` and stops the
+  server as a whole process group.
+- The supervisor is tested against a **real** llama.cpp server in
+  `crates/seek-local/tests/supervisor.rs`. The test skips itself when there is no `llama` binary
+  or no model in `~/LLMs`.
 
 ## Dependencies
 
@@ -238,8 +246,6 @@ Run one package with `cargo test -p seek-core`, one test with `cargo test -p see
 
 ## Known gaps (deliberate, per the milestone order)
 
-- The local llama.cpp supervisor (SPEC 7) is still empty: `seek-local` only holds the folder and
-  port constants. That is milestone v0.4.
 - Context accounting and the METRICS block (SPEC 8) are v0.5.
 - Skills, the external tool format and the toggles (SPEC 9.3, 9.5, 9.6) are v0.6.
 - Widgets and `install.sh` (SPEC 10.5, 13) are v0.7.

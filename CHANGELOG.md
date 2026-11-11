@@ -28,5 +28,9 @@ workspace; each release ships a milestone (SPEC 15).
   (SPEC 9.1, 9.2, 9.4).
 - The process registry: `bash` commands run in their own process group and show up in the
   sidebar.
+- The llama.cpp supervisor: model discovery, port selection, the launch options, the health
+  check, the properties and the shutdown of `llama serve` (SPEC 7).
+- The launch options editor, with the implicit prefix shown read-only (SPEC 7.4).
+- The log strip, which shows the last three lines of the local server (SPEC 10.3).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...HEAD

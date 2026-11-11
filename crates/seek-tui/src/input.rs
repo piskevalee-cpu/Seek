@@ -16,7 +16,7 @@ pub const SLASH_COMMANDS: &[(&str, &str)] = &[
 ];
 
 /// A multi-line text input.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Input {
     lines: Vec<String>,
     row: usize,

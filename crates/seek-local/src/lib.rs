@@ -3,9 +3,18 @@
 //! This crate owns the lifecycle of the local server: scanning `~/seek/models/`, picking a port,
 //! spawning `llama serve`, waiting for health, reading the real context size and stopping it
 //! again. It also owns tokenization against the running server.
-//!
-//! Milestone v0.1 does not need any of that yet — the TUI runs against the fake provider — so the
-//! crate is empty for now. The supervisor lands in milestone v0.4.
+
+pub mod logs;
+pub mod model;
+pub mod options;
+pub mod port;
+pub mod supervisor;
+
+pub use logs::{LogBuffer, LogLine};
+pub use model::{LocalModel, Sidecar};
+pub use options::LaunchOptions;
+pub use port::{find_free_port, port_for};
+pub use supervisor::{LocalError, ServerProps, Supervisor};
 
 /// The folder where local models live, relative to the SEEK home.
 pub const MODELS_DIR: &str = "models";
