@@ -1,8 +1,11 @@
 //! The theme (SPEC 10.6).
 //!
 //! Tokens: `bg`, `cube_dark`, `cube_light`, `accent`, `dim`, `warn`, `error`. `cube_light` and
-//! `accent` come from the logo (SPEC 12). The exact values were sampled from `assets/logo.png`
-//! with `tools/extract_logo.py`; see `docs/DECISIONS.md` (D-002).
+//! `accent` come from the logo (SPEC 12): they were sampled from `assets/logo.png` with
+//! `tools/extract_logo.py`; see `docs/DECISIONS.md` (D-002).
+//!
+//! The `bg` token is the background of the terminal, not the green of the logo: a green terminal
+//! is unreadable. The logo keeps its own background in the asset.
 //!
 //! Colors are never the only signal: the permission mode and the LOCAL tag are text.
 
@@ -30,11 +33,11 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Theme {
-            // Sampled from assets/logo.png.
+            // The background of the terminal: dark on purpose.
             bg: rgb(0x14, 0x16, 0x17),
             cube_dark: rgb(0x2C, 0x2E, 0x2F),
+            // Sampled from assets/logo.png.
             cube_light: rgb(0xB4, 0xB4, 0xB4),
-            // From SPEC 12; the green variant of the logo is not in the repository yet.
             accent: rgb(0x22, 0xB1, 0x4C),
             dim: rgb(0x7C, 0x7D, 0x7E),
             warn: rgb(0xD9, 0xA4, 0x41),

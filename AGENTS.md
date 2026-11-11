@@ -92,7 +92,8 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
 - **The logo bitmap is generated.** `crates/seek-tui/src/logo_bitmap.rs` comes from
   `tools/extract_logo.py`; regenerate it with
   `python3 tools/extract_logo.py --out crates/seek-tui/src/logo_bitmap.rs` after changing
-  `assets/logo.png`. Never scale the PNG at runtime.
+  `assets/logo.png`. Never scale the PNG at runtime. The script finds the cell size from the
+  pitch of the letters, so it works for a scaled, anti-aliased asset as well.
 
 ## Architecture notes that are not obvious from the filenames
 
