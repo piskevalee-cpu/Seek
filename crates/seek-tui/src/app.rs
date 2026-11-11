@@ -53,6 +53,12 @@ pub struct ProviderForm {
     pub current: usize,
 }
 
+impl Default for ProviderForm {
+    fn default() -> Self {
+        ProviderForm::new()
+    }
+}
+
 impl ProviderForm {
     /// A form with the fields of the specification.
     pub fn new() -> Self {
