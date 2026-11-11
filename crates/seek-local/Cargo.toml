@@ -1,0 +1,10 @@
+[package]
+name = "seek-local"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "SEEK local models: the llama.cpp supervisor"
+
+[dependencies]
+seek-core.workspace = true

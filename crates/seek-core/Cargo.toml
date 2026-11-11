@@ -1,0 +1,16 @@
+[package]
+name = "seek-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "SEEK core: agent loop, canonical messages, tools, permissions, sessions"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+tiktoken-rs = "0.12"
