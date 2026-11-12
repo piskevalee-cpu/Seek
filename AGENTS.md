@@ -116,9 +116,20 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   animation is running.
 - The logo is drawn from a 25x9 cell bitmap: full blocks (50x9 cells) when there is room, half
   blocks (25x5) on short terminals, and the word SEEK below 56 columns.
-- The thinking and the loading animation are one line of twelve dark cells with a wave of
-  brightness going through them (`seek-tui::shimmer`). The logo draws only its lit pixels and has
-  the same kind of sheen. `reduce_motion` (also `--reduce-motion`) rests both.
+- The thinking and the loading animation are one line of eight dark cells with a streak of
+  brightness going through them (`seek-tui::shimmer`). The streak wraps around: a new one starts
+  at the left when the old one reaches the right. The logo draws only its lit pixels and has the
+  same kind of sheen. `reduce_motion` (also `--reduce-motion`) rests both.
+- The turn runs in a task of its own: the command loop keeps taking the commands of the user, so
+  the answer to a permission request and Esc arrive while the model works. A turn that is
+  cancelled gives up at the permission request and at the tool.
+- The keys come from a thread of their own (`crates/seek-tui/src/run.rs`). The reader of the
+  terminal blocks: read inside the event loop, it freezes the interface, and the keys arrive
+  late or not at all.
+- The pattern of a `tokio::select!` branch matters: `Some(Ok(event)) = events.next()` disables
+  the branch for ever when the stream hands over an error.
+- The colours are the tokyonight of the grok-build pager (`crates/seek-tui/src/theme.rs`); the
+  green of SEEK is the brand colour of the logo and of the `LOCAL` tag.
 - The config points at the llama.cpp binary and at the subcommand that starts the server:
   `llama_path` and `llama_subcommand` (D-001). The old `llama_server_path` is migrated on the
   first write.

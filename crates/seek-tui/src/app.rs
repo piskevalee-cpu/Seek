@@ -546,8 +546,9 @@ impl App {
                     return None;
                 }
                 if self.status != Status::Idle {
-                    // Esc stops the turn that is running (SPEC 9.1).
-                    self.status = Status::Idle;
+                    // Esc stops the turn that is running (SPEC 9.1). The status stays until
+                    // the turn ends: a message that is written in the meantime is queued,
+                    // and goes to the model when the turn is over (SPEC 9.1).
                     return Some(Command::Cancel);
                 }
                 self.scroll = 0;
@@ -696,6 +697,22 @@ impl App {
                     Some(Command::Permission {
                         id,
                         decision: PermissionDecision::Deny,
+                    })
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') => {
+                    // "n" is the short way of saying no.
+                    self.prompt_mode = PromptMode::Normal;
+                    Some(Command::Permission {
+                        id,
+                        decision: PermissionDecision::Deny,
+                    })
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    // "y" is the short way of saying yes.
+                    self.prompt_mode = PromptMode::Normal;
+                    Some(Command::Permission {
+                        id,
+                        decision: PermissionDecision::Allow,
                     })
                 }
                 KeyCode::Enter => match choice {
@@ -1558,6 +1575,7 @@ impl App {
             AgentEvent::ToolCallStarted { id, name } => {
                 self.close_think_time();
                 self.rows.push(Row::Tool {
+                    id: id.clone(),
                     name,
                     command: id,
                     status: "running".into(),
@@ -1566,19 +1584,29 @@ impl App {
                     expanded: false,
                 });
             }
-            AgentEvent::ToolCallReady { name, input, .. } => {
-                if let Some(Row::Tool { command, .. }) = self.rows.last_mut() {
+            AgentEvent::ToolCallReady { id, input, .. } => {
+                if let Some(Row::Tool { command, .. }) = self
+                    .rows
+                    .iter_mut()
+                    .rev()
+                    .find(|row| matches!(row, Row::Tool { id: row_id, .. } if *row_id == id))
+                {
                     *command = summarize_input(&input);
                 }
-                let _ = name;
             }
             AgentEvent::ToolOutput(output) => {
+                // The row of the call is found by its id: the output of one call can arrive
+                // after the next call has started.
                 if let Some(Row::Tool {
                     status,
                     duration,
                     detail,
                     ..
-                }) = self.rows.last_mut()
+                }) = self
+                    .rows
+                    .iter_mut()
+                    .rev()
+                    .find(|row| matches!(row, Row::Tool { id, .. } if *id == output.id))
                 {
                     *status = if output.is_error {
                         "error".into()
@@ -1730,9 +1758,17 @@ impl App {
 
         let (sidebar_area, main_area) = if self.sidebar.open && area.width >= SIDEBAR_MIN_WIDTH {
             let width = sidebar::SIDEBAR_WIDTH;
+            // The gap between the sidebar and the messages: the transcript must not touch
+            // the border of the sidebar.
+            let gap = 2;
             (
                 Rect::new(area.x, area.y, width, area.height),
-                Rect::new(area.x + width, area.y, area.width - width, area.height),
+                Rect::new(
+                    area.x + width + gap,
+                    area.y,
+                    area.width - width - gap,
+                    area.height,
+                ),
             )
         } else {
             (Rect::ZERO, area)
@@ -1751,38 +1787,34 @@ impl App {
         }
 
         let suggestions = prompt_bar::suggestion_lines(&self.input, &self.theme);
-        let mut prompt_height = self.input.len().max(1) as u16;
+        // The box has a top border and a bottom border.
+        let mut prompt_height = self.input.len().max(1) as u16 + 2;
         if self.status != Status::Idle {
             prompt_height += 1;
         }
         if !matches!(self.prompt_mode, PromptMode::Normal) {
-            // The permission selector needs five lines: the question, the summary and the choices.
-            prompt_height = prompt_height.max(5);
+            // The permission selector needs five lines: the question, the summary, the three
+            // choices and the line with the keys.
+            prompt_height = prompt_height.max(7);
         }
 
         let log_lines = self.log_strip_lines(main_area.width as usize);
 
         // The metrics have exactly one home: the bottom of the sidebar when it is open, the
-        // line under the prompt bar otherwise. Never both (SPEC 10.2).
-        let metrics_height: u16 = if self.sidebar.open && sidebar_area != Rect::ZERO {
-            0
-        } else {
-            1
-        };
+        // footer line otherwise. Never both (SPEC 10.2).
+        let metrics_in_footer = !(self.sidebar.open && sidebar_area != Rect::ZERO);
 
         let [
             transcript_area,
             log_area,
             suggestions_area,
             prompt_area,
-            metrics_area,
             footer_area,
         ] = Layout::vertical([
             Constraint::Min(3),
             Constraint::Length(log_lines.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(prompt_height),
-            Constraint::Length(metrics_height),
             Constraint::Length(1),
         ])
         .areas(main_area);
@@ -1805,24 +1837,30 @@ impl App {
             prompt_area,
             &self.input,
             &self.theme,
-            self.status != Status::Idle,
-            self.queued.len(),
-            &self.prompt_mode,
+            &prompt_bar::PromptState {
+                busy: self.status != Status::Idle,
+                queued: self.queued.len(),
+                mode: self.prompt_mode.clone(),
+                caption: self.model.model.clone(),
+            },
         );
 
-        if metrics_height > 0 {
-            crate::metrics::render_one_line(frame, metrics_area, &self.metrics, &self.theme);
-        }
-
+        // The metrics have exactly one home: the bottom of the sidebar when it is open, the
+        // footer line otherwise. Never both (SPEC 10.2).
         let footer = Footer {
             mode: self.mode,
             model: self.model.clone(),
             reasoning: self.reasoning.clone(),
             cwd: self.cwd.clone(),
             branch: self.branch.clone(),
+            metrics: match metrics_in_footer {
+                // The metrics are in the footer when the sidebar is closed.
+                true => Some(self.metrics.clone()),
+                false => None,
+            },
         };
         frame.render_widget(
-            ratatui::widgets::Paragraph::new(footer_line(&footer, &self.theme)),
+            ratatui::widgets::Paragraph::new(footer_line(&footer, &self.theme, footer_area.width)),
             footer_area,
         );
 
@@ -2287,6 +2325,7 @@ mod tests {
     fn up_and_down_select_a_tool_row() {
         let mut app = App::new(Theme::default());
         app.rows.push(Row::Tool {
+            id: "t1".to_string(),
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),
@@ -2303,6 +2342,7 @@ mod tests {
     fn ctrl_o_expands_the_selected_tool_row() {
         let mut app = App::new(Theme::default());
         app.rows.push(Row::Tool {
+            id: "t1".to_string(),
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),

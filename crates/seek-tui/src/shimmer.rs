@@ -8,16 +8,26 @@ use ratatui::style::Color;
 
 /// The brightness of a cell at `index` of a wave that is `width` cells wide.
 ///
-/// The value is in `[0, 1]`: 0 is the resting colour, 1 is the full highlight. The wave is a
-/// `sin²`, so it is smooth at both ends.
+/// The value is in `[0, 1]`: 0 is the resting colour, 1 is the full highlight.
+///
+/// The wave is a travelling pulse, not a `sin²`: it goes along the line and wraps around, so a
+/// new streak starts at the left when the old one reaches the right. A `sin²` ping-pongs
+/// instead, and the same cells light up again and again.
 pub fn wave_brightness(tick: u64, index: u16, width: u16, speed: f32) -> f32 {
-    use std::f32::consts::PI;
-
     let width = width.max(1) as f32;
-    let phase = (index as f32 / width) * 2.0 * PI;
-    let t = tick as f32 * speed;
-    let sin = (t + phase).sin();
-    sin * sin
+    // The head of the streak travels along the line and wraps around.
+    let head = (tick as f32 * speed).rem_euclid(1.0) * width;
+    let position = index as f32;
+    // The distance from the head, wrapped around the line: the streak comes back to the
+    // left when it reaches the right.
+    let distance = (position - head).rem_euclid(width);
+    let distance = distance.min(width - distance);
+    // The streak is a small triangle around the head.
+    const HALF_WIDTH: f32 = 1.5;
+    if distance >= HALF_WIDTH {
+        return 0.0;
+    }
+    (1.0 - distance / HALF_WIDTH).powf(2.0)
 }
 
 /// The opacity of the shine at a diagonal position, at a point in time.
@@ -93,6 +103,30 @@ mod tests {
                 .unwrap()
         };
         assert_ne!(peak(0), peak(6));
+    }
+
+    #[test]
+    fn the_streak_wraps_around_the_line() {
+        // The head moves two cells per tick at a quarter speed, so it is at cell 6 after
+        // three ticks and back at cell 0 after four.
+        let width = 8;
+        let speed = 0.25;
+        let at_the_end = wave_brightness(3, 6, width, speed);
+        let at_the_start = wave_brightness(4, 0, width, speed);
+        assert!(at_the_end > 0.5, "the streak is at the end: {at_the_end}");
+        assert!(
+            at_the_start > 0.5,
+            "the streak is back at the start: {at_the_start}"
+        );
+    }
+
+    #[test]
+    fn only_a_few_cells_are_lit() {
+        // The streak is short: the line stays dark.
+        let lit = (0..8)
+            .filter(|index| wave_brightness(3, *index, 8, 0.25) > 0.0)
+            .count();
+        assert!(lit <= 4, "the streak is short: {lit} cells are lit");
     }
 
     #[test]

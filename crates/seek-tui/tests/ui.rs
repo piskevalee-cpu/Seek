@@ -83,9 +83,16 @@ fn the_chat_layout_shows_the_message_the_footer_and_the_prompt() {
 
     assert!(lines.iter().any(|line| line.contains("hello")));
     assert!(lines.iter().any(|line| line.contains("hi there")));
-    // The footer chip and the prompt marker.
+    // The footer chip and the box of the prompt.
     assert!(lines.iter().any(|line| line.contains("ASK")));
-    assert!(lines.iter().any(|line| line.contains(">")));
+    assert!(
+        lines.iter().any(|line| line.contains("\u{256D}")),
+        "the prompt has a box: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("\u{2570}")),
+        "the prompt has a box: {lines:?}"
+    );
 }
 
 #[test]
@@ -159,6 +166,7 @@ fn a_queued_message_is_tagged() {
 fn a_tool_row_shows_the_command_and_the_status() {
     let mut app = app();
     app.rows.push(Row::Tool {
+        id: "t1".to_string(),
         name: "bash".into(),
         command: "cargo test".into(),
         status: "ok".into(),
@@ -860,4 +868,46 @@ fn the_provider_form_opens_and_saves() {
     let screen = render(&mut app, 100, 30);
     assert!(screen.contains("add a provider"));
     assert!(screen.contains("base url"));
+}
+
+#[test]
+fn a_tool_row_is_closed_by_its_own_id() {
+    let mut app = app();
+    // Two calls, and the output of the first one arrives after the second one started.
+    app.rows.push(Row::Tool {
+        id: "one".into(),
+        name: "bash".into(),
+        command: "ls".into(),
+        status: "running".into(),
+        duration: None,
+        detail: None,
+        expanded: false,
+    });
+    app.rows.push(Row::Tool {
+        id: "two".into(),
+        name: "bash".into(),
+        command: "pwd".into(),
+        status: "running".into(),
+        duration: None,
+        detail: None,
+        expanded: false,
+    });
+
+    app.update(Message::Agent(AgentEvent::ToolOutput(
+        seek_core::ToolOutput {
+            id: "one".into(),
+            name: "bash".into(),
+            content: "the first one".into(),
+            is_error: false,
+            duration: std::time::Duration::from_millis(10),
+        },
+    )));
+
+    // The first row is closed; the second one is still running.
+    let status = |index: usize| match &app.rows[index] {
+        Row::Tool { status, .. } => status.clone(),
+        other => panic!("expected a tool row, got {other:?}"),
+    };
+    assert_eq!(status(0), "ok");
+    assert_eq!(status(1), "running");
 }

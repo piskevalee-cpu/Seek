@@ -35,7 +35,8 @@ NAMED = {
     "LightMagenta": "#ff5fff",
     "LightCyan": "#5fffff",
     "LightYellow": "#ffff5f",
-    "reset": "#000000",
+    # "reset" is the background of the terminal, which is the background of the theme.
+    "reset": "#24283b",
     "none": None,
 }
 
@@ -96,7 +97,7 @@ def main() -> int:
     height = dump["height"]
     cells = dump["cells"]
 
-    background = (0x14, 0x16, 0x17)
+    background = (0x24, 0x28, 0x3B)
     pixels = []
     for y in range(height):
         row = []

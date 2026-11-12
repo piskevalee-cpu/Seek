@@ -1,10 +1,13 @@
 //! The transcript (SPEC 10.3).
 //!
-//! User and assistant messages are dark cube boxes: a filled dark surface, a one-cell accent on
-//! the left edge (gray for the user, green for the assistant) and a role label on the first line.
-//! Reasoning is plain dim text with a thin vertical bar at the left and no box; when reasoning is
-//! hidden it collapses to a single row with the same bar. Tool rows are one line and can be
-//! expanded. Queued messages render dimmed with a `queued` tag.
+//! The look follows the grok-build pager (Apache-2.0): every block has a one-column rail on the
+//! left, coloured by the kind of the block (blue for the user, magenta for the model, grey for
+//! the reasoning and the tools), and a blank line between the blocks so they breathe.
+//!
+//! The message of the user is a band across the width with the arrow in front of it. The answer
+//! of the model is plain text. Reasoning is plain dim text with a thin vertical bar at the left;
+//! when reasoning is hidden it collapses to a single row with the same bar. Tool rows are one
+//! line and can be expanded. Queued messages render dimmed with a `queued` tag.
 
 use std::time::Duration;
 
@@ -14,8 +17,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::theme::Theme;
 
-/// The surface of a message box.
-pub const SURFACE: ratatui::style::Color = ratatui::style::Color::Rgb(0x18, 0x1A, 0x1B);
+/// The rail of a block: one column, coloured by the kind of the block.
+const RAIL: &str = "\u{2502} ";
 
 /// One row of the transcript.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,6 +31,8 @@ pub enum Row {
     Reasoning(String),
     /// A tool call.
     Tool {
+        /// The id of the call; the output of the tool is matched on it.
+        id: String,
         name: String,
         command: String,
         status: String,
@@ -58,6 +63,10 @@ pub fn transcript_lines(
 ) -> Vec<(usize, Line<'static>)> {
     let mut lines = Vec::new();
     for (index, row) in rows.iter().enumerate() {
+        // A blank line between the blocks: the transcript must breathe.
+        if !lines.is_empty() {
+            lines.push((index, Line::from("")));
+        }
         match row {
             Row::User(text) => {
                 lines.extend(
@@ -91,6 +100,7 @@ pub fn transcript_lines(
                 duration,
                 detail,
                 expanded,
+                ..
             } => {
                 lines.push((index, tool_line(name, command, status, *duration, theme)));
                 if *expanded && let Some(detail) = detail {
@@ -109,6 +119,7 @@ pub fn transcript_lines(
                 lines.push((
                     index,
                     Line::from(vec![
+                        Span::styled(RAIL, Style::new().fg(theme.error)),
                         Span::styled("! ", Style::new().fg(theme.error).bold()),
                         Span::styled(text.clone(), Style::new().fg(theme.error)),
                     ]),
@@ -118,7 +129,7 @@ pub fn transcript_lines(
                 lines.push((
                     index,
                     Line::from(vec![
-                        Span::styled("│ ", Style::new().fg(theme.dim)),
+                        Span::styled(RAIL, Style::new().fg(theme.dim)),
                         Span::styled(text.clone(), Style::new().fg(theme.dim).italic()),
                         Span::styled(" queued", Style::new().fg(theme.dim).italic()),
                     ]),
@@ -135,29 +146,32 @@ pub fn transcript_lines(
 /// This is the look of the grok-build pager: the prompt of the user is the one thing that is
 /// banded, so it stands out from the answer of the model.
 fn user_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
-    let band = Style::new().bg(SURFACE);
-    let inner = width.saturating_sub(2).max(20);
+    let band = Style::new().bg(theme.surface);
+    let inner = width.saturating_sub(RAIL.len() + 4).max(20);
     let mut lines = Vec::new();
     for (index, line) in wrap(text, inner).into_iter().enumerate() {
-        let mut spans = Vec::new();
+        let mut spans = vec![Span::styled(
+            RAIL,
+            Style::new().fg(theme.accent_user).bg(theme.surface),
+        )];
         if index == 0 {
             spans.push(Span::styled(
                 PROMPT_ARROW,
-                Style::new().fg(theme.accent).bold().bg(SURFACE),
+                Style::new().fg(theme.accent_user).bold().bg(theme.surface),
             ));
         } else {
-            spans.push(Span::styled("  ", Style::new().bg(SURFACE)));
+            spans.push(Span::styled("  ", Style::new().bg(theme.surface)));
         }
         spans.push(Span::styled(
             line,
-            Style::new().fg(theme.cube_light).bg(SURFACE),
+            Style::new().fg(theme.text).bg(theme.surface),
         ));
         // The band goes across the whole width.
         let used: usize = spans.iter().map(|span| span.content.chars().count()).sum();
         if used < width {
             spans.push(Span::styled(
                 " ".repeat(width - used),
-                Style::new().bg(SURFACE),
+                Style::new().bg(theme.surface),
             ));
         }
         lines.push(Line::from(spans).style(band));
@@ -167,21 +181,26 @@ fn user_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
 
 /// The answer of the model: plain text, without a band and without a border.
 fn assistant_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
-    let inner = width.max(20);
+    let inner = width.saturating_sub(RAIL.len()).max(20);
     wrap(text, inner)
         .into_iter()
-        .map(|line| Line::from(Span::styled(line, Style::new().fg(theme.cube_light))))
+        .map(|line| {
+            Line::from(vec![
+                Span::styled(RAIL, Style::new().fg(theme.accent_assistant)),
+                Span::styled(line, Style::new().fg(theme.text)),
+            ])
+        })
         .collect()
 }
 
 /// Reasoning text: dim, with a thin vertical bar at the left.
 fn reasoning_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
-    let inner = width.saturating_sub(2).max(20);
+    let inner = width.saturating_sub(RAIL.len()).max(20);
     wrap(text, inner)
         .into_iter()
         .map(|line| {
             Line::from(vec![
-                Span::styled("│ ", Style::new().fg(theme.dim)),
+                Span::styled(RAIL, Style::new().fg(theme.accent_thinking)),
                 Span::styled(line, Style::new().fg(theme.dim)),
             ])
         })
@@ -191,7 +210,7 @@ fn reasoning_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>
 /// The collapsed reasoning row.
 fn reasoning_collapsed(theme: &Theme) -> Line<'static> {
     Line::from(vec![
-        Span::styled("│ ", Style::new().fg(theme.dim)),
+        Span::styled(RAIL, Style::new().fg(theme.accent_thinking)),
         Span::styled("reasoning", Style::new().fg(theme.dim).italic()),
     ])
 }
@@ -205,13 +224,13 @@ fn tool_line(
     theme: &Theme,
 ) -> Line<'static> {
     let mut spans = vec![
-        Span::styled("> ", Style::new().fg(theme.dim)),
-        Span::styled(name.to_string(), Style::new().fg(theme.accent).bold()),
+        Span::styled(RAIL, Style::new().fg(theme.accent_tool)),
+        Span::styled(name.to_string(), Style::new().fg(theme.accent_tool).bold()),
     ];
     if !command.is_empty() {
         spans.push(Span::styled(
             format!("  {command}"),
-            Style::new().fg(theme.cube_light),
+            Style::new().fg(theme.text_dim),
         ));
     }
     let status_color = match status {
@@ -293,9 +312,49 @@ mod tests {
         let lines = transcript_lines(&[Row::User("hi".into())], &theme, true, 80);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].0, 0, "the line knows its row");
-        assert!(lines[0].1.spans[0].content.contains(PROMPT_ARROW));
+        assert!(lines[0].1.to_string().contains(PROMPT_ARROW));
         // The band goes across the whole width.
         assert_eq!(lines[0].1.width(), 80);
+    }
+
+    #[test]
+    fn every_block_has_a_rail() {
+        let theme = Theme::default();
+        let rows = [
+            Row::User("hi".into()),
+            Row::Assistant("hello".into()),
+            Row::Reasoning("thinking".into()),
+            Row::Tool {
+                id: "t1".into(),
+                name: "bash".into(),
+                command: "ls".into(),
+                status: "ok".into(),
+                duration: None,
+                detail: None,
+                expanded: false,
+            },
+        ];
+        for line in transcript_lines(&rows, &theme, true, 80) {
+            // The blank line between the blocks has no rail.
+            if line.1.spans.is_empty() {
+                continue;
+            }
+            assert!(
+                line.1.spans[0].content.contains(RAIL),
+                "the block has a rail: {:?}",
+                line.1
+            );
+        }
+    }
+
+    #[test]
+    fn a_blank_line_sits_between_the_blocks() {
+        let theme = Theme::default();
+        let rows = [Row::User("hi".into()), Row::Assistant("hello".into())];
+        let lines = transcript_lines(&rows, &theme, true, 80);
+        // The message, the blank line, the answer.
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[1].1.to_string(), "", "the blocks breathe");
     }
 
     #[test]
@@ -329,6 +388,7 @@ mod tests {
     fn tool_rows_are_one_line() {
         let theme = Theme::default();
         let rows = [Row::Tool {
+            id: "t1".to_string(),
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),

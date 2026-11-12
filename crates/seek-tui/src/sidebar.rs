@@ -16,7 +16,7 @@ use crate::metrics::Metrics;
 use crate::theme::Theme;
 
 /// The width of the sidebar.
-pub const SIDEBAR_WIDTH: u16 = 30;
+pub const SIDEBAR_WIDTH: u16 = 32;
 
 /// The sidebar state.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

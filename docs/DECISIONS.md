@@ -188,3 +188,78 @@ The look now follows the grok-build pager (Apache-2.0):
 - **The log strip** is one line instead of three.
 
 **Status:** accepted. The specification was updated with it (§10.3, §12).
+
+## D-011 — The colours and the shape of the interface
+
+**Date:** 2026-11-12 · **Affects:** SPEC 10.2, 10.3, 12
+
+The interface follows the pager of the grok-build harness (Apache-2.0), because the owner asked
+for that look:
+
+- **The palette** is tokyonight: the background is the storm blue (`#24283b`), the text the pale
+  foreground (`#c0caf5`), the dim text `#a9b1d6`, and the gray ramp `#3b4261`, `#565f89`,
+  `#737aa2`. The user is blue (`#7aa2f7`), the model magenta (`#bb9af7`), the tools gray. The
+  prompt border is `#323e64`, and `#4b5c8c` when it has the focus. The green of SEEK (`#22b14c`)
+  stays for the brand: the logo and the `LOCAL` tag.
+- **The rails.** Every block of the transcript has a one-column rail on the left, coloured by the
+  kind of the block. The rail is what tells the blocks apart, so the boxes are not needed.
+- **The spacing.** A blank line sits between the blocks, and a gap of two columns sits between
+  the sidebar and the messages.
+- **The prompt is a box** with rounded corners: the name of the model in the top border, the keys
+  in the bottom one. Before, the prompt was a `>` and a line of text, and it did not look like an
+  input at all.
+- **The footer is one line**: the mode, the model, the place and the metrics. The metrics moved
+  from their own line under the prompt bar into the footer, so the bottom of the screen is one
+  line and not three.
+- **The thinking line** is eight cells and the streak wraps around: a new one starts at the left
+  when the old one reaches the right. A `sin²` ping-ponged instead, and the same cells lit up
+  again and again.
+
+**Status:** accepted. The specification was updated with it (§10.2, §10.3).
+
+## D-012 — The turn does not block the commands
+
+**Date:** 2026-11-12 · **Affects:** SPEC 4.1, 9.1, 9.4
+
+The agent loop waited for the turn to end before it took the next command of the user. The
+answer to a permission request and the cancel of Esc both travel through that loop, so neither
+ever arrived: the tool waited for an answer that could not come, and the turn hung.
+
+This was not a detail: the owner reported a tool that stayed `running` for minutes, and an Esc
+that did nothing at all.
+
+The turn now runs in a task of its own, so the loop keeps taking the commands:
+
+- the answer to a permission request arrives, and the tool runs;
+- Esc stops the turn at once, even while the model is still loading;
+- a cancel that comes before the turn has started is remembered, not lost;
+- the permission request and the tool run give up when the turn is cancelled;
+- the conversation goes on from turn to turn, so the model sees what was said before.
+
+Two things came with it:
+
+- **The bash command runs in a blocking task.** It waits for the process, and that froze the
+  whole runtime: the interface did not answer while a command ran.
+- **The answer of a local model never takes more than half of the window.** The provider asked
+  for 8,192 tokens whatever the model could hold, and the server refuses a request that does not
+  fit: `request (4108 tokens) exceeds the available context size (4096 tokens)`.
+
+**Status:** accepted.
+
+## D-013 — The keys come from a thread of their own
+
+**Date:** 2026-11-12 · **Affects:** SPEC 4.2
+
+The event loop read the crossterm `EventStream` directly. The reader of crossterm blocks until
+something happens, and the `EventStream` hands the event over from a thread of its own: the loop
+waited for the reader, and the reader waited for the next key. The keys arrived late, or not at
+all.
+
+That is what the owner found: **Esc did nothing, and the message that came after it was never
+taken.** Nothing in the transcript said why — the keys were simply gone.
+
+The keys now come from a thread of their own and the event loop reads them from a channel. The
+pattern of the branch matters as well: `Some(Ok(event)) = events.next()` disables the branch for
+ever when the stream hands over an error, and the user is left with a keyboard that does nothing.
+
+**Status:** accepted. The specification was updated with it (§4.2).

@@ -24,7 +24,7 @@ pub const CUBES: usize = 10;
 const PARTIALS: [&str; 8] = ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"];
 
 /// The metrics of the current session.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Metrics {
     /// The context window.
     pub context: ContextWindow,
@@ -127,6 +127,23 @@ impl Metrics {
         ])
     }
 
+    /// The short form of the vitals: the processor and the memory.
+    ///
+    /// The footer line has room for two figures, not for four.
+    pub fn vitals_short(&self, theme: &Theme) -> Line<'static> {
+        let vitals = self.vitals.clone().unwrap_or_default();
+        Line::from(vec![
+            Span::styled(
+                format!(" cpu {}", vitals.cpu_text()),
+                Style::new().fg(theme.dim),
+            ),
+            Span::styled(
+                format!("  ram {}", vitals.ram_text()),
+                Style::new().fg(theme.dim),
+            ),
+        ])
+    }
+
     /// The rows of the sidebar form.
     pub fn sidebar_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
         let mut lines = vec![self.context_line(theme), self.speed_line(theme)];
@@ -135,6 +152,48 @@ impl Metrics {
         }
         lines.push(self.vitals_line(theme));
         lines
+    }
+
+    /// The short form, for the footer line.
+    ///
+    /// The bar of the context is too wide for the footer: the counts and the percentage are
+    /// enough there. The vitals come last and are dropped when the line is narrow.
+    pub fn compact_line(&self, theme: &Theme, width: u16) -> Line<'static> {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let color = self.context_color(theme);
+        spans.push(Span::styled(
+            format!("{} ", self.context.counts()),
+            Style::new().fg(theme.text),
+        ));
+        spans.push(Span::styled(
+            format!("{}%", (self.context.fraction() * 100.0).round() as u16),
+            Style::new().fg(color),
+        ));
+
+        let speed = self.speed_line(theme);
+        let limit = self.rate_limit_line(theme);
+        let vitals = self.vitals_short(theme);
+
+        let used: u16 = spans.iter().map(|span| span.width() as u16).sum();
+        let speed_width = speed.width() as u16;
+        let limit_width = limit.as_ref().map(|line| line.width() as u16).unwrap_or(0);
+        let vitals_width = vitals.width() as u16;
+
+        if used + speed_width + limit_width + vitals_width <= width {
+            spans.extend(speed.spans);
+            if let Some(limit) = limit {
+                spans.extend(limit.spans);
+            }
+            spans.extend(vitals.spans);
+        } else if used + speed_width + limit_width <= width {
+            spans.extend(speed.spans);
+            if let Some(limit) = limit {
+                spans.extend(limit.spans);
+            }
+        } else if used + speed_width <= width {
+            spans.extend(speed.spans);
+        }
+        Line::from(spans)
     }
 
     /// The one-line form, dropping the elements from the right when it is narrow.

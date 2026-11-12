@@ -49,6 +49,7 @@ fn main() {
         .push(Row::Reasoning("the parser lives in seek-core".into()));
     app.rows.push(Row::Assistant("Added a parser test.".into()));
     app.rows.push(Row::Tool {
+        id: "t1".to_string(),
         name: "bash".into(),
         command: "cargo test".into(),
         status: "ok".into(),

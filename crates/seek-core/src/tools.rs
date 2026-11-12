@@ -433,32 +433,42 @@ impl LsTool {
     }
 
     /// The entries of the directory.
-    pub fn list(&self, path: Option<&str>) -> Result<String, ToolError> {
-        let directory = match path {
-            Some(path) => resolve(&self.root, path),
-            None => self.root.clone(),
-        };
-        let entries = std::fs::read_dir(&directory)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", directory.display())))?;
-
-        let mut lines: Vec<String> = Vec::new();
-        let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
-        entries.sort_by_key(|entry| entry.file_name());
-
-        for entry in entries {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let kind = match entry.file_type() {
-                Ok(file_type) if file_type.is_dir() => "/",
-                Ok(file_type) if file_type.is_symlink() => "@",
-                _ => "",
-            };
-            lines.push(format!("{name}{kind}"));
-            if lines.len() >= MAX_LINES {
-                break;
-            }
-        }
-        Ok(cap_output(&lines.join("\n")))
+    ///
+    /// The work happens in a blocking task, with a timeout: a directory on a slow disk cannot
+    /// hang the turn.
+    pub async fn list(&self, path: Option<&str>) -> Result<String, ToolError> {
+        let path = path.map(str::to_string);
+        let root = self.root.clone();
+        in_time(move || list_in(&root, path.as_deref())).await
     }
+}
+
+/// The entries of a directory.
+fn list_in(root: &Path, path: Option<&str>) -> Result<String, ToolError> {
+    let directory = match path {
+        Some(path) => resolve(root, path),
+        None => root.to_path_buf(),
+    };
+    let entries = std::fs::read_dir(&directory)
+        .map_err(|error| ToolError::Failed(format!("{}: {error}", directory.display())))?;
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let kind = match entry.file_type() {
+            Ok(file_type) if file_type.is_dir() => "/",
+            Ok(file_type) if file_type.is_symlink() => "@",
+            _ => "",
+        };
+        lines.push(format!("{name}{kind}"));
+        if lines.len() >= MAX_LINES {
+            break;
+        }
+    }
+    Ok(cap_output(&lines.join("\n")))
 }
 
 /// Searches the files of a directory for a pattern.
@@ -473,36 +483,47 @@ impl GrepTool {
     }
 
     /// The lines that match.
-    pub fn search(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
-        let directory = match path {
-            Some(path) => resolve(&self.root, path),
-            None => self.root.clone(),
-        };
-        let mut lines: Vec<String> = Vec::new();
+    ///
+    /// The walk happens in a blocking task, so the interface keeps answering while it runs, and
+    /// it is stopped if it takes too long.
+    pub async fn search(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+        let pattern = pattern.to_string();
+        let path = path.map(str::to_string);
+        let root = self.root.clone();
+        in_time(move || search_in(&root, &pattern, path.as_deref())).await
+    }
+}
 
-        for entry in walk(&directory) {
-            if lines.len() >= MAX_LINES {
-                break;
-            }
-            let Ok(text) = std::fs::read_to_string(&entry) else {
-                continue;
-            };
-            for (number, line) in text.lines().enumerate() {
-                if line.contains(pattern) {
-                    lines.push(format!(
-                        "{}:{}: {}",
-                        entry.strip_prefix(&self.root).unwrap_or(&entry).display(),
-                        number + 1,
-                        line.trim()
-                    ));
-                    if lines.len() >= MAX_LINES {
-                        break;
-                    }
+/// The lines that match, in the files of a directory.
+fn search_in(root: &Path, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+    let directory = match path {
+        Some(path) => resolve(root, path),
+        None => root.to_path_buf(),
+    };
+    let mut lines: Vec<String> = Vec::new();
+
+    for entry in walk(&directory) {
+        if lines.len() >= MAX_LINES {
+            break;
+        }
+        let Ok(text) = std::fs::read_to_string(&entry) else {
+            continue;
+        };
+        for (number, line) in text.lines().enumerate() {
+            if line.contains(pattern) {
+                lines.push(format!(
+                    "{}:{}: {}",
+                    entry.strip_prefix(root).unwrap_or(&entry).display(),
+                    number + 1,
+                    line.trim()
+                ));
+                if lines.len() >= MAX_LINES {
+                    break;
                 }
             }
         }
-        Ok(cap_output(&lines.join("\n")))
     }
+    Ok(cap_output(&lines.join("\n")))
 }
 
 /// Finds the files of a directory by name.
@@ -517,48 +538,99 @@ impl FindTool {
     }
 
     /// The files whose name matches.
-    pub fn find(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
-        let directory = match path {
-            Some(path) => resolve(&self.root, path),
-            None => self.root.clone(),
-        };
-        let mut lines: Vec<String> = Vec::new();
-        for entry in walk(&directory) {
-            let name = entry
-                .file_name()
-                .map(|name| name.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if name.contains(pattern) {
-                lines.push(
-                    entry
-                        .strip_prefix(&self.root)
-                        .unwrap_or(&entry)
-                        .display()
-                        .to_string(),
-                );
-                if lines.len() >= MAX_LINES {
-                    break;
-                }
+    ///
+    /// The walk happens in a blocking task, so the interface keeps answering while it runs, and
+    /// it is stopped if it takes too long.
+    pub async fn find(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+        let pattern = pattern.to_string();
+        let path = path.map(str::to_string);
+        let root = self.root.clone();
+        in_time(move || find_in(&root, &pattern, path.as_deref())).await
+    }
+}
+
+/// The files whose name matches, in a directory.
+fn find_in(root: &Path, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+    let directory = match path {
+        Some(path) => resolve(root, path),
+        None => root.to_path_buf(),
+    };
+    let mut lines: Vec<String> = Vec::new();
+    for entry in walk(&directory) {
+        let name = entry
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if name.contains(pattern) {
+            lines.push(
+                entry
+                    .strip_prefix(root)
+                    .unwrap_or(&entry)
+                    .display()
+                    .to_string(),
+            );
+            if lines.len() >= MAX_LINES {
+                break;
             }
         }
-        Ok(cap_output(&lines.join("\n")))
+    }
+    Ok(cap_output(&lines.join("\n")))
+}
+
+/// How deep the helpers walk.
+pub const MAX_DEPTH: usize = 12;
+/// How many files the helpers look at.
+pub const MAX_FILES: usize = 2_000;
+/// How long the helpers may take.
+pub const HELPER_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Runs the work of a helper, with a timeout.
+///
+/// The work is blocking, so it happens in its own task: the runtime keeps serving the interface
+/// while the helper walks the tree. A helper that takes too long comes back with an error
+/// instead of hanging the turn for ever.
+async fn in_time<F, T>(work: F) -> Result<T, ToolError>
+where
+    F: FnOnce() -> Result<T, ToolError> + Send + 'static,
+    T: Send + 'static,
+{
+    in_time_within(HELPER_TIMEOUT, work).await
+}
+
+/// Runs the work of a helper, with a timeout.
+async fn in_time_within<F, T>(limit: Duration, work: F) -> Result<T, ToolError>
+where
+    F: FnOnce() -> Result<T, ToolError> + Send + 'static,
+    T: Send + 'static,
+{
+    let task = tokio::task::spawn_blocking(work);
+    match tokio::time::timeout(limit, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(ToolError::Failed(format!(
+            "the helper did not finish: {error}"
+        ))),
+        Err(_) => Err(ToolError::Timeout(limit)),
     }
 }
 
 /// The files of a directory, without the ones the git ignores.
+///
+/// The walk is bounded in depth and in the number of files: a search over a whole disk has to
+/// come back with an answer, not with a hang.
 fn walk(directory: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     for entry in ignore::WalkBuilder::new(directory)
         .hidden(true)
         .git_ignore(true)
         .git_global(false)
+        .max_depth(Some(MAX_DEPTH))
         .build()
         .flatten()
     {
         if entry.file_type().is_some_and(|kind| kind.is_file()) {
             files.push(entry.path().to_path_buf());
         }
-        if files.len() >= 2_000 {
+        if files.len() >= MAX_FILES {
             break;
         }
     }
@@ -623,7 +695,7 @@ impl Tool for LsTool {
     fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
         Box::pin(async move {
             let path = input.get("path").and_then(Value::as_str);
-            let content = self.list(path)?;
+            let content = self.list(path).await?;
             Ok(ToolOutput {
                 id: String::new(),
                 name: "ls".into(),
@@ -645,7 +717,7 @@ impl Tool for GrepTool {
         Box::pin(async move {
             let pattern = string_field(&input, "pattern")?;
             let path = input.get("path").and_then(Value::as_str);
-            let content = self.search(&pattern, path)?;
+            let content = self.search(&pattern, path).await?;
             Ok(ToolOutput {
                 id: String::new(),
                 name: "grep".into(),
@@ -667,7 +739,7 @@ impl Tool for FindTool {
         Box::pin(async move {
             let pattern = string_field(&input, "pattern")?;
             let path = input.get("path").and_then(Value::as_str);
-            let content = self.find(&pattern, path)?;
+            let content = self.find(&pattern, path).await?;
             Ok(ToolOutput {
                 id: String::new(),
                 name: "find".into(),
@@ -709,7 +781,15 @@ impl Tool for BashTool {
     fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
         Box::pin(async move {
             let command = string_field(&input, "command")?;
-            let content = self.run(&command)?;
+            // The command waits for the process, and that is blocking. It runs in its own
+            // task, so the interface keeps answering while it runs: a command that takes
+            // minutes must not freeze the screen.
+            let tool = self.clone();
+            let content = tokio::task::spawn_blocking(move || tool.run(&command))
+                .await
+                .map_err(|error| {
+                    ToolError::Failed(format!("the command did not finish: {error}"))
+                })??;
             Ok(ToolOutput {
                 id: String::new(),
                 name: "bash".into(),
@@ -735,7 +815,9 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("seek-tools-test-{name}"));
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let number = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("seek-tools-test-{name}-{number}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the directory is created");
         dir
@@ -833,33 +915,70 @@ mod tests {
         let _ = tool.run("sleep 5");
     }
 
-    #[test]
-    fn listing_a_directory_shows_the_entries() {
+    #[tokio::test]
+    async fn listing_a_directory_shows_the_entries() {
         let dir = temp_dir("ls");
         std::fs::write(dir.join("a.txt"), b"x").expect("written");
         std::fs::create_dir_all(dir.join("sub")).expect("created");
         let tool = LsTool::new(dir.clone());
-        let out = tool.list(None).expect("listed");
+        let out = tool.list(None).await.expect("listed");
         assert!(out.contains("a.txt"));
         assert!(out.contains("sub/"));
     }
 
-    #[test]
-    fn searching_finds_the_lines() {
+    #[tokio::test]
+    async fn searching_finds_the_lines() {
         let dir = temp_dir("grep");
         std::fs::write(dir.join("a.txt"), b"one\ntwo\nthree").expect("written");
         let tool = GrepTool::new(dir.clone());
-        let out = tool.search("two", None).expect("searched");
+        let out = tool.search("two", None).await.expect("searched");
         assert!(out.contains("a.txt:2: two"), "{out}");
     }
 
-    #[test]
-    fn finding_shows_the_paths() {
+    #[tokio::test]
+    async fn finding_shows_the_paths() {
         let dir = temp_dir("find");
         std::fs::write(dir.join("needle.txt"), b"x").expect("written");
         let tool = FindTool::new(dir.clone());
-        let out = tool.find("needle", None).expect("found");
+        let out = tool.find("needle", None).await.expect("found");
         assert!(out.contains("needle.txt"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn a_helper_that_takes_too_long_comes_back_with_an_error() {
+        // The work sleeps longer than the limit: the helper must come back, not hang.
+        let error = in_time_within(Duration::from_millis(50), || {
+            std::thread::sleep(Duration::from_millis(2_000));
+            Ok(42)
+        })
+        .await
+        .expect_err("the helper timed out");
+        assert!(matches!(error, ToolError::Timeout(_)), "{error}");
+    }
+
+    #[tokio::test]
+    async fn the_helpers_walk_a_shallow_tree() {
+        // A tree deeper than the limit is cut: the search comes back with what it found.
+        let dir = temp_dir("depth");
+        let mut deep = dir.clone();
+        for step in 0..(MAX_DEPTH + 3) {
+            deep = deep.join(format!("level{step}"));
+        }
+        std::fs::create_dir_all(&deep).expect("created");
+        std::fs::write(deep.join("deep.txt"), b"needle").expect("written");
+        // The file is too deep to be found.
+        let out = GrepTool::new(dir.clone())
+            .search("needle", None)
+            .await
+            .expect("searched");
+        assert!(!out.contains("deep.txt"), "{out}");
+        // A file that is shallow enough is found.
+        std::fs::write(dir.join("shallow.txt"), b"needle").expect("written");
+        let out = GrepTool::new(dir)
+            .search("needle", None)
+            .await
+            .expect("searched");
+        assert!(out.contains("shallow.txt"), "{out}");
     }
 
     #[tokio::test]

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use seek_core::r#loop::{Agent, PermissionRequests, ToolRegistry};
 use seek_core::process::ProcessRegistry;
 use seek_core::tools::{BashTool, EditTool, ReadTool, WriteTool};
-use seek_core::{AgentEvent, History, ProvidersConfig};
+use seek_core::{AgentEvent, PermissionMode, ProvidersConfig};
 use seek_llm::FakeProvider;
 use seek_llm::anthropic::AnthropicProvider;
 use seek_llm::openai::OpenAiProvider;
@@ -23,6 +23,15 @@ pub mod doctor;
 pub use seek_local::model::LocalModel;
 pub use seek_local::options::LaunchOptions;
 pub use seek_local::supervisor::Supervisor;
+
+/// The cancellation of the turn that is running.
+#[derive(Debug, Default)]
+struct CancelState {
+    /// The token of the turn that is running.
+    token: Option<tokio_util::sync::CancellationToken>,
+    /// Whether a cancel was asked for before the turn had started.
+    asked: bool,
+}
 
 /// The state the binary keeps between turns.
 pub struct Runtime {
@@ -46,10 +55,15 @@ pub struct Runtime {
     pub home: std::path::PathBuf,
     /// The session that is open.
     session: tokio::sync::Mutex<Option<seek_core::Session>>,
-    /// The token that stops the turn that is running.
-    cancel: tokio::sync::Mutex<Option<tokio_util::sync::CancellationToken>>,
+    /// The conversation of the session: the model sees what was said before.
+    pub history: tokio::sync::Mutex<seek_core::History>,
+    /// The token that stops the turn that is running, and whether a cancel was asked for
+    /// before the turn had started.
+    cancel: tokio::sync::Mutex<CancelState>,
     /// Where the state of SEEK lives.
     pub state_dir: std::path::PathBuf,
+    /// The working directory: the tools run there, and the paths are relative to it.
+    pub root: std::path::PathBuf,
 }
 
 impl Runtime {
@@ -101,9 +115,19 @@ impl Runtime {
             external_tools,
             widgets,
             session: tokio::sync::Mutex::new(None),
-            cancel: tokio::sync::Mutex::new(None),
+            history: tokio::sync::Mutex::new(seek_core::History::new()),
+            cancel: tokio::sync::Mutex::new(CancelState::default()),
             state_dir,
+            root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         }
+    }
+
+    /// The runtime works in another directory.
+    ///
+    /// The tools run there, and the paths of the model are relative to it.
+    pub fn with_root(mut self, root: PathBuf) -> Self {
+        self.root = root;
+        self
     }
 
     /// The folder the sessions live in.
@@ -133,6 +157,8 @@ impl Runtime {
         let session = seek_core::Session::open(&path)?;
         let history = session.replay()?;
         *self.session.lock().await = Some(session);
+        // The conversation of the resumed session is the conversation from now on.
+        *self.history.lock().await = history.clone();
         Ok(history)
     }
 
@@ -180,9 +206,25 @@ impl Runtime {
         });
     }
 
-    /// The token that stops the turn that is running.
-    pub async fn set_cancel(&self, token: tokio_util::sync::CancellationToken) {
-        *self.cancel.lock().await = Some(token);
+    /// The token of the turn that is about to run.
+    ///
+    /// The token is fresh for every turn. A cancel that came before the turn started — the
+    /// model was still loading, say — is not lost: the new token is cancelled at once.
+    pub async fn start_turn(&self) -> tokio_util::sync::CancellationToken {
+        let mut state = self.cancel.lock().await;
+        let token = tokio_util::sync::CancellationToken::new();
+        if state.asked {
+            token.cancel();
+            state.asked = false;
+        }
+        state.token = Some(token.clone());
+        token
+    }
+
+    /// Forget the token of the turn that has ended.
+    pub async fn end_turn(&self) {
+        let mut state = self.cancel.lock().await;
+        state.token = None;
     }
 
     /// Stop the servers that are running.
@@ -193,10 +235,25 @@ impl Runtime {
         self.supervisor.lock().await.stop().await;
     }
 
+    /// Whether the turn that is running has been cancelled.
+    pub async fn is_cancelled(&self) -> bool {
+        self.cancel
+            .lock()
+            .await
+            .token
+            .as_ref()
+            .is_some_and(|token| token.is_cancelled())
+    }
+
     /// Stop the turn that is running.
+    ///
+    /// When no turn has started yet, the request is remembered: the turn that comes starts
+    /// cancelled, so an Esc is never lost.
     pub async fn cancel(&self) {
-        if let Some(token) = self.cancel.lock().await.as_ref() {
-            token.cancel();
+        let mut state = self.cancel.lock().await;
+        match state.token.as_ref() {
+            Some(token) => token.cancel(),
+            None => state.asked = true,
         }
     }
 
@@ -271,19 +328,24 @@ impl Runtime {
             return Ok(port);
         }
 
+        // The sidecar is read again: the options of the model may have changed since SEEK
+        // started, and the port is remembered in it.
+        let sidecar = seek_local::model::Sidecar::read(&sidecar_path(&model.path))
+            .unwrap_or_else(|| model.sidecar.clone());
+
         // The port of the model is remembered in its sidecar.
-        let port = match model.sidecar.port {
+        let port = match sidecar.port {
             Some(port) => port,
             None => {
                 let port = find_free_port(id).ok_or_else(|| format!("no free port for {id}"))?;
-                let mut sidecar = model.sidecar.clone();
+                let mut sidecar = sidecar.clone();
                 sidecar.port = Some(port);
                 let _ = sidecar.write(&sidecar_path(&model.path));
                 port
             }
         };
 
-        let options = LaunchOptions::parse(model.sidecar.options.as_deref().unwrap_or_default());
+        let options = LaunchOptions::parse(sidecar.options.as_deref().unwrap_or_default());
         supervisor
             .start(&model, &options, port)
             .await
@@ -309,9 +371,7 @@ pub async fn agent_loop(
     permissions: PermissionRequests,
     runtime: Arc<Runtime>,
 ) {
-    use futures::StreamExt;
-
-    let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = runtime.root.clone();
     let processes = Arc::new(ProcessRegistry::new());
 
     while let Some(command) = commands.recv().await {
@@ -407,151 +467,220 @@ pub async fn agent_loop(
                 runtime.append_switch(&id).await;
             }
             Command::Submit { text, mode } => {
-                // Only the enabled tools are given to the agent (SPEC 9.2, 9.6).
-                let toggles = &runtime.toggles;
-                let tools = ToolRegistry {
-                    read: toggles
-                        .tool_enabled("read")
-                        .then(|| ReadTool::new(root.clone())),
-                    write: toggles
-                        .tool_enabled("write")
-                        .then(|| WriteTool::new(root.clone())),
-                    edit: toggles
-                        .tool_enabled("edit")
-                        .then(|| EditTool::new(root.clone())),
-                    bash: toggles
-                        .tool_enabled("bash")
-                        .then(|| BashTool::new(root.clone(), processes.clone())),
-                    ls: toggles
-                        .tool_enabled("ls")
-                        .then(|| seek_core::tools::LsTool::new(root.clone())),
-                    grep: toggles
-                        .tool_enabled("grep")
-                        .then(|| seek_core::tools::GrepTool::new(root.clone())),
-                    find: toggles
-                        .tool_enabled("find")
-                        .then(|| seek_core::tools::FindTool::new(root.clone())),
-                    fetch: toggles
-                        .tool_enabled("fetch")
-                        .then(seek_core::tools::FetchTool::new),
-                };
-                let external_tools: Vec<_> = runtime
-                    .external_tools
-                    .iter()
-                    .filter(|tool| toggles.tool_enabled(&tool.config.name))
-                    .cloned()
-                    .collect();
+                // The turn runs in a task of its own. The loop stays free, so the answer to
+                // a permission request and Esc arrive while the model works (SPEC 9.1,
+                // 9.4). Before, the loop waited for the turn to end, and the tool waited
+                // for an answer that could not arrive: the turn hung.
+                let providers = providers.clone();
+                let permissions = permissions.clone();
+                let runtime = Arc::clone(&runtime);
+                let events = events.clone();
+                let widgets = widgets.clone();
+                let processes = Arc::clone(&processes);
+                let root = root.clone();
+                tokio::spawn(async move {
+                    run_turn(
+                        text,
+                        mode,
+                        root,
+                        TurnContext {
+                            processes,
+                            providers,
+                            permissions,
+                            runtime,
+                            events,
+                            widgets,
+                        },
+                    )
+                    .await;
+                });
+            }
+        }
+    }
+}
 
-                let mut history = History::new();
-                let user_message = seek_core::Message::user(text);
-                history.push(user_message.clone());
-                // The conversation is written to the session (SPEC 11).
-                runtime.append(&user_message).await;
-                // The usage of the turn is counted for the lifetime usage.
-                let usage = Arc::new(Mutex::new((0, 0)));
+/// What a turn needs to run.
+struct TurnContext {
+    processes: Arc<ProcessRegistry>,
+    providers: ProvidersConfig,
+    permissions: PermissionRequests,
+    runtime: Arc<Runtime>,
+    events: mpsc::Sender<AgentEvent>,
+    widgets: mpsc::Sender<seek_tui::app::UiMessage>,
+}
 
-                // A local model that cannot be started is an error: the scripted provider
-                // would answer as if nothing had happened.
-                let mut local_failed = false;
-                let provider = match runtime.current_model() {
-                    Some(id) if id.starts_with("local/") => {
-                        match runtime.ensure_local_server(&id).await {
-                            Ok(port) => {
-                                // The real context size of the server goes to the metrics
-                                // (SPEC 8).
-                                if let Some(props) =
-                                    runtime.supervisor.lock().await.read_props().await
-                                {
-                                    let context = props.n_ctx;
-                                    let _ = widgets
-                                        .send(seek_tui::app::UiMessage::Context(context))
-                                        .await;
-                                }
-                                Some(Box::new(OpenAiProvider::new(
-                                    format!("http://127.0.0.1:{port}/v1"),
-                                    None,
-                                    local_model_name(&id),
-                                    8_192,
-                                )) as Box<dyn Provider>)
-                            }
-                            Err(error) => {
-                                let _ = events
-                                    .send(AgentEvent::Error(format!(
-                                        "the local model could not be started: {error}"
-                                    )))
-                                    .await;
-                                local_failed = true;
-                                None
-                            }
-                        }
-                    }
-                    _ => build_provider(&providers),
-                };
+/// Run one turn of the agent.
+///
+/// The turn runs in a task of its own, so the command loop of the binary keeps taking the
+/// commands of the user: the answer to a permission request and Esc arrive at once
+/// (SPEC 9.1, 9.4).
+async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: TurnContext) {
+    use futures::StreamExt;
 
-                match provider {
-                    Some(provider) => {
-                        let agent = Agent::new(
-                            Arc::from(provider),
-                            tools,
-                            mode,
-                            root.clone(),
-                            processes.clone(),
-                            permissions.clone(),
-                        )
-                        .with_context(runtime.context())
-                        .with_external_tools(external_tools)
-                        .with_usage(Arc::clone(&usage));
-                        // The token lets Esc stop the turn (SPEC 9.1).
-                        let cancel = agent.cancel_token();
-                        runtime.set_cancel(cancel.clone()).await;
-                        agent.run_turn(&mut history, &events).await;
-                        runtime
-                            .set_cancel(tokio_util::sync::CancellationToken::new())
+    let TurnContext {
+        processes,
+        providers,
+        permissions,
+        runtime,
+        events,
+        widgets,
+    } = context;
+
+    // Only the enabled tools are given to the agent (SPEC 9.2, 9.6).
+    let tools = ToolRegistry {
+        read: runtime
+            .toggles
+            .tool_enabled("read")
+            .then(|| ReadTool::new(root.clone())),
+        write: runtime
+            .toggles
+            .tool_enabled("write")
+            .then(|| WriteTool::new(root.clone())),
+        edit: runtime
+            .toggles
+            .tool_enabled("edit")
+            .then(|| EditTool::new(root.clone())),
+        bash: runtime
+            .toggles
+            .tool_enabled("bash")
+            .then(|| BashTool::new(root.clone(), processes.clone())),
+        ls: runtime
+            .toggles
+            .tool_enabled("ls")
+            .then(|| seek_core::tools::LsTool::new(root.clone())),
+        grep: runtime
+            .toggles
+            .tool_enabled("grep")
+            .then(|| seek_core::tools::GrepTool::new(root.clone())),
+        find: runtime
+            .toggles
+            .tool_enabled("find")
+            .then(|| seek_core::tools::FindTool::new(root.clone())),
+        fetch: runtime
+            .toggles
+            .tool_enabled("fetch")
+            .then(seek_core::tools::FetchTool::new),
+    };
+    let external_tools: Vec<_> = runtime
+        .external_tools
+        .iter()
+        .filter(|tool| runtime.toggles.tool_enabled(&tool.config.name))
+        .cloned()
+        .collect();
+
+    // The conversation goes on from turn to turn: the model sees what was said before.
+    // The turns go one after the other: the conversation is shared, so the second waits for
+    // the first.
+    let mut history = runtime.history.lock().await;
+
+    // The token of the turn is taken now that the turn has the conversation. A turn that
+    // waits for the lock must not take the token of the turn that is running: an Esc would
+    // then stop the wrong one (SPEC 9.1).
+    let cancel = runtime.start_turn().await;
+    let user_message = seek_core::Message::user(text);
+    history.push(user_message.clone());
+    // The conversation is written to the session (SPEC 11).
+    runtime.append(&user_message).await;
+    // The messages that come after this one are written when the turn is over.
+    let before = history.messages.len();
+    // The usage of the turn is counted for the lifetime usage.
+    let usage = Arc::new(Mutex::new((0, 0)));
+
+    // A local model that cannot be started is an error: the scripted provider would answer
+    // as if nothing had happened.
+    let mut local_failed = false;
+    let provider = match runtime.current_model() {
+        Some(id) if id.starts_with("local/") => {
+            match runtime.ensure_local_server(&id).await {
+                Ok(port) => {
+                    // The real context size of the server goes to the metrics (SPEC 8).
+                    let mut context = 8_192;
+                    if let Some(props) = runtime.supervisor.lock().await.read_props().await {
+                        context = props.n_ctx;
+                        let _ = widgets
+                            .send(seek_tui::app::UiMessage::Context(context))
                             .await;
-                        // The answer goes into the session as well.
-                        if let Some(answer) = history.messages.last() {
-                            runtime.append(answer).await;
-                        }
-                        let (input, output) = *usage.lock().expect("the usage is not poisoned");
-                        runtime.add_usage(input, output);
                     }
-                    None if local_failed => {
-                        // The error is already in the transcript.
+                    // The answer never takes more than half of the window: the prompt needs
+                    // the rest, and a request that does not fit is refused by the server.
+                    let max_tokens = (context / 2).clamp(256, 8_192);
+                    Some(Box::new(OpenAiProvider::new(
+                        format!("http://127.0.0.1:{port}/v1"),
+                        None,
+                        local_model_name(&id),
+                        max_tokens,
+                    )) as Box<dyn Provider>)
+                }
+                Err(error) => {
+                    let _ = events
+                        .send(AgentEvent::Error(format!(
+                            "the local model could not be started: {error}"
+                        )))
+                        .await;
+                    local_failed = true;
+                    None
+                }
+            }
+        }
+        _ => build_provider(&providers),
+    };
+
+    match provider {
+        Some(provider) => {
+            let agent = Agent::new(
+                Arc::from(provider),
+                tools,
+                mode,
+                root.clone(),
+                processes.clone(),
+                permissions.clone(),
+            )
+            .with_context(runtime.context())
+            .with_external_tools(external_tools)
+            .with_usage(Arc::clone(&usage));
+            // The token lets Esc stop the turn (SPEC 9.1).
+            let agent = agent.with_cancel(cancel);
+            agent.run_turn(&mut history, &events).await;
+        }
+        None if local_failed => {
+            // The error is already in the transcript.
+        }
+        None => {
+            // No provider is configured: the scripted provider keeps the UI alive.
+            let provider = FakeProvider::demo();
+            let request = ChatRequest {
+                messages: history.messages.clone(),
+                ..ChatRequest::default()
+            };
+            let mut stream = provider.stream(request);
+            let _ = events.send(AgentEvent::TurnStarted).await;
+            while let Some(event) = stream.next().await {
+                let Some(event) = event.ok() else { break };
+                let agent_event = match event {
+                    ProviderEvent::ThinkingDelta(text) => AgentEvent::ThinkingDelta(text),
+                    ProviderEvent::TextDelta(text) => AgentEvent::TextDelta(text),
+                    ProviderEvent::Usage { input, output } => {
+                        AgentEvent::Usage(seek_core::Usage { input, output })
                     }
-                    None => {
-                        // No provider is configured: the scripted provider keeps the UI alive.
-                        let provider = FakeProvider::demo();
-                        let request = ChatRequest {
-                            messages: history.messages.clone(),
-                            ..ChatRequest::default()
-                        };
-                        let mut stream = provider.stream(request);
-                        let _ = events.send(AgentEvent::TurnStarted).await;
-                        while let Some(event) = stream.next().await {
-                            let Some(event) = event.ok() else { break };
-                            let agent_event = match event {
-                                ProviderEvent::ThinkingDelta(text) => {
-                                    AgentEvent::ThinkingDelta(text)
-                                }
-                                ProviderEvent::TextDelta(text) => AgentEvent::TextDelta(text),
-                                ProviderEvent::Usage { input, output } => {
-                                    AgentEvent::Usage(seek_core::Usage { input, output })
-                                }
-                                ProviderEvent::RateLimit(limit) => AgentEvent::RateLimit(limit),
-                                ProviderEvent::Done => {
-                                    AgentEvent::TurnFinished(seek_core::TurnReason::Stop)
-                                }
-                                ProviderEvent::ToolCall { .. } => continue,
-                            };
-                            if events.send(agent_event).await.is_err() {
-                                return;
-                            }
-                        }
-                    }
+                    ProviderEvent::RateLimit(limit) => AgentEvent::RateLimit(limit),
+                    ProviderEvent::Done => AgentEvent::TurnFinished(seek_core::TurnReason::Stop),
+                    ProviderEvent::ToolCall { .. } => continue,
+                };
+                if events.send(agent_event).await.is_err() {
+                    return;
                 }
             }
         }
     }
+
+    runtime.end_turn().await;
+
+    // Everything the turn said goes into the session (SPEC 11).
+    for message in &history.messages[before..] {
+        runtime.append(message).await;
+    }
+    let (input, output) = *usage.lock().expect("the usage is not poisoned");
+    runtime.add_usage(input, output);
 }
 
 /// Ask the model to summarize a conversation.

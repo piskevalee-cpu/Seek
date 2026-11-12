@@ -2,6 +2,10 @@
 //!
 //! The test needs a `llama` binary and a GGUF model. When they are not there, the test skips
 //! itself, so the suite stays green on a machine without them.
+//!
+//! The model is *linked*, not copied: a copy of a 1.5 GB model into the temporary folder fills
+//! the memory of the machine (the temporary folder is a tmpfs on Linux), and the suite then
+//! runs out of memory.
 
 use std::path::PathBuf;
 
@@ -32,6 +36,17 @@ fn the_binary() -> Option<String> {
     None
 }
 
+/// Links a model into a folder, instead of copying it.
+///
+/// A copy of a big model fills the memory of the machine when the temporary folder is a tmpfs,
+/// and the suite then dies with an out-of-memory kill.
+fn link(source: &PathBuf, target: &PathBuf) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(source, target).expect("the model is linked");
+    #[cfg(not(unix))]
+    std::fs::copy(source, target).expect("the model is copied");
+}
+
 /// Whether a program is on the PATH.
 fn which(program: &str) -> bool {
     let Ok(paths) = std::env::var("PATH") else {
@@ -48,12 +63,13 @@ async fn the_supervisor_starts_a_server_and_reads_its_properties() {
     };
 
     // The model folder of a fake home.
-    let home = std::env::temp_dir().join("seek-supervisor-test");
+    // The folder is on the disk: the temporary folder of the system is a tmpfs, which is memory.
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("seek-supervisor-test");
     let _ = std::fs::remove_dir_all(&home);
     let models = home.join("models");
     std::fs::create_dir_all(&models).expect("the folder is created");
     let name = model_path.file_name().expect("the model has a name");
-    std::fs::copy(&model_path, models.join(name)).expect("the model is copied");
+    link(&model_path, &models.join(name));
 
     let local = scan(&models);
     assert_eq!(local.len(), 1, "the model is found");
@@ -105,12 +121,12 @@ async fn the_supervisor_stops_the_server_it_started() {
         return;
     };
 
-    let home = std::env::temp_dir().join("seek-supervisor-stop-test");
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("seek-supervisor-stop-test");
     let _ = std::fs::remove_dir_all(&home);
     let models = home.join("models");
     std::fs::create_dir_all(&models).expect("the folder is created");
     let name = model_path.file_name().expect("the model has a name");
-    std::fs::copy(&model_path, models.join(name)).expect("the model is copied");
+    link(&model_path, &models.join(name));
 
     let local = scan(&models);
     let model = &local[0];

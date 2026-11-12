@@ -9,6 +9,8 @@
 
 use std::collections::BTreeMap;
 
+use std::error::Error;
+
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use seek_core::{Message, Role};
@@ -206,7 +208,15 @@ impl Provider for OpenAiProvider {
             let response = match builder.send().await {
                 Ok(response) => response,
                 Err(error) => {
-                    yield Err(ProviderError::Request(error.to_string()));
+                    // The cause is in the source of the error: without it the message is
+                    // only "error sending request for url", which says nothing.
+                    let mut cause = error.source();
+                    let mut detail = String::new();
+                    while let Some(source) = cause {
+                        detail.push_str(&format!(": {source}"));
+                        cause = source.source();
+                    }
+                    yield Err(ProviderError::Request(format!("{error}{detail}")));
                     return;
                 }
             };

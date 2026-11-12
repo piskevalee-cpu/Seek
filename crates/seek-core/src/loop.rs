@@ -111,6 +111,15 @@ impl Agent {
         self.cancel.clone()
     }
 
+    /// Use a token that was made outside.
+    ///
+    /// The binary keeps one token for the whole session, so an Esc that comes while the
+    /// turn is still starting is not lost.
+    pub fn with_cancel(mut self, token: tokio_util::sync::CancellationToken) -> Self {
+        self.cancel = token;
+        self
+    }
+
     /// Where the tokens of the turn are counted.
     pub fn with_usage(mut self, usage: std::sync::Arc<std::sync::Mutex<(u32, u32)>>) -> Self {
         self.usage = usage;
@@ -192,6 +201,11 @@ impl Agent {
                     Ok(event) => event,
                     Err(error) => {
                         let _ = events.send(AgentEvent::Error(error.to_string())).await;
+                        // The turn ends: the interface has to hear it, or it waits for a
+                        // turn that is over for ever.
+                        let _ = events
+                            .send(AgentEvent::TurnFinished(TurnReason::Failed))
+                            .await;
                         return TurnReason::Failed;
                     }
                 };
@@ -313,7 +327,10 @@ impl Agent {
             }
             crate::permission::Decision::Ask => {
                 let summary = summarize(name, &input);
-                let decision = self.permissions.request(name.to_string(), summary).await;
+                let decision = self
+                    .permissions
+                    .request_until(name.to_string(), summary, Some(&self.cancel))
+                    .await;
                 if let PermissionDecision::Allow = decision {
                     // Allowed.
                 } else {
@@ -322,7 +339,13 @@ impl Agent {
             }
         }
 
-        self.execute(name, input).await
+        // A tool that runs for ever would keep the turn from ending: Esc has to open the
+        // way out. The command itself stays in the registry of the processes, so the user
+        // can kill it there.
+        tokio::select! {
+            outcome = self.execute(name, input) => outcome,
+            _ = self.cancel.cancelled() => Err("the turn was cancelled".to_string()),
+        }
     }
 
     /// Run the tool itself.
@@ -530,6 +553,20 @@ impl PermissionRequests {
 
     /// Ask the user and wait for the answer.
     pub async fn request(&self, tool: String, summary: String) -> PermissionDecision {
+        self.request_until(tool, summary, None).await
+    }
+
+    /// Ask the user and wait for the answer, unless the turn is cancelled first.
+    ///
+    /// A turn that waits for an answer that never comes would hang for ever: Esc has to
+    /// open the way out. The request is taken out of the list when the turn is cancelled,
+    /// so a late answer does not wait for a caller that is gone.
+    pub async fn request_until(
+        &self,
+        tool: String,
+        summary: String,
+        cancel: Option<&tokio_util::sync::CancellationToken>,
+    ) -> PermissionDecision {
         let id = self
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -546,7 +583,19 @@ impl PermissionRequests {
         {
             return PermissionDecision::Deny;
         }
-        rx.await.unwrap_or(PermissionDecision::Deny)
+        match cancel {
+            None => rx.await.unwrap_or(PermissionDecision::Deny),
+            Some(token) => {
+                tokio::select! {
+                    decision = rx => decision.unwrap_or(PermissionDecision::Deny),
+                    _ = token.cancelled() => {
+                        // The request is taken out: the answer of the user finds nobody.
+                        self.pending.lock().expect("the map is not poisoned").remove(&id);
+                        PermissionDecision::Deny
+                    }
+                }
+            }
+        }
     }
 
     /// Answer a request.

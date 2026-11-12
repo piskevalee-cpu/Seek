@@ -1,11 +1,12 @@
 //! The theme (SPEC 10.6).
 //!
-//! Tokens: `bg`, `cube_dark`, `cube_light`, `accent`, `dim`, `warn`, `error`. `cube_light` and
-//! `accent` come from the logo (SPEC 12): they were sampled from `assets/logo.png` with
-//! `tools/extract_logo.py`; see `docs/DECISIONS.md` (D-002).
+//! The palette is the tokyonight of the grok-build pager (Apache-2.0): the background is the
+//! storm blue, the text the pale foreground, and the accents the blue of the user and the
+//! magenta of the model. The green of SEEK stays for the brand: the logo and the LOCAL tag.
 //!
-//! The `bg` token is the background of the terminal, not the green of the logo: a green terminal
-//! is unreadable. The logo keeps its own background in the asset.
+//! Tokens: `bg`, `surface`, `cube_dark`, `cube_light`, `accent`, `accent_user`,
+//! `accent_assistant`, `accent_thinking`, `accent_tool`, `text`, `text_dim`, `dim`, `warn`,
+//! `error`, `border`, `border_active`.
 //!
 //! Colors are never the only signal: the permission mode and the LOCAL tag are text.
 
@@ -16,14 +17,32 @@ use ratatui::style::Color;
 pub struct Theme {
     /// Terminal background.
     pub bg: Color,
+    /// The surface of a band: the message of the user, the box of the prompt.
+    pub surface: Color,
     /// An unlit cube.
     pub cube_dark: Color,
     /// A lit cube, and the logo's foreground.
     pub cube_light: Color,
-    /// The accent, used for highlights and the assistant's edge.
+    /// The accent, used for the highlights and the border of the prompt.
     pub accent: Color,
+    /// The rail of the message of the user.
+    pub accent_user: Color,
+    /// The rail of the answer of the model.
+    pub accent_assistant: Color,
+    /// The rail of the reasoning.
+    pub accent_thinking: Color,
+    /// The rail of a tool.
+    pub accent_tool: Color,
+    /// The colour of the text.
+    pub text: Color,
+    /// The colour of the text that is not the main one.
+    pub text_dim: Color,
     /// Dimmed text.
     pub dim: Color,
+    /// The border of the prompt box.
+    pub border: Color,
+    /// The border of the prompt box when it has the focus.
+    pub border_active: Color,
     /// Warnings.
     pub warn: Color,
     /// Errors.
@@ -33,15 +52,24 @@ pub struct Theme {
 impl Default for Theme {
     fn default() -> Self {
         Theme {
-            // The background of the terminal: dark on purpose.
-            bg: rgb(0x14, 0x16, 0x17),
-            cube_dark: rgb(0x2C, 0x2E, 0x2F),
-            // Sampled from assets/logo.png.
-            cube_light: rgb(0xB4, 0xB4, 0xB4),
+            // The tokyonight palette of the grok-build pager (Apache-2.0).
+            bg: rgb(0x24, 0x28, 0x3B),
+            surface: rgb(0x29, 0x2E, 0x42),
+            cube_dark: rgb(0x3B, 0x42, 0x61),
+            cube_light: rgb(0xC0, 0xCA, 0xF5),
+            // The green of SEEK: the brand of the logo and of the LOCAL tag.
             accent: rgb(0x22, 0xB1, 0x4C),
-            dim: rgb(0x7C, 0x7D, 0x7E),
-            warn: rgb(0xD9, 0xA4, 0x41),
-            error: rgb(0xE0, 0x52, 0x52),
+            accent_user: rgb(0x7A, 0xA2, 0xF7),
+            accent_assistant: rgb(0xBB, 0x9A, 0xF7),
+            accent_thinking: rgb(0x3B, 0x42, 0x61),
+            accent_tool: rgb(0x73, 0x7A, 0xA2),
+            text: rgb(0xC0, 0xCA, 0xF5),
+            text_dim: rgb(0xA9, 0xB1, 0xD6),
+            dim: rgb(0x56, 0x5F, 0x89),
+            border: rgb(0x32, 0x3E, 0x64),
+            border_active: rgb(0x4B, 0x5C, 0x8C),
+            warn: rgb(0xE0, 0xAF, 0x68),
+            error: rgb(0xF7, 0x76, 0x8E),
         }
     }
 }
@@ -60,10 +88,19 @@ impl Theme {
     pub fn ansi256(&self) -> Self {
         Theme {
             bg: to_ansi256(self.bg),
+            surface: to_ansi256(self.surface),
             cube_dark: to_ansi256(self.cube_dark),
             cube_light: to_ansi256(self.cube_light),
             accent: to_ansi256(self.accent),
+            accent_user: to_ansi256(self.accent_user),
+            accent_assistant: to_ansi256(self.accent_assistant),
+            accent_thinking: to_ansi256(self.accent_thinking),
+            accent_tool: to_ansi256(self.accent_tool),
+            text: to_ansi256(self.text),
+            text_dim: to_ansi256(self.text_dim),
             dim: to_ansi256(self.dim),
+            border: to_ansi256(self.border),
+            border_active: to_ansi256(self.border_active),
             warn: to_ansi256(self.warn),
             error: to_ansi256(self.error),
         }

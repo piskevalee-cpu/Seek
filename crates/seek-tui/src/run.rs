@@ -1,13 +1,12 @@
 //! The event loop (SPEC 4.2).
 //!
-//! One `tokio::select!` reads the crossterm `EventStream`, a 100 ms tick and the agent's events.
+//! One `tokio::select!` reads the keys, a 100 ms tick and the agent's events.
 //! The screen is redrawn only when the state changed or an animation is running.
 
 use std::io::Stdout;
 use std::time::Duration;
 
-use crossterm::event::{Event, EventStream, KeyEventKind};
-use futures::StreamExt;
+use crossterm::event::{Event, KeyEventKind};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use seek_core::AgentEvent;
@@ -42,7 +41,18 @@ pub async fn run(
     mut ui_events: mpsc::Receiver<crate::app::UiMessage>,
     commands: mpsc::Sender<Command>,
 ) -> anyhow::Result<()> {
-    let mut events = EventStream::new();
+    // The keys come from a thread of their own. The reader of crossterm blocks until
+    // something happens, and a blocked reader inside the event loop freezes the whole
+    // interface: the keys arrive late, or not at all.
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::unbounded_channel::<Event>();
+    std::thread::spawn(move || {
+        while let Ok(event) = crossterm::event::read() {
+            if event_tx.send(event).is_err() {
+                break;
+            }
+        }
+    });
+
     let mut ticker = tokio::time::interval(Duration::from_millis(TICK_MS));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -53,7 +63,8 @@ pub async fn run(
         terminal.draw(|frame| app.view(frame))?;
 
         tokio::select! {
-            Some(Ok(event)) = events.next() => {
+            event = event_rx.recv() => {
+                let Some(event) = event else { break };
                 let message = match event {
                     Event::Key(key) if key.kind == KeyEventKind::Press => Some(Message::Key(key)),
                     Event::Key(_) => None,

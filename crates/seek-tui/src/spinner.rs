@@ -1,8 +1,8 @@
 //! The thinking and loading animations (SPEC 10.3).
 //!
-//! Both are the same thing: a line of cells that are dark, with a wave of brightness going
-//! through them. The wave follows the grok-build pager (Apache-2.0): a `sin²` per cell, so it is
-//! smooth at both ends.
+//! Both are the same thing: a line of eight cells that are dark, with a streak of brightness
+//! going through them. The streak travels along the line and wraps around: a new one starts at
+//! the left when the old one reaches the right.
 //!
 //! The line replaces the cube grid of the first version of the specification; the specification
 //! is updated with it.
@@ -14,9 +14,9 @@ use crate::shimmer::{blend, wave_brightness};
 use crate::theme::Theme;
 
 /// How many cells the line has.
-pub const CELLS: u16 = 12;
+pub const CELLS: u16 = 8;
 /// How fast the wave travels.
-pub const SPEED: f32 = 0.22;
+pub const SPEED: f32 = 0.12;
 /// How long one step lasts, in milliseconds.
 pub const STEP_MS: u64 = 110;
 
@@ -92,10 +92,9 @@ mod tests {
     #[test]
     fn the_cells_are_dark_at_the_rest() {
         let theme = Theme::default();
+        // The streak starts at the left, so the cell in the middle is dark.
         let line = Spinner::new().shimmer_line(&theme);
-        // The first cell of the wave is dark at the start of the frame: the line is made of
-        // dark pixels, and the light goes through them.
-        let color = line.spans[0].style.fg.expect("a colour");
+        let color = line.spans[CELLS as usize / 2].style.fg.expect("a colour");
         assert_eq!(color, theme.bg);
     }
 

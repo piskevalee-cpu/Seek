@@ -78,6 +78,24 @@ workspace; each release ships a milestone (SPEC 15).
 - The helpers and the network tools are off by default.
 - The short forms of the launch options count, so `-c 8000` is the context size the user set.
 - The servers are stopped when SEEK is closed by a signal.
+- The turn no longer blocks the commands: the answer to a permission request and Esc arrive at
+  once, and a turn that is cancelled gives up.
+- The conversation goes on from turn to turn: the model sees what was said before.
+- The bash command runs in a blocking task, so the interface keeps answering while it runs.
+- The helpers have a timeout, a depth cap and a file cap: a search over a big tree comes back
+  with an answer instead of hanging the turn.
+- The row of a tool call is closed by its own id, so a late output does not leave it running.
+- The system prompt says what to do: do the work now, claim nothing that a tool did not show,
+  answer first, no preamble.
+- The colours are the tokyonight of the grok-build pager, and the green of SEEK stays for the
+  brand.
+- The transcript has a rail per block and a blank line between the blocks.
+- The prompt is a box with rounded corners, with the model name in the top border.
+- The footer is one line: the mode, the model, the place and the metrics.
+- The thinking line is eight cells and the streak wraps around.
+- The keys arrive at once: the reader of the terminal was blocking the event loop, so Esc did
+  nothing and the message after it was never taken.
+- The cancel stops the turn that is running, and not the next one.
 - The form that adds a provider, with the kind, the base URL, the key environment variable, the
   models, the context and the rate limits (SPEC 10.3).
 - The providers are detected from the environment when there is no `providers.toml`, so a bare

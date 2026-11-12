@@ -2,6 +2,10 @@
 //!
 //! The test needs a `llama` binary and a GGUF model. When they are not there, the test skips
 //! itself, so the suite stays green on a machine without them.
+//!
+//! The model is *linked*, not copied: a copy of a 1.5 GB model into the temporary folder fills
+//! the memory of the machine (the temporary folder is a tmpfs on Linux), and the suite then
+//! runs out of memory.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -42,22 +46,34 @@ async fn a_local_model_answers_a_message() {
         return;
     };
 
-    // A SEEK home with one model in it.
-    let home = std::env::temp_dir().join("seek-e2e-test");
+    // A SEEK home with one model in it. The home is on the disk: the temporary folder of the
+    // system is a tmpfs, which is memory.
+    let home = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("seek-e2e-test");
     let _ = std::fs::remove_dir_all(&home);
     let models = home.join("models");
     std::fs::create_dir_all(&models).expect("the folder is created");
     let name = model_path.file_name().expect("the model has a name");
+    // The model is linked, not copied: a copy would fill the memory of the machine.
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&model_path, models.join(name)).expect("the model is linked");
+    #[cfg(not(unix))]
     std::fs::copy(&model_path, models.join(name)).expect("the model is copied");
 
-    let runtime = Arc::new(Runtime::new(&home, &binary, Some("serve".into())));
+    // The tools run in a folder of their own, so the test does not write in the sources.
+    let root = home.join("work");
+    std::fs::create_dir_all(&root).expect("the folder is created");
+
+    let runtime =
+        Arc::new(Runtime::new(&home, &binary, Some("serve".into())).with_root(root.clone()));
     assert_eq!(runtime.local_models.len(), 1, "the model is found");
 
     // A small context: the KV cache of the default context of the model is several gigabytes.
     let sidecar = seek_local::model::Sidecar {
         schema: 1,
         port: None,
-        options: Some("--ctx-size 4096".into()),
+        // The context has to hold the prompt and the answer of a few rounds: a small one
+        // refuses a request that does not fit.
+        options: Some("--ctx-size 8192".into()),
     };
     sidecar
         .write(&seek_local::model::sidecar_path(

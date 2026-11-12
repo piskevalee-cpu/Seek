@@ -29,9 +29,11 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The widgets.** The `git` widget shows the branch and the recent commits; the `usage` widget shows the tokens used so far. A widget that fails shows its title and a dash.
 - [ ] **The model picker.** With a local model installed, the picker opens on its own. The local model is listed with a `LOCAL` tag.
 - [ ] **Choose a model.** Press Enter — the picker closes, the footer shows the model.
-- [ ] **The footer.** It shows the mode chip (`ASK`), the model, the working directory and the branch, right-aligned.
+- [ ] **The footer.** One line: the mode chip (`ASK`), the model, the working directory, the branch and the metrics of the session. The metrics are not on a line of their own.
 
 ## The prompt bar
+
+- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys are in the bottom one.
 
 - [ ] **Type.** Every character appears, and the cursor is a block behind the last one.
 - [ ] **Send.** Press Enter — the message appears in the transcript as a `USER` box.
@@ -45,8 +47,10 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **Ask something.** "Say hello in three words." — the answer streams in, word by word, in a `SEEK` box.
 - [ ] **The reasoning.** A model that thinks shows its reasoning above the answer, dimmed, behind a vertical bar. Press Alt+T — the reasoning collapses to one row that says "reasoning". Press Alt+T again — it comes back.
 - [ ] **Your message is a band.** The prompt of the user is a band across the width with the arrow in front of it. The answer of the model is plain text, without a band.
-- [ ] **The metrics.** While the model answers, the line under the prompt bar shows the context (`1.6k / 32.8k`), the percentage, the speed in tokens per second, the think time and the vitals (cpu, ram, gpu, vram).
-- [ ] **The animation.** While the model works, a line of dark cells shows at the tail of the transcript, with a wave of brightness going through them. It is one line, twelve cells, and it moves.
+- [ ] **Every block has a rail.** A one-column rail on the left of every block: blue for your message, magenta for the answer, grey for the reasoning and the tools.
+- [ ] **The blocks breathe.** A blank line sits between the blocks, and a gap of two columns sits between the sidebar and the messages.
+- [ ] **The metrics.** While the model answers, the footer line shows the context (`1.6k / 32.8k`), the percentage, the speed in tokens per second, the think time and the vitals (cpu, ram).
+- [ ] **The animation.** While the model works, a line of dark cells shows at the tail of the transcript, with a streak of brightness going through them. It is one line, eight cells, and the streak wraps around: a new one starts at the left when the old one reaches the right.
 - [ ] **A long answer.** Ask for a long text — the transcript scrolls, and the view stays at the bottom.
 - [ ] **Scroll up.** Press PageUp — the transcript scrolls up, and the newest lines are no longer glued to the bottom. PageDown scrolls back.
 - [ ] **The log strip.** With a local model, one line of the server appears above the prompt bar: "loading model", "server is listening on ...". The strip hides itself after ten seconds of silence and comes back with the next event.
@@ -70,6 +74,10 @@ Every key of the specification, one by one.
 ## The permissions
 
 - [ ] **Ask for a write.** "Create a file called hello.txt with the word hi in it." — the prompt bar turns into a question with three choices: **Yes**, **No**, **Tell SEEK what to do**. The chosen answer is highlighted, and the line under it says which keys do what.
+- [ ] **The answer arrives.** Say yes: the tool runs at once. Before, the answer never arrived and the tool stayed `running`.
+- [ ] **`y` and `n`.** In the permission selector, `y` says yes and `n` says no.
+- [ ] **Esc, then a message.** Press Esc while the model works, then type a message and press Enter: the message goes to the model. Before, nothing happened at all.
+- [ ] **The keys arrive at once.** Type while the model is working: the letters appear in the box as you type them, without a pause.
 - [ ] **Yes.** The file is written and the tool row shows `ok` with the time it took.
 - [ ] **No.** The tool row shows the refusal, and the model is told that the user said no.
 - [ ] **Tell SEEK what to do.** Choose the third choice, type "use hello.md instead", press Enter — the model gets that text as the result of the tool call.
