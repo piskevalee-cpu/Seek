@@ -223,6 +223,7 @@ Stream a completion, collect tool calls, and for each: permission check, execute
 ### 9.2 Token-efficient tool calling
 
 - Default tools: `read`, `write`, `edit`, `bash`. Read-only helpers `ls`, `grep`, `find` ship but are off by default (pi's approach).
+- The file tools follow the grok-build pager (Apache-2.0): `read` numbers the lines (the first line and every tenth carry an anchor `1→`, `11→`), `write` says whether it created or overwrote, `edit` replaces an exact text (unique, or every occurrence with `replace_all`), says the line the change landed on, and returns the difference. An empty text to replace creates the file.
 - Terse descriptions, no examples inside schemas, and only enabled tools are sent.
 - `edit` is an exact-match replace with a unique-match check, never a whole-file rewrite; `read` takes offset and limit.
 - Cap every tool output (default 200 lines or 16 KB, head and tail) with a marker telling the model how to fetch more.
@@ -240,7 +241,7 @@ Stream a completion, collect tool calls, and for each: permission check, execute
                   non-zero exit = error
 ```
 
-`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
+`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. A `web_search` tool follows it: DuckDuckGo's HTML search, which needs no key, the way the oh-my-pi harness does it (MIT). A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
 
 ### 9.4 Permissions
 
@@ -256,6 +257,10 @@ Stream a completion, collect tool calls, and for each: permission check, execute
 - Paths outside the project root are always asked in `ask` mode.
 
 ### 9.5 Skills
+
+The name of the user is asked for on the first run, in the prompt bar, and `/settings` asks it
+again. It is kept in `state/user.toml` (`schema = 1`) and goes into the prompt: the model
+addresses the user by it.
 
 Follow the Agent Skills format. A skill is a folder with `SKILL.md`: YAML frontmatter (`name` up to 64 chars, lowercase letters, numbers and hyphens, matching the folder; `description` up to 1,024 chars saying what it does and when to use it; optional `license`, `compatibility`, `metadata`, `allowed-tools`) followed by Markdown instructions; optional `scripts/`, `references/`, `assets/`. Progressive disclosure: only `name`, `description` and path of enabled skills go in the prompt (about 100 tokens each); the model loads the body with `read`. The user runs a skill with `/<skill-name> <prompt>`, which inserts the body into that turn. `/skills` toggles each skill. `/init` ships as a built-in skill (like opencode's) that inspects the repo and writes `AGENTS.md`; SEEK loads `AGENTS.md` from the project root into the prompt when present.
 
