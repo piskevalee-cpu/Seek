@@ -38,9 +38,27 @@ async fn a_model_server() -> u16 {
     tokio::spawn(async move {
         let mut turn = 0;
         while let Ok((mut socket, _)) = listener.accept().await {
-            // The request is read until the headers are in; the body does not matter.
-            let mut buffer = vec![0u8; 8192];
-            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buffer).await;
+            // The whole request is read: the answer must not come while the client is
+            // still sending, or the client sees a broken connection.
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                match tokio::io::AsyncReadExt::read(&mut socket, &mut byte).await {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => head.push(byte[0]),
+                }
+            }
+            let text = String::from_utf8_lossy(&head).to_lowercase();
+            let length = text
+                .split("content-length:")
+                .nth(1)
+                .and_then(|rest| rest.split('\r').next())
+                .and_then(|value| value.trim().parse::<usize>().ok())
+                .unwrap_or(0);
+            if length > 0 {
+                let mut body = vec![0u8; length];
+                let _ = tokio::io::AsyncReadExt::read_exact(&mut socket, &mut body).await;
+            }
 
             let events = if turn == 0 {
                 turn += 1;
@@ -398,6 +416,38 @@ async fn the_cancel_stops_the_turn_that_is_running_and_not_the_next_one() {
         .await
         .is_some(),
         "the next turn is cancelled too"
+    );
+}
+
+#[tokio::test]
+async fn the_mode_of_the_message_is_the_mode_of_the_session() {
+    // The message carries the mode. The turn must follow it: the tool runs without asking
+    // when the message says so.
+    let runtime = a_runtime("seek-loop-mode");
+    let port = a_model_server().await;
+    let (commands, mut events) = the_loop(Arc::clone(&runtime), port);
+
+    commands
+        .send(Command::Submit {
+            text: "run the command".into(),
+            mode: PermissionMode::Yolo,
+        })
+        .await
+        .expect("the command is sent");
+
+    // The tool runs and the turn ends: nobody answered a permission.
+    let output = wait_for(&mut events, |event| {
+        matches!(event, AgentEvent::ToolOutput(_))
+    })
+    .await;
+    assert!(output.is_some(), "the tool ran without asking");
+    assert!(
+        wait_for(&mut events, |event| {
+            matches!(event, AgentEvent::TurnFinished(_))
+        })
+        .await
+        .is_some(),
+        "the turn ends"
     );
 }
 

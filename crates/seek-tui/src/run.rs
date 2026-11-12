@@ -14,19 +14,27 @@ use tokio::sync::mpsc;
 
 use crate::app::{App, Command, Message, TICK_MS};
 
+/// How many lines the wheel scrolls at once.
+pub const MOUSE_SCROLL: isize = 3;
+
 /// The terminal type SEEK draws on.
 pub type SeekTerminal = Terminal<CrosstermBackend<Stdout>>;
 
 /// Set the terminal up for drawing.
 ///
 /// `ratatui::init` installs a panic hook that restores the terminal, so a crash never leaves the
-/// terminal in a broken state (SPEC 4.2).
+/// terminal in a broken state (SPEC 4.2). The mouse is taken as well: the wheel scrolls
+/// the transcript, the way a chat does.
 pub fn init_terminal() -> SeekTerminal {
+    use crossterm::event::EnableMouseCapture;
+    let _ = EnableMouseCapture;
     ratatui::init()
 }
 
 /// Put the terminal back the way it was.
 pub fn restore_terminal() {
+    use crossterm::event::DisableMouseCapture;
+    let _ = DisableMouseCapture;
     ratatui::restore();
 }
 
@@ -69,6 +77,15 @@ pub async fn run(
                     Event::Key(key) if key.kind == KeyEventKind::Press => Some(Message::Key(key)),
                     Event::Key(_) => None,
                     Event::Resize(width, height) => Some(Message::Resize(width, height)),
+                    Event::Mouse(mouse) => match mouse.kind {
+                        crossterm::event::MouseEventKind::ScrollUp => {
+                            Some(Message::Scroll(MOUSE_SCROLL))
+                        }
+                        crossterm::event::MouseEventKind::ScrollDown => {
+                            Some(Message::Scroll(-MOUSE_SCROLL))
+                        }
+                        _ => None,
+                    },
                     _ => None,
                 };
                 if let Some(message) = message

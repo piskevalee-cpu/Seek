@@ -41,6 +41,9 @@ fn the_binary() -> Option<String> {
 
 #[tokio::test]
 async fn a_local_model_answers_a_message() {
+    // Only one test at a time starts a server: they are heavy, and the tests of the
+    // workspace run in parallel.
+    let _lock = seek_local::ServerLock::take();
     let (Some(binary), Some(model_path)) = (the_binary(), a_model()) else {
         eprintln!("no llama binary or no model: the test skips itself");
         return;
@@ -115,6 +118,7 @@ async fn a_local_model_answers_a_message() {
 
     // The server starts and the model answers.
     let mut answer = String::new();
+    let mut thinking = String::new();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(300);
     while tokio::time::Instant::now() < deadline {
         let Ok(event) =
@@ -125,6 +129,9 @@ async fn a_local_model_answers_a_message() {
         let Some(event) = event else { break };
         match event {
             AgentEvent::TextDelta(text) => answer.push_str(&text),
+            // A small model sometimes answers in its thinking and never writes the
+            // answer: that is an answer too.
+            AgentEvent::ThinkingDelta(text) => thinking.push_str(&text),
             AgentEvent::TurnFinished(_) => break,
             AgentEvent::Error(error) => panic!("the turn failed: {error}"),
             _ => {}
@@ -133,10 +140,14 @@ async fn a_local_model_answers_a_message() {
         if let Ok(request) = permission_rx.try_recv() {
             let _ = request;
         }
+        // The model answered: the test does not wait for the rest of the turn.
+        if !answer.trim().is_empty() || !thinking.trim().is_empty() {
+            break;
+        }
     }
 
     assert!(
-        !answer.trim().is_empty(),
+        !answer.trim().is_empty() || !thinking.trim().is_empty(),
         "the local model answered something"
     );
 

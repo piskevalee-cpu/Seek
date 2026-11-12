@@ -593,6 +593,10 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
         .collect();
 
     // The conversation goes on from turn to turn: the model sees what was said before.
+    // The mode of the message is the mode of the session: the interface sends it with every
+    // message, and a change in the middle of a turn is read at every tool call.
+    runtime.mode.set(mode);
+
     // The turns go one after the other: the conversation is shared, so the second waits for
     // the first.
     let mut history = runtime.history.lock().await;

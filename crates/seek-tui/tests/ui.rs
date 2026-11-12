@@ -161,6 +161,46 @@ fn a_completion_is_taken_with_the_tab() {
 }
 
 #[test]
+fn the_wheel_scrolls_the_transcript() {
+    let mut app = app();
+    for number in 1..=40 {
+        app.rows
+            .push(Row::Assistant(format!("the message {number}")));
+    }
+    // The bottom at first.
+    render(&mut app, 100, 30);
+    assert_eq!(app.scroll, 0);
+
+    // The wheel scrolls up, and the place is shown.
+    app.update(Message::Scroll(3));
+    render(&mut app, 100, 30);
+    assert!(app.scroll > 0, "the transcript is scrolled up");
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("\u{2191}"), "the place is shown: {screen}");
+
+    // And back down to the bottom.
+    for _ in 0..40 {
+        app.update(Message::Scroll(-3));
+    }
+    render(&mut app, 100, 30);
+    assert_eq!(app.scroll, 0, "the transcript is at the bottom");
+}
+
+#[test]
+fn a_page_key_scrolls_a_page() {
+    let mut app = app();
+    for number in 1..=80 {
+        app.rows
+            .push(Row::Assistant(format!("the message {number}")));
+    }
+    render(&mut app, 100, 30);
+    app.update(Message::Key(key(KeyCode::PageUp)));
+    render(&mut app, 100, 30);
+    // A page is the height of the window, not one line.
+    assert!(app.scroll >= 15, "a whole page: {}", app.scroll);
+}
+
+#[test]
 fn the_sidebar_can_be_shown() {
     let mut app = app();
     app.sidebar.open = true;

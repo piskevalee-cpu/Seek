@@ -159,6 +159,8 @@ pub enum Message {
     /// which model to use (SPEC 16.7).
     Start,
     Key(KeyEvent),
+    /// The wheel of the mouse: a positive number scrolls up.
+    Scroll(isize),
     Resize(u16, u16),
     Tick,
     Agent(AgentEvent),
@@ -287,6 +289,15 @@ pub struct App {
     pub queued: Vec<String>,
     /// How far the transcript is scrolled up; 0 means stuck to the bottom.
     pub scroll: usize,
+    /// The first line of the window, when the user scrolled up.
+    ///
+    /// The window is anchored to the content and not to the bottom, so the message that is
+    /// being read stays where it is when the model writes more.
+    pub scroll_top: Option<usize>,
+    /// How many lines the transcript has, from the last draw.
+    pub transcript_total: usize,
+    /// How many lines the window of the transcript is high.
+    pub transcript_height: usize,
     /// The selected transcript row.
     pub selected: Option<usize>,
     pub overlay: Option<Overlay>,
@@ -381,6 +392,9 @@ impl App {
             status: Status::Idle,
             queued: Vec::new(),
             scroll: 0,
+            scroll_top: None,
+            transcript_total: 0,
+            transcript_height: 0,
             selected: None,
             overlay: None,
             should_quit: false,
@@ -449,6 +463,15 @@ impl App {
                 None
             }
             Message::Key(key) => self.on_key(key),
+            Message::Scroll(delta) => {
+                // The wheel scrolls the transcript. A negative number scrolls down.
+                if delta > 0 {
+                    self.scroll_up(delta as usize);
+                } else {
+                    self.scroll_down((-delta) as usize);
+                }
+                None
+            }
             Message::Resize(_, _) => None,
             Message::Tick => {
                 if self.status != Status::Idle {
@@ -493,7 +516,7 @@ impl App {
                         seek_core::Role::System => {}
                     }
                 }
-                self.scroll = 0;
+                self.scroll_to_bottom();
                 None
             }
         };
@@ -574,7 +597,7 @@ impl App {
                     // and goes to the model when the turn is over (SPEC 9.1).
                     return Some(Command::Cancel);
                 }
-                self.scroll = 0;
+                self.scroll_to_bottom();
                 None
             }
             KeyCode::Backspace => {
@@ -622,11 +645,12 @@ impl App {
                 None
             }
             KeyCode::PageUp => {
-                self.scroll = self.scroll.saturating_add(1);
+                // A page is the height of the window.
+                self.scroll_up(self.transcript_height.max(1));
                 None
             }
             KeyCode::PageDown => {
-                self.scroll = self.scroll.saturating_sub(1);
+                self.scroll_down(self.transcript_height.max(1));
                 None
             }
             KeyCode::Tab => {
@@ -755,6 +779,54 @@ impl App {
             // The other keys are the ordinary ones: the text is typed.
             _ => None,
         }
+    }
+
+    /// The first line of the window of the transcript.
+    fn scroll_start(&self) -> usize {
+        match self.scroll_top {
+            Some(top) => top.min(self.transcript_total),
+            None => self
+                .transcript_total
+                .saturating_sub(self.transcript_height.saturating_add(self.scroll)),
+        }
+    }
+
+    /// Scroll the transcript up by `lines`.
+    fn scroll_up(&mut self, lines: usize) {
+        let start = self.scroll_start().saturating_sub(lines);
+        self.set_scroll_start(start);
+    }
+
+    /// Scroll the transcript down by `lines`.
+    fn scroll_down(&mut self, lines: usize) {
+        let start = self.scroll_start().saturating_add(lines);
+        // The bottom is the end of the transcript: the window sticks there.
+        if start.saturating_add(self.transcript_height) >= self.transcript_total {
+            self.scroll_top = None;
+            self.scroll = 0;
+        } else {
+            self.set_scroll_start(start);
+        }
+    }
+
+    /// Put the window at a line.
+    fn set_scroll_start(&mut self, start: usize) {
+        let total = self.transcript_total;
+        let height = self.transcript_height;
+        if start.saturating_add(height) >= total {
+            // The bottom is the end of the transcript: the window sticks there.
+            self.scroll_top = None;
+            self.scroll = 0;
+            return;
+        }
+        self.scroll_top = Some(start);
+        self.scroll = total.saturating_sub(start.saturating_add(height));
+    }
+
+    /// Go back to the bottom of the transcript.
+    fn scroll_to_bottom(&mut self) {
+        self.scroll = 0;
+        self.scroll_top = None;
     }
 
     /// Handle a key while the prompt bar asks for a permission.
@@ -1557,7 +1629,7 @@ impl App {
         };
 
         self.rows.push(Row::User(text.clone()));
-        self.scroll = 0;
+        self.scroll_to_bottom();
         self.selected = None;
 
         if self.status != Status::Idle {
@@ -1606,7 +1678,7 @@ impl App {
                 // A new session: the transcript starts empty again (SPEC 11).
                 self.rows.clear();
                 self.queued.clear();
-                self.scroll = 0;
+                self.scroll_to_bottom();
                 self.selected = None;
                 self.sidebar_focused = false;
                 Some(Command::NewSession)
@@ -1802,7 +1874,7 @@ impl App {
                 self.rows.clear();
                 self.rows.push(Row::User("[compacted]".into()));
                 self.rows.push(Row::Assistant(summary));
-                self.scroll = 0;
+                self.scroll_to_bottom();
             }
             AgentEvent::Error(message) => {
                 self.rows.push(Row::Error(message));
@@ -2068,15 +2140,33 @@ impl App {
             })
             .collect();
 
-        // The window of the transcript: the last `height` lines, minus what the user scrolled
-        // up. The end follows the start, so the slice can never be inverted.
+        // The window of the transcript. It is anchored to the content when the user scrolled
+        // up, so the message that is being read stays where it is while the model writes.
         let height = area.height as usize;
         let total = lines.len();
-        let start = total.saturating_sub(height.saturating_add(self.scroll));
+        self.transcript_total = total;
+        self.transcript_height = height;
+        let start = self.scroll_start();
         let end = start.saturating_add(height).min(total);
         let visible: Vec<Line> = lines[start..end].to_vec();
 
         frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
+
+        // The place in the transcript, when the user is not at the bottom: without it, the
+        // view looks the same however far up it is.
+        if self.scroll > 0 && area.height > 1 {
+            let badge = format!("↑ {} of {}", self.scroll, total);
+            let width = badge.chars().count() as u16 + 2;
+            let x = area.x + area.width.saturating_sub(width);
+            let badge_area = Rect::new(x, area.y, width, 1);
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(Span::styled(
+                    format!(" {badge} "),
+                    Style::new().fg(self.theme.bg).bg(self.theme.accent),
+                )),
+                badge_area,
+            );
+        }
     }
 
     /// The home screen: the logo and the widgets.

@@ -111,6 +111,10 @@ workspace; each release ships a milestone (SPEC 15).
   box keeps its shape while the agent works and the cursor is the only thing that moves.
 - The commands complete as they are typed: a dropdown of the slash commands and the skills, the
   arrows move the selection, Tab and Enter take it.
+- The chat scrolls: the wheel and the page keys, the window anchored to the content so the
+  message being read stays put, and the place in the transcript shown in the corner.
+- The mode of the message is the mode of the session again: the shared mode had overridden it,
+  and every tool asked for a permission, even in YOLO.
 - The form that adds a provider, with the kind, the base URL, the key environment variable, the
   models, the context and the rate limits (SPEC 10.3).
 - The providers are detected from the environment when there is no `providers.toml`, so a bare

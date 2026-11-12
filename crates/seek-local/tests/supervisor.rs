@@ -57,6 +57,9 @@ fn which(program: &str) -> bool {
 
 #[tokio::test]
 async fn the_supervisor_starts_a_server_and_reads_its_properties() {
+    // Only one test at a time starts a server: they are heavy, and the tests of the
+    // workspace run in parallel.
+    let _lock = seek_local::ServerLock::take();
     let (Some(binary), Some(model_path)) = (the_binary(), a_model()) else {
         eprintln!("no llama binary or no model: the test skips itself");
         return;
@@ -116,6 +119,8 @@ async fn the_supervisor_starts_a_server_and_reads_its_properties() {
 
 #[tokio::test]
 async fn the_supervisor_stops_the_server_it_started() {
+    // Only one test at a time starts a server.
+    let _lock = seek_local::ServerLock::take();
     let (Some(binary), Some(model_path)) = (the_binary(), a_model()) else {
         eprintln!("no llama binary or no model: the test skips itself");
         return;
