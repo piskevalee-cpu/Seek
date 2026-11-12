@@ -269,8 +269,31 @@ impl Tool for EditTool {
     fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
         Box::pin(async move {
             let path = string_field(&input, "path")?;
-            let old = string_field(&input, "old")?;
-            let new = string_field(&input, "new")?;
+            // The short names are accepted too: a small model mixes them up.
+            let old = string_field_with(
+                &input,
+                "old_string",
+                &["path", "old_string", "new_string", "replace_all"],
+            )
+            .or_else(|_| {
+                string_field_with(
+                    &input,
+                    "old",
+                    &["path", "old_string", "new_string", "replace_all"],
+                )
+            })?;
+            let new = string_field_with(
+                &input,
+                "new_string",
+                &["path", "old_string", "new_string", "replace_all"],
+            )
+            .or_else(|_| {
+                string_field_with(
+                    &input,
+                    "new",
+                    &["path", "old_string", "new_string", "replace_all"],
+                )
+            })?;
             let replace_all = input
                 .get("replace_all")
                 .and_then(Value::as_bool)
@@ -674,6 +697,22 @@ fn string_field(input: &Value, name: &str) -> Result<String, ToolError> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or_else(|| ToolError::InvalidInput(format!("the field {name} is missing")))
+}
+
+/// The fields a tool takes, for the error message.
+///
+/// A small model mixes the names up. The answer names them, so the next call is right.
+fn string_field_with(input: &Value, name: &str, fields: &[&str]) -> Result<String, ToolError> {
+    input
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            ToolError::InvalidInput(format!(
+                "the field {name} is missing. The tool takes: {}",
+                fields.join(", ")
+            ))
+        })
 }
 
 #[cfg(test)]

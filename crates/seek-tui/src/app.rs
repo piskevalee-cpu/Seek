@@ -443,7 +443,7 @@ impl App {
                     self.overlay = Some(Overlay::Picker(self.model_picker()));
                 }
                 // The first run asks for the name: the model addresses the user by it.
-                if self.user_name.is_none() {
+                if self.user_name.as_deref().unwrap_or("").is_empty() {
                     self.prompt_mode = PromptMode::Name;
                 }
                 None

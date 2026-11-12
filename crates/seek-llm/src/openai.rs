@@ -41,7 +41,7 @@ impl OpenAiProvider {
         max_tokens: u32,
     ) -> Self {
         OpenAiProvider {
-            client: reqwest::Client::new(),
+            client: crate::client::a_client(),
             base_url: base_url.into(),
             api_key,
             model: model.into(),

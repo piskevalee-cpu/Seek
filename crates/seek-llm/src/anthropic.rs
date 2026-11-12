@@ -40,7 +40,7 @@ impl AnthropicProvider {
         max_tokens: u32,
     ) -> Self {
         AnthropicProvider {
-            client: reqwest::Client::new(),
+            client: crate::client::a_client(),
             base_url: base_url.into(),
             api_key: api_key.into(),
             model: model.into(),

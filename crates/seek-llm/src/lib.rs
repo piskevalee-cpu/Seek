@@ -6,6 +6,7 @@
 
 pub mod anthropic;
 pub mod catalog;
+pub mod client;
 pub mod fake;
 pub mod openai;
 pub mod provider;
