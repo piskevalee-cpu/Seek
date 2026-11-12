@@ -123,6 +123,15 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
 - The turn runs in a task of its own: the command loop keeps taking the commands of the user, so
   the answer to a permission request and Esc arrive while the model works. A turn that is
   cancelled gives up at the permission request and at the tool.
+- The permission mode is read at every tool call: it is shared between the interface and the
+  agent, so it applies to the turn that runs now.
+- The llama.cpp server closes the connection after every answer. The clients of the providers
+  open a connection for every request (`seek-llm::client::a_client`); a client that reuses one
+  gets "connection closed before message completed" on the next request.
+- The file tools live in `seek-core::files` and follow the grok-build pager: the read numbers
+  the lines, the edit says the line the change landed on.
+- The name of the user is in `state/user.toml`; the first run asks for it and `/settings` asks
+  again.
 - The keys come from a thread of their own (`crates/seek-tui/src/run.rs`). The reader of the
   terminal blocks: read inside the event loop, it freezes the interface, and the keys arrive
   late or not at all.

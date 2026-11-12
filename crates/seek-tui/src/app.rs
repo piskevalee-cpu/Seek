@@ -2270,6 +2270,7 @@ impl App {
             ("Ctrl+C", "clear input, twice to quit"),
             ("PgUp / PgDn", "scroll the transcript"),
             ("Alt+T", "show or hide reasoning"),
+            ("Tab", "take the completion of a command"),
         ];
         let lines: Vec<Line> = keys
             .iter()
