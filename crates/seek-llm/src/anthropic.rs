@@ -388,10 +388,25 @@ impl AnthropicDecoder {
                             .and_then(|delta| delta.get("partial_json"))
                             .and_then(Value::as_str)
                             .unwrap_or_default();
-                        if let Some(BlockState::ToolUse { partial_json, .. }) =
-                            self.blocks.get_mut(&index)
+                        let mut delta_event = None;
+                        if let Some(BlockState::ToolUse {
+                            id,
+                            name,
+                            partial_json,
+                        }) = self.blocks.get_mut(&index)
                         {
                             partial_json.push_str(partial);
+                            if !name.is_empty() {
+                                delta_event = Some(ProviderEvent::ToolCallDelta {
+                                    id: id.clone(),
+                                    name: name.clone(),
+                                    arguments: partial_json.clone(),
+                                });
+                            }
+                        }
+                        // The call is shown while it is written.
+                        if let Some(event) = delta_event {
+                            out.push(event);
                         }
                     }
                     _ => {}
@@ -521,7 +536,24 @@ mod tests {
                 })
                 .to_string(),
             };
-            assert!(decoder.push(&delta).unwrap().is_empty());
+            // The call is shown while it is written: the arguments grow.
+            let events = decoder.push(&delta).unwrap();
+            let delta_event = events
+                .iter()
+                .find(|event| matches!(event, ProviderEvent::ToolCallDelta { .. }))
+                .expect("the call is shown");
+            match delta_event {
+                ProviderEvent::ToolCallDelta {
+                    id,
+                    name,
+                    arguments,
+                } => {
+                    assert_eq!(id, "toolu_1");
+                    assert_eq!(name, "read");
+                    assert!(arguments.contains("pa"), "{arguments}");
+                }
+                _ => unreachable!(),
+            }
         }
 
         let stop = SseEvent {

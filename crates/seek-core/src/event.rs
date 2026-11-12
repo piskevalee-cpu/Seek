@@ -57,6 +57,13 @@ pub enum AgentEvent {
         id: String,
         name: String,
     },
+    /// The tool call is still arriving: the arguments grow.
+    ToolCallDelta {
+        id: String,
+        name: String,
+        /// The arguments as they have come so far.
+        arguments: String,
+    },
     ToolCallReady {
         id: String,
         name: String,

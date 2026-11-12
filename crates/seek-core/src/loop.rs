@@ -276,6 +276,20 @@ impl Agent {
                         thinking.push_str(&delta);
                         let _ = events.send(AgentEvent::ThinkingDelta(delta)).await;
                     }
+                    ProviderEvent::ToolCallDelta {
+                        id,
+                        name,
+                        arguments,
+                    } => {
+                        // The call is shown while it is written.
+                        let _ = events
+                            .send(AgentEvent::ToolCallDelta {
+                                id,
+                                name,
+                                arguments,
+                            })
+                            .await;
+                    }
                     ProviderEvent::ToolCall { id, name, input } => {
                         let _ = events
                             .send(AgentEvent::ToolCallStarted {

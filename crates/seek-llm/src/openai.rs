@@ -362,6 +362,14 @@ impl OpenAiDecoder {
                     {
                         state.arguments.push_str(arguments);
                     }
+                    // The call is shown while it is written: the arguments grow.
+                    if !state.name.is_empty() {
+                        out.push(ProviderEvent::ToolCallDelta {
+                            id: state.id.clone(),
+                            name: state.name.clone(),
+                            arguments: state.arguments.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -417,6 +425,52 @@ mod tests {
             .with_extra_body(json!({ "reasoning_effort": "medium" }));
         let body = provider.build_body(&ChatRequest::default());
         assert_eq!(body["reasoning_effort"], "medium");
+    }
+
+    #[test]
+    fn a_tool_call_is_shown_while_it_is_written() {
+        let mut decoder = OpenAiDecoder::new();
+        // The name and the first part of the arguments.
+        let event = SseEvent::data(
+            json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "c1",
+                "function": { "name": "bash", "arguments": "{\"command\":\"ls" } }] } }] })
+            .to_string(),
+        );
+        let events = decoder.push(&event).unwrap();
+        let delta = events
+            .iter()
+            .find(|event| matches!(event, ProviderEvent::ToolCallDelta { .. }))
+            .expect("the call is shown");
+        match delta {
+            ProviderEvent::ToolCallDelta {
+                id,
+                name,
+                arguments,
+            } => {
+                assert_eq!(id, "c1");
+                assert_eq!(name, "bash");
+                assert!(arguments.contains("ls"), "{arguments}");
+            }
+            _ => unreachable!(),
+        }
+
+        // The rest of the arguments.
+        let event = SseEvent::data(
+            json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
+                "function": { "arguments": " -la\"}" } }] } }] })
+            .to_string(),
+        );
+        let events = decoder.push(&event).unwrap();
+        let delta = events
+            .iter()
+            .find(|event| matches!(event, ProviderEvent::ToolCallDelta { .. }))
+            .expect("the call is shown");
+        match delta {
+            ProviderEvent::ToolCallDelta { arguments, .. } => {
+                assert!(arguments.contains("ls -la"), "{arguments}");
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[test]

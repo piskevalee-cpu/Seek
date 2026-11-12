@@ -76,6 +76,16 @@ pub enum ProviderEvent {
     ThinkingDelta(String),
     /// Visible answer text.
     TextDelta(String),
+    /// A tool call that is still arriving.
+    ///
+    /// The name is known and the arguments grow: the interface shows the command while it is
+    /// written, the way the grok-build pager does it.
+    ToolCallDelta {
+        id: String,
+        name: String,
+        /// The arguments as they have come so far.
+        arguments: String,
+    },
     /// A complete tool call.
     ToolCall {
         id: String,

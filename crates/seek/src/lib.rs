@@ -692,6 +692,15 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
                     }
                     ProviderEvent::RateLimit(limit) => AgentEvent::RateLimit(limit),
                     ProviderEvent::Done => AgentEvent::TurnFinished(seek_core::TurnReason::Stop),
+                    ProviderEvent::ToolCallDelta {
+                        id,
+                        name,
+                        arguments,
+                    } => AgentEvent::ToolCallDelta {
+                        id,
+                        name,
+                        arguments,
+                    },
                     ProviderEvent::ToolCall { .. } => continue,
                 };
                 if events.send(agent_event).await.is_err() {

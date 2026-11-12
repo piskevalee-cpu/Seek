@@ -1639,6 +1639,18 @@ impl App {
                     expanded: false,
                 });
             }
+            AgentEvent::ToolCallDelta { id, arguments, .. } => {
+                // The command is shown while it is written.
+                let text = summarize_arguments(&arguments);
+                if let Some(Row::Tool { command, .. }) = self
+                    .rows
+                    .iter_mut()
+                    .rev()
+                    .find(|row| matches!(row, Row::Tool { id: row_id, .. } if *row_id == id))
+                {
+                    *command = text;
+                }
+            }
             AgentEvent::ToolCallReady { id, input, .. } => {
                 if let Some(Row::Tool { command, .. }) = self
                     .rows
@@ -2194,6 +2206,17 @@ impl App {
 }
 
 /// A one-line summary of a tool call.
+/// The arguments of a tool call as they are written, without the JSON punctuation.
+fn summarize_arguments(arguments: &str) -> String {
+    let text = arguments
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .replace("\"", "")
+        .replace(':', ": ");
+    text.trim().to_string()
+}
+
+/// Summarize the input of a tool call for the transcript.
 fn summarize_input(input: &serde_json::Value) -> String {
     let Some(object) = input.as_object() else {
         return input.to_string();
