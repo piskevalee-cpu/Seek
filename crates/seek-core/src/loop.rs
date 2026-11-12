@@ -62,11 +62,40 @@ pub struct ToolRegistry {
     pub fetch: Option<crate::tools::FetchTool>,
 }
 
+/// The permission mode, shared by the turns.
+///
+/// The mode is read at every tool call, so the user can change it while the agent works:
+/// the next call of the same turn follows the new mode.
+#[derive(Debug, Clone)]
+pub struct PermissionModeCell {
+    mode: std::sync::Arc<std::sync::Mutex<PermissionMode>>,
+}
+
+impl PermissionModeCell {
+    /// A cell with this mode.
+    pub fn new(mode: PermissionMode) -> Self {
+        PermissionModeCell {
+            mode: std::sync::Arc::new(std::sync::Mutex::new(mode)),
+        }
+    }
+
+    /// The mode of the moment.
+    pub fn get(&self) -> PermissionMode {
+        *self.mode.lock().expect("the mode is not poisoned")
+    }
+
+    /// Change the mode.
+    pub fn set(&self, mode: PermissionMode) {
+        *self.mode.lock().expect("the mode is not poisoned") = mode;
+    }
+}
+
 /// The agent: a provider, the tools and the permission mode.
 pub struct Agent {
     provider: Arc<dyn Provider>,
     tools: ToolRegistry,
-    mode: PermissionMode,
+    /// The permission mode, read at every tool call.
+    mode: PermissionModeCell,
     root: std::path::PathBuf,
     config: AgentConfig,
     permissions: PermissionRequests,
@@ -94,7 +123,7 @@ impl Agent {
         Agent {
             provider,
             tools,
-            mode,
+            mode: PermissionModeCell::new(mode),
             root,
             config: AgentConfig::default(),
             permissions,
@@ -104,6 +133,14 @@ impl Agent {
             usage: std::sync::Arc::new(std::sync::Mutex::new((0, 0))),
             cancel: tokio_util::sync::CancellationToken::new(),
         }
+    }
+
+    /// Use a permission mode that is shared with the interface.
+    ///
+    /// The mode is read at every tool call, so the user can change it while the agent works.
+    pub fn with_permission_mode(mut self, mode: PermissionModeCell) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// The token that stops the turn.
@@ -320,7 +357,7 @@ impl Agent {
             None => true,
         };
 
-        match self.mode.decide_path(risk, inside) {
+        match self.mode.get().decide_path(risk, inside) {
             crate::permission::Decision::Allow => {}
             crate::permission::Decision::Deny => {
                 return Err("denied by user".to_string());

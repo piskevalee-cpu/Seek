@@ -60,6 +60,9 @@ pub struct Runtime {
     /// The token that stops the turn that is running, and whether a cancel was asked for
     /// before the turn had started.
     cancel: tokio::sync::Mutex<CancelState>,
+    /// The permission mode. It is read at every tool call, so the user can change it while
+    /// the agent works (SPEC 9.4).
+    pub mode: seek_core::r#loop::PermissionModeCell,
     /// Where the state of SEEK lives.
     pub state_dir: std::path::PathBuf,
     /// The working directory: the tools run there, and the paths are relative to it.
@@ -117,6 +120,7 @@ impl Runtime {
             session: tokio::sync::Mutex::new(None),
             history: tokio::sync::Mutex::new(seek_core::History::new()),
             cancel: tokio::sync::Mutex::new(CancelState::default()),
+            mode: seek_core::r#loop::PermissionModeCell::new(PermissionMode::Ask),
             state_dir,
             root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         }
@@ -434,6 +438,11 @@ pub async fn agent_loop(
                 // Esc stops the turn that is running (SPEC 9.1).
                 runtime.cancel().await;
             }
+            Command::SetMode(mode) => {
+                // The mode is read at every tool call: it applies to the turn that runs now
+                // (SPEC 9.4).
+                runtime.mode.set(mode);
+            }
             Command::RunWidgets => {
                 // The widgets run when the home screen is shown (SPEC 10.5).
                 for widget in &runtime.widgets {
@@ -637,7 +646,9 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
             )
             .with_context(runtime.context())
             .with_external_tools(external_tools)
-            .with_usage(Arc::clone(&usage));
+            .with_usage(Arc::clone(&usage))
+            // The mode is shared: the user can change it while the turn runs.
+            .with_permission_mode(runtime.mode.clone());
             // The token lets Esc stop the turn (SPEC 9.1).
             let agent = agent.with_cancel(cancel);
             agent.run_turn(&mut history, &events).await;

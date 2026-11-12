@@ -96,6 +96,9 @@ workspace; each release ships a milestone (SPEC 15).
 - The keys arrive at once: the reader of the terminal was blocking the event loop, so Esc did
   nothing and the message after it was never taken.
 - The cancel stops the turn that is running, and not the next one.
+- Shift+Tab switches the permission mode, whatever the sidebar does.
+- The permission mode is read at every tool call: changing it while the agent works applies at
+  once, to the turn that runs now.
 - The form that adds a provider, with the kind, the base URL, the key environment variable, the
   models, the context and the rate limits (SPEC 10.3).
 - The providers are detected from the environment when there is no `providers.toml`, so a bare

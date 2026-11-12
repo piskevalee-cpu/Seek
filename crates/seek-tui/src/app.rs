@@ -184,6 +184,8 @@ pub enum Command {
         id: u64,
         decision: PermissionDecision,
     },
+    /// Change the permission mode.
+    SetMode(PermissionMode),
     /// Switch to another model. The switch happens between turns (SPEC 7.3).
     SwitchModel { id: String },
     /// Summarize the older turns into one message (SPEC 8).
@@ -610,10 +612,13 @@ impl App {
                 if self.sidebar.open {
                     // Tab moves the focus into the sidebar (SPEC 10.3).
                     self.sidebar_focused = !self.sidebar_focused;
-                } else {
-                    self.mode = self.mode.next();
                 }
                 None
+            }
+            KeyCode::BackTab => {
+                // Shift+Tab cycles the mode, whatever the sidebar does (SPEC 9.4).
+                self.mode = self.mode.next();
+                Some(Command::SetMode(self.mode))
             }
             KeyCode::Char(c) => {
                 self.last_ctrl_c = 0;
@@ -924,6 +929,8 @@ impl App {
                     && let Some(mode) = PermissionMode::parse(label)
                 {
                     self.mode = mode;
+                    // The mode is read at every tool call: it applies at once (SPEC 9.4).
+                    return Some(Command::SetMode(mode));
                 }
             }
             "skills" => {
@@ -2247,13 +2254,36 @@ mod tests {
     }
 
     #[test]
-    fn tab_cycles_the_permission_mode() {
+    fn shift_tab_cycles_the_permission_mode() {
         let mut app = App::new(Theme::default());
         assert_eq!(app.mode, PermissionMode::Ask);
-        app.update(Message::Key(key(KeyCode::Tab)));
+        let command = app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Yolo);
-        app.update(Message::Key(key(KeyCode::Tab)));
+        // The agent is told, so the mode applies to the turn that runs now.
+        assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
+        app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Read);
+    }
+
+    #[test]
+    fn the_mode_switches_whatever_the_sidebar_does() {
+        let mut app = App::new(Theme::default());
+        app.sidebar.open = true;
+        app.sidebar_focused = true;
+        let command = app.update(Message::Key(key(KeyCode::BackTab)));
+        assert_eq!(app.mode, PermissionMode::Yolo);
+        assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
+    }
+
+    #[test]
+    fn tab_moves_the_focus_into_the_sidebar() {
+        let mut app = App::new(Theme::default());
+        app.sidebar.open = true;
+        assert!(!app.sidebar_focused);
+        app.update(Message::Key(key(KeyCode::Tab)));
+        assert!(app.sidebar_focused);
+        // The mode did not move.
+        assert_eq!(app.mode, PermissionMode::Ask);
     }
 
     #[test]

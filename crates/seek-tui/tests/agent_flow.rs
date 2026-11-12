@@ -345,6 +345,36 @@ async fn in_yolo_mode_the_tool_runs_without_asking() {
 }
 
 #[tokio::test]
+async fn the_mode_that_is_set_while_the_turn_runs_applies_to_it() {
+    // The mode is read at every tool call: changing it while the agent works applies to the
+    // turn that runs now.
+    let (agent, requests, incoming) = agent_with_permissions(
+        tool_calling_provider(),
+        PermissionMode::Ask,
+        std::env::temp_dir().join("seek-flow-mode-test"),
+    );
+    let cell = seek_core::r#loop::PermissionModeCell::new(PermissionMode::Ask);
+    let agent = agent.with_permission_mode(cell.clone());
+
+    // The turn is running: the mode changes to "everything is allowed".
+    cell.set(PermissionMode::Yolo);
+
+    let (events, _asked) = run_with_permission(agent, requests, incoming, None).await;
+    let output = events
+        .iter()
+        .find_map(|event| match event {
+            AgentEvent::ToolOutput(output) => Some(output),
+            _ => None,
+        })
+        .expect("the tool ran");
+    assert!(
+        !output.is_error,
+        "the tool ran without asking: {}",
+        output.content
+    );
+}
+
+#[tokio::test]
 async fn the_tell_answer_goes_back_to_the_model() {
     let (agent, requests, incoming) = agent_with_permissions(
         tool_calling_provider(),

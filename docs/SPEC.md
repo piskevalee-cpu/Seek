@@ -250,7 +250,8 @@ Stream a completion, collect tool calls, and for each: permission check, execute
 | `ask` | allow | ask | ask | ask |
 | `yolo` | allow | allow | allow | allow |
 
-- Cycle with Shift+Tab or set with `/mode`. The mode is displayed in the footer chip only.
+- Cycle with Shift+Tab or set with `/mode`. Shift+Tab works whatever the sidebar does. The mode is displayed in the footer chip only.
+- **The mode is read at every tool call.** Changing it while the agent works applies to the turn that runs now: the next call of that turn follows the new mode.
 - **Interactive ask:** the prompt bar turns into a selector with three choices: **Yes**, **No**, **Tell SEEK what to do**. The third opens a text input in the same bar; the text goes back to the model as the tool result (`denied by user: <text>`) and the agent continues from it.
 - Paths outside the project root are always asked in `ask` mode.
 
