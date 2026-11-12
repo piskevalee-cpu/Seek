@@ -105,6 +105,12 @@ workspace; each release ships a milestone (SPEC 15).
 - The system prompt is slimmer and teaches the tools: it is 701 of the 1,500 tokens.
 - The first run asks for the name of the user, `/settings` asks again, and the model addresses
   the user by it.
+- There is no green in the interface any more, and the `LOCAL` tag is only in the model picker.
+- The thinking line sits behind the message, in the column of the text.
+- The message bar holds the text and nothing else: the status is in the bottom border, so the
+  box keeps its shape while the agent works and the cursor is the only thing that moves.
+- The commands complete as they are typed: a dropdown of the slash commands and the skills, the
+  arrows move the selection, Tab and Enter take it.
 - The form that adds a provider, with the kind, the base URL, the key environment variable, the
   models, the context and the rate limits (SPEC 10.3).
 - The providers are detected from the environment when there is no `providers.toml`, so a bare

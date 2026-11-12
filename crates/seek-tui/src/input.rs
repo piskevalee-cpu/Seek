@@ -68,6 +68,17 @@ impl Input {
         self.lines.get(self.row).map(String::as_str).unwrap_or("")
     }
 
+    /// Replace the line the cursor is on.
+    ///
+    /// The completion takes the whole line: the command and its argument.
+    pub fn replace_current_line(&mut self, text: &str) {
+        if self.row >= self.lines.len() {
+            return;
+        }
+        self.lines[self.row] = text.to_string();
+        self.column = text.chars().count();
+    }
+
     /// The cursor position as (row, column in characters).
     pub fn cursor(&self) -> (usize, usize) {
         (self.row, self.column)

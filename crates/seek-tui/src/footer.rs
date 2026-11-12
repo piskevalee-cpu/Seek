@@ -64,13 +64,8 @@ pub fn footer_line(footer: &Footer, theme: &Theme, width: u16) -> Line<'static> 
         format!(" {} ", footer.model.model),
         Style::new().fg(theme.text),
     ));
-    if footer.model.local {
-        spans.push(Span::styled(
-            " LOCAL ",
-            Style::new().fg(theme.bg).bg(theme.accent).bold(),
-        ));
-    }
-    // The provider is named when the model is not local: the LOCAL tag says it otherwise.
+    // The provider is named when the model is not local. The LOCAL tag is only in the model
+    // picker: the chat says which model it is, and that is enough (SPEC 10.2).
     if !footer.model.local {
         spans.push(Span::styled(
             format!(" {}", footer.model.provider),
@@ -168,17 +163,13 @@ mod tests {
     }
 
     #[test]
-    fn the_local_tag_only_shows_for_local_models() {
+    fn the_local_tag_is_not_in_the_chat() {
+        // The LOCAL tag is only in the model picker: the chat names the model.
         let theme = Theme::default();
         let mut footer = footer();
-        assert!(
-            !footer_line(&footer, &theme, 200)
-                .to_string()
-                .contains("LOCAL")
-        );
         footer.model.local = true;
         assert!(
-            footer_line(&footer, &theme, 200)
+            !footer_line(&footer, &theme, 200)
                 .to_string()
                 .contains("LOCAL")
         );

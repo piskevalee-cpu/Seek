@@ -66,21 +66,68 @@ fn input_texts(input: &Input) -> Vec<String> {
     lines
 }
 
-/// The suggestion list shown above the bar.
-pub fn suggestion_lines(input: &Input, theme: &Theme) -> Vec<Line<'static>> {
-    input
-        .suggestions()
-        .into_iter()
-        .map(|command| {
-            let description = SLASH_COMMANDS
-                .iter()
-                .find(|(name, _)| *name == command)
-                .map(|(_, description)| *description)
-                .unwrap_or("");
-            Line::from(vec![
-                Span::styled(format!("  {command}"), Style::new().fg(theme.accent_user)),
-                Span::styled(format!("  {description}"), Style::new().fg(theme.dim)),
-            ])
+/// The dropdown of the commands, shown above the bar.
+///
+/// The layout is the one of the grok-build pager (Apache-2.0): a column of the commands, a
+/// column of the descriptions, and the picked one highlighted.
+pub fn suggestion_lines(
+    input: &Input,
+    theme: &Theme,
+    skills: &[seek_core::Skill],
+    selected: usize,
+) -> Vec<Line<'static>> {
+    let line = input.current_line();
+    if !line.starts_with('/') || line.contains(' ') {
+        return Vec::new();
+    }
+    let mut commands: Vec<(String, String)> = SLASH_COMMANDS
+        .iter()
+        .filter(|(command, _)| command.starts_with(line))
+        .map(|(command, description)| ((*command).to_string(), (*description).to_string()))
+        .collect();
+    for skill in skills {
+        let command = format!("/{}", skill.name);
+        if command.starts_with(line) && !commands.iter().any(|(known, _)| *known == command) {
+            commands.push((command.clone(), skill.description.clone()));
+        }
+    }
+    if commands.is_empty() {
+        return Vec::new();
+    }
+
+    // The column of the commands is as wide as the longest one.
+    let width = commands
+        .iter()
+        .map(|(command, _)| command.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    commands
+        .iter()
+        .enumerate()
+        .map(|(index, (command, description))| {
+            let picked = index == selected;
+            let marker = if picked { "\u{276F} " } else { "  " };
+            let mut name = Style::new().fg(if picked {
+                theme.accent_user
+            } else {
+                theme.text
+            });
+            if picked {
+                name = name.bold();
+            }
+            let mut spans = vec![
+                Span::styled(marker.to_string(), name),
+                Span::styled(command.clone(), name),
+            ];
+            // The description is in its own column.
+            let pad = width - command.chars().count() + 2;
+            spans.push(Span::styled(" ".repeat(pad), Style::new()));
+            spans.push(Span::styled(
+                description.clone(),
+                Style::new().fg(theme.dim),
+            ));
+            Line::from(spans)
         })
         .collect()
 }
@@ -167,13 +214,19 @@ fn top_border(width: usize, caption: &str, theme: &Theme) -> Line<'static> {
 }
 
 /// The bottom border of the box, with the keys in it.
-fn bottom_border(width: usize, hint: &str, theme: &Theme) -> Line<'static> {
+fn bottom_border(width: usize, hint: &str, status: &str, theme: &Theme) -> Line<'static> {
     let style = Style::new().fg(theme.border);
     let mut spans = vec![Span::styled(BOTTOM_LEFT, style)];
     let hint = format!(" {hint} ");
     let fill = width.saturating_sub(2 + hint.chars().count()).max(1);
     spans.push(Span::styled(HORIZONTAL.repeat(fill), style));
     spans.push(Span::styled(hint, Style::new().fg(theme.dim)));
+    if !status.is_empty() {
+        spans.push(Span::styled(
+            format!(" {status} "),
+            Style::new().fg(theme.dim).italic(),
+        ));
+    }
     let used: usize = spans.iter().map(|span| span.content.chars().count()).sum();
     let fill = width.saturating_sub(used + 1);
     spans.push(Span::styled(HORIZONTAL.repeat(fill), style));
@@ -199,21 +252,13 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
     let width = area.width as usize;
     let mut lines = permission_lines(&state.mode, input, theme);
 
-    // The box: the caption in the top border, the keys in the bottom one.
+    // The box: the caption in the top border, the keys and the status in the bottom one.
+    // The area of the input holds the text and nothing else, so the cursor is the only
+    // thing that moves in it.
     let mut box_lines = Vec::new();
     box_lines.push(top_border(width, &state.caption, theme));
     if lines.is_empty() {
         lines = prompt_lines(input, theme);
-        if state.busy {
-            lines.push(Line::from(Span::styled(
-                if state.queued > 0 {
-                    format!("  {} queued", state.queued)
-                } else {
-                    "  working...".to_string()
-                },
-                Style::new().fg(theme.dim).italic(),
-            )));
-        }
     }
     for line in lines {
         // The right border closes the box.
@@ -221,12 +266,19 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
         spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border_active)));
         box_lines.push(Line::from(spans));
     }
+    let status = if state.queued > 0 {
+        format!("{} queued", state.queued)
+    } else if state.busy {
+        "working...".to_string()
+    } else {
+        String::new()
+    };
     let hint = if state.busy {
         "Esc stops"
     } else {
         "Enter sends \u{00b7} Alt+Enter newline"
     };
-    box_lines.push(bottom_border(width, hint, theme));
+    box_lines.push(bottom_border(width, hint, &status, theme));
 
     frame.render_widget(ratatui::widgets::Paragraph::new(box_lines), area);
 }
@@ -253,7 +305,7 @@ mod tests {
         for c in "/h".chars() {
             input.insert_char(c);
         }
-        let lines = suggestion_lines(&input, &theme);
+        let lines = suggestion_lines(&input, &theme, &[], 0);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].to_string().contains("/help"));
     }
@@ -282,7 +334,7 @@ mod tests {
     #[test]
     fn the_bottom_border_closes_the_box() {
         let theme = Theme::default();
-        let line = bottom_border(40, "Enter sends", &theme);
+        let line = bottom_border(40, "Enter sends", "", &theme);
         let text = line.to_string();
         assert!(text.starts_with(BOTTOM_LEFT), "{text}");
         assert!(text.ends_with(BOTTOM_RIGHT), "{text}");

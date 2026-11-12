@@ -18,7 +18,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::theme::Theme;
 
 /// The rail of a block: one column, coloured by the kind of the block.
-const RAIL: &str = "\u{2502} ";
+pub const RAIL: &str = "\u{2502} ";
 
 /// One row of the transcript.
 #[derive(Debug, Clone, PartialEq)]

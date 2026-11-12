@@ -2,13 +2,15 @@
 //!
 //! The palette is the tokyonight of the grok-build pager (Apache-2.0): the background is the
 //! storm blue, the text the pale foreground, and the accents the blue of the user and the
-//! magenta of the model. The green of SEEK stays for the brand: the logo and the LOCAL tag.
+//! magenta of the model. There is no green in the interface.
 //!
 //! Tokens: `bg`, `surface`, `cube_dark`, `cube_light`, `accent`, `accent_user`,
 //! `accent_assistant`, `accent_thinking`, `accent_tool`, `text`, `text_dim`, `dim`, `warn`,
 //! `error`, `border`, `border_active`.
 //!
-//! Colors are never the only signal: the permission mode and the LOCAL tag are text.
+//! Colors are never the only signal: the permission mode and the LOCAL tag are text. The
+//! LOCAL tag is only in the model picker: the chat says which model it is, and that is
+//! enough.
 
 use ratatui::style::Color;
 
@@ -57,8 +59,8 @@ impl Default for Theme {
             surface: rgb(0x29, 0x2E, 0x42),
             cube_dark: rgb(0x3B, 0x42, 0x61),
             cube_light: rgb(0xC0, 0xCA, 0xF5),
-            // The green of SEEK: the brand of the logo and of the LOCAL tag.
-            accent: rgb(0x22, 0xB1, 0x4C),
+            // The blue of the palette: there is no green in the interface.
+            accent: rgb(0x7A, 0xA2, 0xF7),
             accent_user: rgb(0x7A, 0xA2, 0xF7),
             accent_assistant: rgb(0xBB, 0x9A, 0xF7),
             accent_thinking: rgb(0x3B, 0x42, 0x61),

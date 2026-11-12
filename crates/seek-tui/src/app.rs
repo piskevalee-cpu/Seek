@@ -17,7 +17,7 @@ use seek_local::model::{LocalModel, sidecar_path};
 use seek_local::options::LaunchOptions;
 
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
-use crate::input::Input;
+use crate::input::{Input, SLASH_COMMANDS};
 use crate::logo;
 use crate::metrics::Metrics;
 use crate::picker::{Picker, PickerItem};
@@ -340,6 +340,8 @@ pub struct App {
     asked_for_model: bool,
     /// The name of the user. It is asked for on the first run.
     pub user_name: Option<String>,
+    /// The suggestion that is picked in the dropdown of the commands.
+    suggestion: usize,
     /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
     /// from the current model.
     pub model_configured: bool,
@@ -411,6 +413,7 @@ impl App {
             think_started: None,
             asked_for_model: false,
             user_name: None,
+            suggestion: 0,
             model_configured: false,
             llama_subcommand: None,
             sessions: Vec::new(),
@@ -520,6 +523,13 @@ impl App {
         // The permission selector takes the keyboard too.
         if !matches!(self.prompt_mode, PromptMode::Normal) {
             return self.on_permission_key(key);
+        }
+
+        // The dropdown of the commands takes the keyboard while it is open.
+        if !self.suggestions().is_empty()
+            && let Some(command) = self.on_suggestion_key(key)
+        {
+            return command;
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -674,6 +684,75 @@ impl App {
                 }
                 None
             }
+            _ => None,
+        }
+    }
+
+    /// The commands that can be completed right now.
+    ///
+    /// The slash commands and the skills: the same list the dropdown shows.
+    pub fn suggestions(&self) -> Vec<String> {
+        let line = self.input.current_line();
+        if !line.starts_with('/') || line.contains(' ') {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = SLASH_COMMANDS
+            .iter()
+            .map(|(command, _)| (*command).to_string())
+            .filter(|command| command.starts_with(line))
+            .collect();
+        for skill in &self.skills {
+            let command = format!("/{}", skill.name);
+            if command.starts_with(line) && !out.contains(&command) {
+                out.push(command);
+            }
+        }
+        out
+    }
+
+    /// Handle a key while the dropdown of the commands is open.
+    ///
+    /// The arrows move the selection, Tab and Enter take it, Esc closes the list.
+    fn on_suggestion_key(&mut self, key: KeyEvent) -> Option<Option<Command>> {
+        let suggestions = self.suggestions();
+        match key.code {
+            KeyCode::Up => {
+                self.suggestion = if self.suggestion == 0 {
+                    suggestions.len().saturating_sub(1)
+                } else {
+                    self.suggestion - 1
+                };
+                Some(None)
+            }
+            KeyCode::Down => {
+                self.suggestion = (self.suggestion + 1) % suggestions.len().max(1);
+                Some(None)
+            }
+            KeyCode::Esc => {
+                // The list goes away; the text stays.
+                self.suggestion = 0;
+                Some(None)
+            }
+            KeyCode::Tab => {
+                let chosen = suggestions.get(self.suggestion).cloned();
+                if let Some(chosen) = chosen {
+                    self.input.replace_current_line(&chosen);
+                }
+                self.suggestion = 0;
+                Some(None)
+            }
+            KeyCode::Enter => {
+                let chosen = suggestions.get(self.suggestion).cloned();
+                if let Some(chosen) = chosen {
+                    self.input.replace_current_line(&chosen);
+                    self.suggestion = 0;
+                    // The command is run, not sent.
+                    return Some(self.submit());
+                }
+                self.suggestion = 0;
+                Some(None)
+            }
+            // The other keys are the ordinary ones: the text is typed.
             _ => None,
         }
     }
@@ -1853,12 +1932,12 @@ impl App {
             );
         }
 
-        let suggestions = prompt_bar::suggestion_lines(&self.input, &self.theme);
+        let suggestions =
+            prompt_bar::suggestion_lines(&self.input, &self.theme, &self.skills, self.suggestion);
         // The box has a top border and a bottom border.
+        // The box has a top border and a bottom border. The status is in the bottom
+        // border, so the input keeps its height while the agent works.
         let mut prompt_height = self.input.len().max(1) as u16 + 2;
-        if self.status != Status::Idle {
-            prompt_height += 1;
-        }
         if !matches!(self.prompt_mode, PromptMode::Normal) {
             // The permission selector needs five lines: the question, the summary, the three
             // choices and the line with the keys.
@@ -1969,6 +2048,9 @@ impl App {
                     )),
                 ));
             } else {
+                // The thinking line sits behind the message: a blank line, and the cubes
+                // in the column of the text.
+                lines.push((usize::MAX, Line::from("")));
                 lines.push((usize::MAX, self.spinner.shimmer_line(&self.theme)));
             }
         }
