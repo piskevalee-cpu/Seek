@@ -42,8 +42,15 @@ impl Spinner {
     }
 
     /// The line of cells, the wave going through them.
+    ///
+    /// The line sits in the column of the message text: the rail is in front of it, the way
+    /// the blocks of the transcript are.
     pub fn shimmer_line(&self, theme: &Theme) -> Line<'static> {
-        let mut spans = Vec::with_capacity(CELLS as usize);
+        let mut spans = Vec::with_capacity(CELLS as usize + 2);
+        spans.push(Span::styled(
+            crate::transcript::RAIL,
+            Style::new().fg(theme.accent_thinking),
+        ));
         for index in 0..CELLS {
             let brightness = wave_brightness(self.frame, index, CELLS, SPEED);
             // The cells are dark, and the wave lifts them up to the lit colour.
@@ -67,7 +74,8 @@ mod tests {
     fn the_line_has_the_cells() {
         let theme = Theme::default();
         let line = Spinner::new().shimmer_line(&theme);
-        assert_eq!(line.width(), CELLS as usize);
+        // The rail is in front of the cubes.
+        assert_eq!(line.width(), CELLS as usize + 2);
     }
 
     /// The colours of the cells of a line.

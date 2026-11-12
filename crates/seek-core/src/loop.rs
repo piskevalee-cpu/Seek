@@ -60,19 +60,52 @@ pub struct ToolRegistry {
     pub find: Option<crate::tools::FindTool>,
     /// The network tools; they are off by default (SPEC 9.4).
     pub fetch: Option<crate::tools::FetchTool>,
+    /// The web search; it is off by default (SPEC 9.4).
+    pub web_search: Option<crate::websearch::WebSearchTool>,
+}
+
+/// The permission mode, shared by the turns.
+///
+/// The mode is read at every tool call, so the user can change it while the agent works:
+/// the next call of the same turn follows the new mode.
+#[derive(Debug, Clone)]
+pub struct PermissionModeCell {
+    mode: std::sync::Arc<std::sync::Mutex<PermissionMode>>,
+}
+
+impl PermissionModeCell {
+    /// A cell with this mode.
+    pub fn new(mode: PermissionMode) -> Self {
+        PermissionModeCell {
+            mode: std::sync::Arc::new(std::sync::Mutex::new(mode)),
+        }
+    }
+
+    /// The mode of the moment.
+    pub fn get(&self) -> PermissionMode {
+        *self.mode.lock().expect("the mode is not poisoned")
+    }
+
+    /// Change the mode.
+    pub fn set(&self, mode: PermissionMode) {
+        *self.mode.lock().expect("the mode is not poisoned") = mode;
+    }
 }
 
 /// The agent: a provider, the tools and the permission mode.
 pub struct Agent {
     provider: Arc<dyn Provider>,
     tools: ToolRegistry,
-    mode: PermissionMode,
+    /// The permission mode, read at every tool call.
+    mode: PermissionModeCell,
     root: std::path::PathBuf,
     config: AgentConfig,
     permissions: PermissionRequests,
     processes: Arc<ProcessRegistry>,
     /// What else goes into the prompt: the skills and the instructions of the project.
     context: String,
+    /// The name of the user: the model addresses them by it.
+    user_name: Option<String>,
     /// The external tools of `~/seek/tools`.
     external_tools: Vec<crate::external::ExternalTool>,
     /// The tokens of the last turn.
@@ -94,16 +127,25 @@ impl Agent {
         Agent {
             provider,
             tools,
-            mode,
+            mode: PermissionModeCell::new(mode),
             root,
             config: AgentConfig::default(),
             permissions,
             processes,
             context: String::new(),
+            user_name: None,
             external_tools: Vec::new(),
             usage: std::sync::Arc::new(std::sync::Mutex::new((0, 0))),
             cancel: tokio_util::sync::CancellationToken::new(),
         }
+    }
+
+    /// Use a permission mode that is shared with the interface.
+    ///
+    /// The mode is read at every tool call, so the user can change it while the agent works.
+    pub fn with_permission_mode(mut self, mode: PermissionModeCell) -> Self {
+        self.mode = mode;
+        self
     }
 
     /// The token that stops the turn.
@@ -140,9 +182,25 @@ impl Agent {
         self
     }
 
+    /// The name of the user.
+    ///
+    /// The model is told the name, and it addresses the user by it.
+    pub fn with_user_name(mut self, name: Option<String>) -> Self {
+        self.user_name = name;
+        self
+    }
+
     /// The system prompt of the request.
     fn system_prompt(&self) -> String {
         let mut prompt = crate::prompt::SYSTEM_PROMPT.to_string();
+        if let Some(name) = &self.user_name {
+            let name = name.trim();
+            if !name.is_empty() {
+                prompt.push_str("\n\n<user>\nThe user is called ");
+                prompt.push_str(name);
+                prompt.push_str(". Address them by that name.\n</user>");
+            }
+        }
         if !self.context.is_empty() {
             prompt.push_str("\n\n");
             prompt.push_str(&self.context);
@@ -217,6 +275,20 @@ impl Agent {
                     ProviderEvent::ThinkingDelta(delta) => {
                         thinking.push_str(&delta);
                         let _ = events.send(AgentEvent::ThinkingDelta(delta)).await;
+                    }
+                    ProviderEvent::ToolCallDelta {
+                        id,
+                        name,
+                        arguments,
+                    } => {
+                        // The call is shown while it is written.
+                        let _ = events
+                            .send(AgentEvent::ToolCallDelta {
+                                id,
+                                name,
+                                arguments,
+                            })
+                            .await;
                     }
                     ProviderEvent::ToolCall { id, name, input } => {
                         let _ = events
@@ -320,7 +392,7 @@ impl Agent {
             None => true,
         };
 
-        match self.mode.decide_path(risk, inside) {
+        match self.mode.get().decide_path(risk, inside) {
             crate::permission::Decision::Allow => {}
             crate::permission::Decision::Deny => {
                 return Err("denied by user".to_string());
@@ -414,6 +486,14 @@ impl Agent {
                         .fetch
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("fetch is off".into()))?;
+                    tool.call(input).await
+                }
+                "web_search" => {
+                    let tool = self
+                        .tools
+                        .web_search
+                        .as_ref()
+                        .ok_or_else(|| ToolError::NotFound("web_search is off".into()))?;
                     tool.call(input).await
                 }
                 other => {
@@ -652,6 +732,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_model_is_told_the_name_of_the_user() {
+        let (agent, _requests, _permissions) = agent(
+            Arc::new(ScriptedProvider::new(vec![vec![]])),
+            PermissionMode::Yolo,
+        );
+        let agent = agent.with_user_name(Some("Ada".into()));
+        let prompt = agent.system_prompt();
+        assert!(prompt.contains("The user is called Ada"), "{prompt}");
+        assert!(prompt.contains("Address them by that name"), "{prompt}");
+    }
+
     fn agent(
         provider: Arc<dyn Provider>,
         mode: PermissionMode,
@@ -668,6 +760,7 @@ mod tests {
             grep: None,
             find: None,
             fetch: None,
+            web_search: None,
         };
         let (permissions, requests) = PermissionRequests::new();
         (

@@ -60,6 +60,11 @@ pub struct Runtime {
     /// The token that stops the turn that is running, and whether a cancel was asked for
     /// before the turn had started.
     cancel: tokio::sync::Mutex<CancelState>,
+    /// The permission mode. It is read at every tool call, so the user can change it while
+    /// the agent works (SPEC 9.4).
+    pub mode: seek_core::r#loop::PermissionModeCell,
+    /// The settings of the user: the name the model addresses them by.
+    pub user: tokio::sync::Mutex<seek_core::UserSettings>,
     /// Where the state of SEEK lives.
     pub state_dir: std::path::PathBuf,
     /// The working directory: the tools run there, and the paths are relative to it.
@@ -117,6 +122,10 @@ impl Runtime {
             session: tokio::sync::Mutex::new(None),
             history: tokio::sync::Mutex::new(seek_core::History::new()),
             cancel: tokio::sync::Mutex::new(CancelState::default()),
+            mode: seek_core::r#loop::PermissionModeCell::new(PermissionMode::Ask),
+            user: tokio::sync::Mutex::new(seek_core::UserSettings::read(
+                &state_dir.join(seek_core::user::USER_FILE),
+            )),
             state_dir,
             root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
         }
@@ -434,6 +443,17 @@ pub async fn agent_loop(
                 // Esc stops the turn that is running (SPEC 9.1).
                 runtime.cancel().await;
             }
+            Command::SetUserName(name) => {
+                // The name of the user: the model addresses them by it (SPEC 9.5).
+                let mut user = runtime.user.lock().await;
+                user.name = name;
+                let _ = user.write(&runtime.state_dir.join(seek_core::user::USER_FILE));
+            }
+            Command::SetMode(mode) => {
+                // The mode is read at every tool call: it applies to the turn that runs now
+                // (SPEC 9.4).
+                runtime.mode.set(mode);
+            }
             Command::RunWidgets => {
                 // The widgets run when the home screen is shown (SPEC 10.5).
                 for widget in &runtime.widgets {
@@ -560,6 +580,10 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
             .toggles
             .tool_enabled("fetch")
             .then(seek_core::tools::FetchTool::new),
+        web_search: runtime
+            .toggles
+            .tool_enabled("web_search")
+            .then(seek_core::websearch::WebSearchTool::new),
     };
     let external_tools: Vec<_> = runtime
         .external_tools
@@ -637,7 +661,11 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
             )
             .with_context(runtime.context())
             .with_external_tools(external_tools)
-            .with_usage(Arc::clone(&usage));
+            .with_usage(Arc::clone(&usage))
+            // The mode is shared: the user can change it while the turn runs.
+            .with_permission_mode(runtime.mode.clone())
+            // The model addresses the user by their name.
+            .with_user_name(Some(runtime.user.lock().await.name.clone()));
             // The token lets Esc stop the turn (SPEC 9.1).
             let agent = agent.with_cancel(cancel);
             agent.run_turn(&mut history, &events).await;
@@ -664,6 +692,15 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
                     }
                     ProviderEvent::RateLimit(limit) => AgentEvent::RateLimit(limit),
                     ProviderEvent::Done => AgentEvent::TurnFinished(seek_core::TurnReason::Stop),
+                    ProviderEvent::ToolCallDelta {
+                        id,
+                        name,
+                        arguments,
+                    } => AgentEvent::ToolCallDelta {
+                        id,
+                        name,
+                        arguments,
+                    },
                     ProviderEvent::ToolCall { .. } => continue,
                 };
                 if events.send(agent_event).await.is_err() {

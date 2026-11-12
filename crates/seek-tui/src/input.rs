@@ -16,6 +16,7 @@ pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/provider", "Add or edit providers"),
     ("/quit", "Exit SEEK"),
     ("/resume", "Open the sessions"),
+    ("/settings", "Your name and settings"),
     ("/skills", "Toggle the skills"),
     ("/think", "Set the reasoning level"),
     ("/thoughts", "Show or hide reasoning text"),
@@ -65,6 +66,17 @@ impl Input {
     /// The current line.
     pub fn current_line(&self) -> &str {
         self.lines.get(self.row).map(String::as_str).unwrap_or("")
+    }
+
+    /// Replace the line the cursor is on.
+    ///
+    /// The completion takes the whole line: the command and its argument.
+    pub fn replace_current_line(&mut self, text: &str) {
+        if self.row >= self.lines.len() {
+            return;
+        }
+        self.lines[self.row] = text.to_string();
+        self.column = text.chars().count();
     }
 
     /// The cursor position as (row, column in characters).

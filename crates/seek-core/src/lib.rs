@@ -7,6 +7,7 @@ pub mod config;
 pub mod context;
 pub mod event;
 pub mod external;
+pub mod files;
 pub mod r#loop;
 pub mod message;
 pub mod permission;
@@ -19,6 +20,8 @@ pub mod toggles;
 pub mod tool;
 pub mod tools;
 pub mod truncate;
+pub mod user;
+pub mod websearch;
 pub mod widget;
 
 pub use config::{
@@ -37,6 +40,7 @@ pub use skill::Skill;
 pub use toggles::Toggles;
 pub use tool::{Risk, Tool, ToolError, ToolSchema};
 pub use truncate::{cap_output, truncate_str};
+pub use user::UserSettings;
 pub use widget::{Widget, WidgetConfig, WidgetOutput};
 
 /// The crate version, taken from the workspace.

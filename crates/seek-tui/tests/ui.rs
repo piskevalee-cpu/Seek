@@ -96,6 +96,71 @@ fn the_chat_layout_shows_the_message_the_footer_and_the_prompt() {
 }
 
 #[test]
+fn the_first_run_asks_for_the_name() {
+    let mut app = app();
+    app.update(Message::Start);
+    // The name is asked for: the model addresses the user by it.
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("your name"), "{screen}");
+}
+
+#[test]
+fn the_name_is_taken_and_kept() {
+    let mut app = app();
+    app.update(Message::Start);
+    for c in "Ada".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(
+        command,
+        Some(seek_tui::app::Command::SetUserName("Ada".into()))
+    );
+    assert_eq!(app.user_name.as_deref(), Some("Ada"));
+}
+
+#[test]
+fn the_settings_command_asks_for_the_name_again() {
+    let mut app = app();
+    app.user_name = Some("Ada".into());
+    for c in "/settings".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("your name"), "{screen}");
+}
+
+#[test]
+fn the_commands_complete_while_they_are_typed() {
+    let mut app = app();
+    for c in "/th".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    // The dropdown shows the commands that fit.
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("/think"), "{screen}");
+    assert!(screen.contains("/thoughts"), "{screen}");
+
+    // The arrows move the selection, and the picked one is marked.
+    app.update(Message::Key(key(KeyCode::Down)));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("\u{276F}"), "{screen}");
+}
+
+#[test]
+fn a_completion_is_taken_with_the_tab() {
+    let mut app = app();
+    for c in "/th".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Down)));
+    app.update(Message::Key(key(KeyCode::Tab)));
+    // The command is in the bar.
+    assert_eq!(app.input.text(), "/thoughts");
+}
+
+#[test]
 fn the_sidebar_can_be_shown() {
     let mut app = app();
     app.sidebar.open = true;
@@ -134,11 +199,12 @@ fn the_model_is_shown_in_the_footer() {
 }
 
 #[test]
-fn the_local_tag_only_shows_for_local_models() {
+fn the_local_tag_is_only_in_the_model_picker() {
+    // The chat names the model; the tag is only in the picker (SPEC 10.2).
     let mut app = app();
     app.model.local = true;
     let screen = render(&mut app, 100, 30);
-    assert!(screen.contains("LOCAL"));
+    assert!(!screen.contains("LOCAL"), "{screen}");
 }
 
 #[test]
@@ -439,9 +505,8 @@ fn the_first_run_asks_nothing_when_a_model_is_configured() {
     app.update(Message::Start);
 
     let screen = render(&mut app, 100, 30);
-    // The picker is closed; the footer still shows the LOCAL tag of the model.
+    // The picker is closed.
     assert!(!screen.contains("models"), "the picker stays closed");
-    assert!(screen.contains("LOCAL"), "the footer shows the tag");
 }
 
 #[test]

@@ -30,10 +30,15 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The model picker.** With a local model installed, the picker opens on its own. The local model is listed with a `LOCAL` tag.
 - [ ] **Choose a model.** Press Enter — the picker closes, the footer shows the model.
 - [ ] **The footer.** One line: the mode chip (`ASK`), the model, the working directory, the branch and the metrics of the session. The metrics are not on a line of their own.
+- [ ] **Shift+Tab switches the mode.** Press it — the chip changes, whatever the sidebar does.
+- [ ] **The mode applies at once.** While the agent works, press Shift+Tab to `YOLO`: the next tool call of that turn runs without asking.
 
 ## The prompt bar
 
-- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys are in the bottom one.
+- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one.
+- [ ] **The bar holds the text and nothing else.** While the agent works, the status is in the bottom border, the box keeps its shape and the cursor is the only thing that moves in it.
+- [ ] **The commands complete.** Type `/` — a dropdown of the slash commands and the skills appears, with a column of the descriptions and the picked one marked. The arrows move it, Tab takes it, Enter takes it and runs it.
+- [ ] **The name.** On the first run the bar asks for your name. Type it and press Enter — the model calls you by it. `/settings` asks again.
 
 - [ ] **Type.** Every character appears, and the cursor is a block behind the last one.
 - [ ] **Send.** Press Enter — the message appears in the transcript as a `USER` box.

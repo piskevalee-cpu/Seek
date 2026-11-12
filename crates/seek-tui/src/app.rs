@@ -17,7 +17,7 @@ use seek_local::model::{LocalModel, sidecar_path};
 use seek_local::options::LaunchOptions;
 
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
-use crate::input::Input;
+use crate::input::{Input, SLASH_COMMANDS};
 use crate::logo;
 use crate::metrics::Metrics;
 use crate::picker::{Picker, PickerItem};
@@ -184,6 +184,10 @@ pub enum Command {
         id: u64,
         decision: PermissionDecision,
     },
+    /// Change the permission mode.
+    SetMode(PermissionMode),
+    /// Change the name of the user.
+    SetUserName(String),
     /// Switch to another model. The switch happens between turns (SPEC 7.3).
     SwitchModel { id: String },
     /// Summarize the older turns into one message (SPEC 8).
@@ -239,6 +243,8 @@ pub enum PromptMode {
         tool: String,
         summary: String,
     },
+    /// The user is telling SEEK their name.
+    Name,
 }
 
 /// The choices of the permission selector.
@@ -332,6 +338,10 @@ pub struct App {
     started: std::time::Instant,
     /// Whether the model picker has been opened for the first run.
     asked_for_model: bool,
+    /// The name of the user. It is asked for on the first run.
+    pub user_name: Option<String>,
+    /// The suggestion that is picked in the dropdown of the commands.
+    suggestion: usize,
     /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
     /// from the current model.
     pub model_configured: bool,
@@ -402,6 +412,8 @@ impl App {
             turn_started: None,
             think_started: None,
             asked_for_model: false,
+            user_name: None,
+            suggestion: 0,
             model_configured: false,
             llama_subcommand: None,
             sessions: Vec::new(),
@@ -429,6 +441,10 @@ impl App {
                 if !self.model_configured && !self.local_models.is_empty() {
                     self.asked_for_model = true;
                     self.overlay = Some(Overlay::Picker(self.model_picker()));
+                }
+                // The first run asks for the name: the model addresses the user by it.
+                if self.user_name.as_deref().unwrap_or("").is_empty() {
+                    self.prompt_mode = PromptMode::Name;
                 }
                 None
             }
@@ -507,6 +523,13 @@ impl App {
         // The permission selector takes the keyboard too.
         if !matches!(self.prompt_mode, PromptMode::Normal) {
             return self.on_permission_key(key);
+        }
+
+        // The dropdown of the commands takes the keyboard while it is open.
+        if !self.suggestions().is_empty()
+            && let Some(command) = self.on_suggestion_key(key)
+        {
+            return command;
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -610,10 +633,13 @@ impl App {
                 if self.sidebar.open {
                     // Tab moves the focus into the sidebar (SPEC 10.3).
                     self.sidebar_focused = !self.sidebar_focused;
-                } else {
-                    self.mode = self.mode.next();
                 }
                 None
+            }
+            KeyCode::BackTab => {
+                // Shift+Tab cycles the mode, whatever the sidebar does (SPEC 9.4).
+                self.mode = self.mode.next();
+                Some(Command::SetMode(self.mode))
             }
             KeyCode::Char(c) => {
                 self.last_ctrl_c = 0;
@@ -658,6 +684,75 @@ impl App {
                 }
                 None
             }
+            _ => None,
+        }
+    }
+
+    /// The commands that can be completed right now.
+    ///
+    /// The slash commands and the skills: the same list the dropdown shows.
+    pub fn suggestions(&self) -> Vec<String> {
+        let line = self.input.current_line();
+        if !line.starts_with('/') || line.contains(' ') {
+            return Vec::new();
+        }
+        let mut out: Vec<String> = SLASH_COMMANDS
+            .iter()
+            .map(|(command, _)| (*command).to_string())
+            .filter(|command| command.starts_with(line))
+            .collect();
+        for skill in &self.skills {
+            let command = format!("/{}", skill.name);
+            if command.starts_with(line) && !out.contains(&command) {
+                out.push(command);
+            }
+        }
+        out
+    }
+
+    /// Handle a key while the dropdown of the commands is open.
+    ///
+    /// The arrows move the selection, Tab and Enter take it, Esc closes the list.
+    fn on_suggestion_key(&mut self, key: KeyEvent) -> Option<Option<Command>> {
+        let suggestions = self.suggestions();
+        match key.code {
+            KeyCode::Up => {
+                self.suggestion = if self.suggestion == 0 {
+                    suggestions.len().saturating_sub(1)
+                } else {
+                    self.suggestion - 1
+                };
+                Some(None)
+            }
+            KeyCode::Down => {
+                self.suggestion = (self.suggestion + 1) % suggestions.len().max(1);
+                Some(None)
+            }
+            KeyCode::Esc => {
+                // The list goes away; the text stays.
+                self.suggestion = 0;
+                Some(None)
+            }
+            KeyCode::Tab => {
+                let chosen = suggestions.get(self.suggestion).cloned();
+                if let Some(chosen) = chosen {
+                    self.input.replace_current_line(&chosen);
+                }
+                self.suggestion = 0;
+                Some(None)
+            }
+            KeyCode::Enter => {
+                let chosen = suggestions.get(self.suggestion).cloned();
+                if let Some(chosen) = chosen {
+                    self.input.replace_current_line(&chosen);
+                    self.suggestion = 0;
+                    // The command is run, not sent.
+                    return Some(self.submit());
+                }
+                self.suggestion = 0;
+                Some(None)
+            }
+            // The other keys are the ordinary ones: the text is typed.
             _ => None,
         }
     }
@@ -737,6 +832,30 @@ impl App {
                         None
                     }
                 },
+                _ => None,
+            },
+            PromptMode::Name => match key.code {
+                KeyCode::Esc => {
+                    // The name is optional: the user can leave it empty.
+                    self.prompt_mode = PromptMode::Normal;
+                    self.user_name = Some(String::new());
+                    None
+                }
+                KeyCode::Enter => {
+                    let name = self.input.text().trim().to_string();
+                    self.input = Input::new();
+                    self.prompt_mode = PromptMode::Normal;
+                    self.user_name = Some(name.clone());
+                    Some(Command::SetUserName(name))
+                }
+                KeyCode::Backspace => {
+                    self.input.backspace();
+                    None
+                }
+                KeyCode::Char(c) => {
+                    self.input.insert_char(c);
+                    None
+                }
                 _ => None,
             },
             PromptMode::Tell { id, .. } => match key.code {
@@ -924,6 +1043,8 @@ impl App {
                     && let Some(mode) = PermissionMode::parse(label)
                 {
                     self.mode = mode;
+                    // The mode is read at every tool call: it applies at once (SPEC 9.4).
+                    return Some(Command::SetMode(mode));
                 }
             }
             "skills" => {
@@ -1247,6 +1368,12 @@ impl App {
                 .with_group("network")
                 .with_detail("Fetch a URL and return it as text."),
         );
+        items.push(
+            PickerItem::new("web_search", "web_search")
+                .with_check(self.toggles.tool_enabled("web_search"))
+                .with_group("network")
+                .with_detail("Search the web and return the results."),
+        );
         for tool in &self.external_tools {
             items.push(
                 PickerItem::new(tool.config.name.clone(), tool.config.name.clone())
@@ -1464,6 +1591,12 @@ impl App {
                 self.overlay = Some(Overlay::Picker(self.mode_picker()));
                 None
             }
+            "/settings" => {
+                // The settings of the user: the name SEEK calls them by.
+                self.prompt_mode = PromptMode::Name;
+                self.input = Input::new();
+                None
+            }
             "/think" => {
                 // With no argument, the level toggles between off and the last one (SPEC 9.7).
                 self.toggle_reasoning();
@@ -1542,6 +1675,7 @@ impl App {
             "/compact" => Some("/compact"),
             "/skills" => Some("/skills"),
             "/mode" => Some("/mode"),
+            "/settings" => Some("/settings"),
             "/think" => Some("/think"),
             "/new" => Some("/new"),
             "/resume" => Some("/resume"),
@@ -1583,6 +1717,18 @@ impl App {
                     detail: None,
                     expanded: false,
                 });
+            }
+            AgentEvent::ToolCallDelta { id, arguments, .. } => {
+                // The command is shown while it is written.
+                let text = summarize_arguments(&arguments);
+                if let Some(Row::Tool { command, .. }) = self
+                    .rows
+                    .iter_mut()
+                    .rev()
+                    .find(|row| matches!(row, Row::Tool { id: row_id, .. } if *row_id == id))
+                {
+                    *command = text;
+                }
             }
             AgentEvent::ToolCallReady { id, input, .. } => {
                 if let Some(Row::Tool { command, .. }) = self
@@ -1786,12 +1932,12 @@ impl App {
             );
         }
 
-        let suggestions = prompt_bar::suggestion_lines(&self.input, &self.theme);
+        let suggestions =
+            prompt_bar::suggestion_lines(&self.input, &self.theme, &self.skills, self.suggestion);
         // The box has a top border and a bottom border.
+        // The box has a top border and a bottom border. The status is in the bottom
+        // border, so the input keeps its height while the agent works.
         let mut prompt_height = self.input.len().max(1) as u16 + 2;
-        if self.status != Status::Idle {
-            prompt_height += 1;
-        }
         if !matches!(self.prompt_mode, PromptMode::Normal) {
             // The permission selector needs five lines: the question, the summary, the three
             // choices and the line with the keys.
@@ -1902,6 +2048,9 @@ impl App {
                     )),
                 ));
             } else {
+                // The thinking line sits behind the message: a blank line, and the cubes
+                // in the column of the text.
+                lines.push((usize::MAX, Line::from("")));
                 lines.push((usize::MAX, self.spinner.shimmer_line(&self.theme)));
             }
         }
@@ -2121,6 +2270,7 @@ impl App {
             ("Ctrl+C", "clear input, twice to quit"),
             ("PgUp / PgDn", "scroll the transcript"),
             ("Alt+T", "show or hide reasoning"),
+            ("Tab", "take the completion of a command"),
         ];
         let lines: Vec<Line> = keys
             .iter()
@@ -2139,6 +2289,17 @@ impl App {
 }
 
 /// A one-line summary of a tool call.
+/// The arguments of a tool call as they are written, without the JSON punctuation.
+fn summarize_arguments(arguments: &str) -> String {
+    let text = arguments
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .replace("\"", "")
+        .replace(':', ": ");
+    text.trim().to_string()
+}
+
+/// Summarize the input of a tool call for the transcript.
 fn summarize_input(input: &serde_json::Value) -> String {
     let Some(object) = input.as_object() else {
         return input.to_string();
@@ -2247,13 +2408,36 @@ mod tests {
     }
 
     #[test]
-    fn tab_cycles_the_permission_mode() {
+    fn shift_tab_cycles_the_permission_mode() {
         let mut app = App::new(Theme::default());
         assert_eq!(app.mode, PermissionMode::Ask);
-        app.update(Message::Key(key(KeyCode::Tab)));
+        let command = app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Yolo);
-        app.update(Message::Key(key(KeyCode::Tab)));
+        // The agent is told, so the mode applies to the turn that runs now.
+        assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
+        app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Read);
+    }
+
+    #[test]
+    fn the_mode_switches_whatever_the_sidebar_does() {
+        let mut app = App::new(Theme::default());
+        app.sidebar.open = true;
+        app.sidebar_focused = true;
+        let command = app.update(Message::Key(key(KeyCode::BackTab)));
+        assert_eq!(app.mode, PermissionMode::Yolo);
+        assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
+    }
+
+    #[test]
+    fn tab_moves_the_focus_into_the_sidebar() {
+        let mut app = App::new(Theme::default());
+        app.sidebar.open = true;
+        assert!(!app.sidebar_focused);
+        app.update(Message::Key(key(KeyCode::Tab)));
+        assert!(app.sidebar_focused);
+        // The mode did not move.
+        assert_eq!(app.mode, PermissionMode::Ask);
     }
 
     #[test]

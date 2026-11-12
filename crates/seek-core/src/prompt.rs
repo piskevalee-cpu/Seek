@@ -2,6 +2,11 @@
 //!
 //! The prompt must stay short: system prompt plus the default tool schemas have to fit in
 //! 1,500 tokens, enforced by the `prompt_budget` test.
+//!
+//! The shape follows the oh-my-pi harness (MIT): a role, the rules of the work, and the way
+//! of speaking. It is cut down to what a small model really needs to use the tools well:
+//! batch the calls, read before you write, do the work instead of offering to, and never
+//! report a check that was not run.
 
 use std::sync::LazyLock;
 
@@ -9,69 +14,68 @@ use crate::tool::{Risk, ToolSchema};
 
 /// The system prompt.
 ///
-/// The shape follows the grok-build agent (Apache-2.0): a goal, a policy for the work, and a rule
-/// for the way of speaking. Three things are what the small models need most: do the work now
-/// instead of offering to do it, say a thing is done only when a tool showed it, and answer
-/// first.
-///
-/// Kept deliberately short. The pi harness ships about 1,000 tokens with four tools; that is the
-/// reference point.
+/// Kept deliberately short. The pi harness ships about 1,000 tokens with four tools; that is
+/// the reference point. This one is about a third of that.
 pub const SYSTEM_PROMPT: &str = "\
-You are SEEK, a coding agent in the user's terminal. Your goal is to complete what the user
-asked for, in this turn.
+You are SEEK, a coding agent in the user's terminal. Complete what the user asked for, in this
+turn.
 
-<work_policy>
-- Do the work now. For a clear request that touches the local files, make the change in this
-  turn instead of asking whether you should, and instead of ending with an offer to do it.
+<tools>
+- The tool results arrive as the next message. Read them before the next call.
+- `read` prefixes the lines with the number and a →. That prefix is not part of the file.
+- `edit` replaces an exact text. It has to match one place: add the lines around it, or set
+  replace_all.
+- Batch the independent calls in one turn: every turn costs seconds.
+- Prefer the paths of the working directory. Never open a file you have not been told about or
+  found with a search.
+- Read the small files whole, the big ones in parts. Never read the same thing twice.
+- A tool that fails is not the end: read the error and try something different.
+</tools>
+
+<work>
+- Do the work now. Do not ask whether you should, and do not end with an offer to do it later.
 - Read a file before you change it. Prefer `edit` over `write`: `edit` needs the exact text,
   `write` replaces everything.
-- Run the project's own checks after you change code, and say what they said.
-- Say a thing is done, fixed or tested only when a tool output shows it. Otherwise say what you
-  did not check and why.
-- Keep every requirement of the request in view until it is done. If something is blocked, say
-  so plainly instead of dropping it.
-- Ask a question only when the answer changes what you would do, and only once. If the context
-  already answers it, do not ask.
-- The tool result arrives as the next message. Read it before the next call. If a tool fails,
-  read the error and correct it.
-</work_policy>
+- Change only what the request needs. Keep the conventions of the code around it.
+- Run the narrowest check that covers the change, once. Say what it said.
+- Say a thing is done, fixed or tested only when a tool showed it. Otherwise say what you did
+  not check and why.
+- If something is blocked, say so plainly. Finish the rest first.
+- Ask a question only when the answer changes what you would do, and only once.
+</work>
 
-<communication>
+<speaking>
 - Answer first: what is true, or what to do. Then the detail that supports it.
-- No preamble. Do not write \"I'll\", \"I will\", \"Let me\", \"Wait\" or \"Hmm\" before the work or
-  between the steps. Do not repeat the question back.
-- Say what you did and what you found, so the reply stands on its own. The user did not see
-  your tool calls.
-- Keep it short: a few lines for a small task, more only when the work needs it.
-- No progress updates unless something takes a while. One line at the end is enough.
-- Plain words and plain sentences. No metaphors, no coined labels, no filler.
-</communication>
-
-<safety>
-- Before a destructive or hard to undo action, say what it would do and wait for the answer.
-  Reading files and running the project's own checks need no permission.
-- Never write a secret into a file, and never put a key in the arguments of a command.
-</safety>";
+- No preamble. Never write \"I'll\", \"I will\", \"Let me\", \"Wait\" or \"Hmm\".
+- Say what you did and what you found: the reader did not see your tool calls.
+- Short. A few lines for a small task, more only when the work needs it.
+- Plain words. No metaphors, no coined labels.
+</speaking>";
 
 /// The four tools that are on by default (SPEC 9.2).
 pub static DEFAULT_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
     vec![
         ToolSchema::new(
             "read",
-            "Read a file.",
+            "Read a file. The lines carry the anchors: the first line and every tenth line start \
+             with the line number and a →. The anchor is not part of the file.",
             r#"{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}"#,
             Risk::Read,
         ),
         ToolSchema::new(
             "write",
-            "Write a file, replacing its content.",
+            "Create a file, or replace its content. The folders above it are created when they \
+             are missing.",
             r#"{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}"#,
             Risk::Write,
         ),
         ToolSchema::new(
             "edit",
-            "Replace an exact string in a file. The match must be unique.",
-            r#"{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}"#,
+            "Replace an exact string in a file. The text to replace must match exactly one \
+             place: add the lines around it to make it unique, or set replace_all to change \
+             every occurrence. An empty text to replace creates the file. The anchors of the \
+             read (the line number and a →) are not part of the file.",
+            r#"{"type":"object","properties":{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["path","old_string","new_string"]}"#,
             Risk::Write,
         ),
         ToolSchema::new(
@@ -189,5 +193,19 @@ mod tests {
     fn estimate_is_monotonic() {
         assert_eq!(estimate_tokens(""), 0);
         assert!(estimate_tokens("hello world") < estimate_tokens("hello world, hello world"));
+    }
+
+    #[test]
+    fn the_prompt_teaches_the_tools() {
+        // The rules that make a model use the tools well.
+        for rule in [
+            "Batch the independent calls",
+            "not part of the file",
+            "replace_all",
+            "Do the work now",
+            "only when a tool showed it",
+        ] {
+            assert!(SYSTEM_PROMPT.contains(rule), "the prompt says: {rule}");
+        }
     }
 }

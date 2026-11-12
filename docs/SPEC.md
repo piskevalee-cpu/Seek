@@ -223,6 +223,7 @@ Stream a completion, collect tool calls, and for each: permission check, execute
 ### 9.2 Token-efficient tool calling
 
 - Default tools: `read`, `write`, `edit`, `bash`. Read-only helpers `ls`, `grep`, `find` ship but are off by default (pi's approach).
+- The file tools follow the grok-build pager (Apache-2.0): `read` numbers the lines (the first line and every tenth carry an anchor `1→`, `11→`), `write` says whether it created or overwrote, `edit` replaces an exact text (unique, or every occurrence with `replace_all`), says the line the change landed on, and returns the difference. An empty text to replace creates the file.
 - Terse descriptions, no examples inside schemas, and only enabled tools are sent.
 - `edit` is an exact-match replace with a unique-match check, never a whole-file rewrite; `read` takes offset and limit.
 - Cap every tool output (default 200 lines or 16 KB, head and tail) with a marker telling the model how to fetch more.
@@ -240,7 +241,7 @@ Stream a completion, collect tool calls, and for each: permission check, execute
                   non-zero exit = error
 ```
 
-`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
+`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. A `web_search` tool follows it: DuckDuckGo's HTML search, which needs no key, the way the oh-my-pi harness does it (MIT). A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
 
 ### 9.4 Permissions
 
@@ -250,11 +251,16 @@ Stream a completion, collect tool calls, and for each: permission check, execute
 | `ask` | allow | ask | ask | ask |
 | `yolo` | allow | allow | allow | allow |
 
-- Cycle with Shift+Tab or set with `/mode`. The mode is displayed in the footer chip only.
+- Cycle with Shift+Tab or set with `/mode`. Shift+Tab works whatever the sidebar does. The mode is displayed in the footer chip only.
+- **The mode is read at every tool call.** Changing it while the agent works applies to the turn that runs now: the next call of that turn follows the new mode.
 - **Interactive ask:** the prompt bar turns into a selector with three choices: **Yes**, **No**, **Tell SEEK what to do**. The third opens a text input in the same bar; the text goes back to the model as the tool result (`denied by user: <text>`) and the agent continues from it.
 - Paths outside the project root are always asked in `ask` mode.
 
 ### 9.5 Skills
+
+The name of the user is asked for on the first run, in the prompt bar, and `/settings` asks it
+again. It is kept in `state/user.toml` (`schema = 1`) and goes into the prompt: the model
+addresses the user by it.
 
 Follow the Agent Skills format. A skill is a folder with `SKILL.md`: YAML frontmatter (`name` up to 64 chars, lowercase letters, numbers and hyphens, matching the folder; `description` up to 1,024 chars saying what it does and when to use it; optional `license`, `compatibility`, `metadata`, `allowed-tools`) followed by Markdown instructions; optional `scripts/`, `references/`, `assets/`. Progressive disclosure: only `name`, `description` and path of enabled skills go in the prompt (about 100 tokens each); the model loads the body with `read`. The user runs a skill with `/<skill-name> <prompt>`, which inserts the body into that turn. `/skills` toggles each skill. `/init` ships as a built-in skill (like opencode's) that inspects the repo and writes `AGENTS.md`; SEEK loads `AGENTS.md` from the project root into the prompt when present.
 
@@ -365,13 +371,14 @@ Lifetime usage across sessions is the `usage` widget on Home; METRICS is the cur
 ### 10.3 Components
 
 - **Transcript.** Every block has a one-column rail on the left, coloured by the kind of the block (blue for the user, magenta for the model, grey for the reasoning and the tools), and a blank line sits between the blocks. The prompt of the user is a band across the width with the arrow `❯` in front of it. The answer of the model is plain text, without a band and without a border. Reasoning is plain dim text behind its rail; when hidden (9.7) it collapses to one row with the same rail and the word reasoning. Tool rows are one line (`bash  cargo test  ok 1.2s`); Ctrl+O expands the selected row. Pending (queued) messages render dimmed with a `queued` tag. Auto-scroll sticks to the bottom unless the user scrolled up.
-- **Spinner, thinking.** A line of eight cells that are dark, with a streak of brightness going through them, one step per tick (about 110 ms). The streak travels along the line and wraps around: a new one starts at the left when the old one reaches the right. The cells are full blocks and the dark ones are the background of the terminal.
+- **Spinner, thinking.** A line of eight cells that are dark, with a streak of brightness going through them, one step per tick (about 110 ms). The streak travels along the line and wraps around: a new one starts at the left when the old one reaches the right. The cells are full blocks and the dark ones are the background of the terminal. The line sits in the column of the message text, behind the rail, with a blank line between it and the message.
 - **Spinner, loading** (model start, health wait): the same line. A `reduce_motion` option replaces both with static text.
 - **Context bar.** Ten cubes, each 10% of the window, filling left to right. The cube currently filling uses partial blocks so it grows gradually. Right after it: used / total tokens (for example `12.4k / 32k`) and the percentage. Gray and green normally, amber from 80%, red from 95%. Prefix `~` while the figure is an estimate.
 - **Metrics block.** Rows in this order: context bar with counts; tps and think time; rate limit (only if reported); CPU, RAM, GPU, VRAM. In the sidebar form each row has its own line; in the footer it drops elements from the right when the line is narrow.
 - **Log strip.** The newest line of the server and model events, dim. It hides after 10 s of silence and reappears on new events.
-- **Prompt bar.** A box with rounded corners: the name of the model in the top border, the keys in the bottom one. Multi-line input. Enter sends; Shift+Enter or Alt+Enter inserts a newline; Up and Down walk history on a single-line draft. Typing `/` opens one inline suggestion list above the bar, holding slash commands and skills together. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
-- **Footer.** One line: a mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name with a `LOCAL` tag when local, then the reasoning chip (for example think: high; hidden when the model has no levels), then the working directory (shortened: the home is a `~`) and the git branch, and the metrics of the session. The metrics are in the footer when the sidebar is closed and at the bottom of the sidebar when it is open — never both (10.2).
+- **Prompt bar.** A box with rounded corners: the name of the model in the top border, the keys and the status in the bottom one. The area of the input holds the text and nothing else, so the cursor is the only thing that moves in it, and the box keeps its shape while the agent works.
+- **Completion.** Typing `/` opens a dropdown of the slash commands and the skills: a column of the commands, a column of the descriptions, and the picked one highlighted. The arrows move the selection, Tab takes it, Enter takes it and runs it, Esc closes the list. Multi-line input. Enter sends; Shift+Enter or Alt+Enter inserts a newline; Up and Down walk history on a single-line draft. Typing `/` opens one inline suggestion list above the bar, holding slash commands and skills together. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
+- **Footer.** One line: a mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name, then the reasoning chip (for example think: high; hidden when the model has no levels), then the working directory (shortened: the home is a `~`) and the git branch, and the metrics of the session. The metrics are in the footer when the sidebar is closed and at the bottom of the sidebar when it is open — never both (10.2). The `LOCAL` tag is only in the model picker: the chat names the model, and that is enough.
 - **Sidebar.** Sections in order: Sessions (title and relative time, current project first, Enter resumes), Processes (PID, tag, command, uptime; `x` kills the selected one), then Metrics pinned to the bottom. Tab moves focus into the sidebar when it is open.
 - **Pickers.** One reusable centered overlay with a filterable list. `/model`: grouped by provider, local models flagged `LOCAL`, right-arrow opens the launch-options editor, left-arrow returns. `/tools` and `/skills`: checklists where Space toggles and changes apply and persist immediately. `/provider`: a list plus an add form (kind, base URL, key env var or key, models, context, rate limits).
 
