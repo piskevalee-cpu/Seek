@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub const USER_FILE: &str = "user.toml";
 
 /// The settings of the user.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserSettings {
     /// The schema version; always 1 for now.
     #[serde(default = "default_schema")]
@@ -24,6 +24,15 @@ pub struct UserSettings {
 /// The schema version of the settings.
 fn default_schema() -> u32 {
     1
+}
+
+impl Default for UserSettings {
+    fn default() -> Self {
+        UserSettings {
+            schema: 1,
+            name: String::new(),
+        }
+    }
 }
 
 impl UserSettings {
@@ -65,6 +74,12 @@ impl UserSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_settings_carry_the_schema() {
+        let settings = UserSettings::default();
+        assert_eq!(settings.schema, 1);
+    }
 
     #[test]
     fn the_settings_are_read_and_written() {
