@@ -1254,6 +1254,12 @@ impl App {
                 .with_group("network")
                 .with_detail("Fetch a URL and return it as text."),
         );
+        items.push(
+            PickerItem::new("web_search", "web_search")
+                .with_check(self.toggles.tool_enabled("web_search"))
+                .with_group("network")
+                .with_detail("Search the web and return the results."),
+        );
         for tool in &self.external_tools {
             items.push(
                 PickerItem::new(tool.config.name.clone(), tool.config.name.clone())

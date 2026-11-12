@@ -569,6 +569,10 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
             .toggles
             .tool_enabled("fetch")
             .then(seek_core::tools::FetchTool::new),
+        web_search: runtime
+            .toggles
+            .tool_enabled("web_search")
+            .then(seek_core::websearch::WebSearchTool::new),
     };
     let external_tools: Vec<_> = runtime
         .external_tools

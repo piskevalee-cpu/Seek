@@ -60,6 +60,8 @@ pub struct ToolRegistry {
     pub find: Option<crate::tools::FindTool>,
     /// The network tools; they are off by default (SPEC 9.4).
     pub fetch: Option<crate::tools::FetchTool>,
+    /// The web search; it is off by default (SPEC 9.4).
+    pub web_search: Option<crate::websearch::WebSearchTool>,
 }
 
 /// The permission mode, shared by the turns.
@@ -453,6 +455,14 @@ impl Agent {
                         .ok_or_else(|| ToolError::NotFound("fetch is off".into()))?;
                     tool.call(input).await
                 }
+                "web_search" => {
+                    let tool = self
+                        .tools
+                        .web_search
+                        .as_ref()
+                        .ok_or_else(|| ToolError::NotFound("web_search is off".into()))?;
+                    tool.call(input).await
+                }
                 other => {
                     // An external tool runs its own executable.
                     let Some(tool) = self
@@ -705,6 +715,7 @@ mod tests {
             grep: None,
             find: None,
             fetch: None,
+            web_search: None,
         };
         let (permissions, requests) = PermissionRequests::new();
         (

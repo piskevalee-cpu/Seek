@@ -149,6 +149,7 @@ mod tests {
         assert!(!toggles.tool_enabled("grep"));
         assert!(!toggles.tool_enabled("find"));
         assert!(!toggles.tool_enabled("fetch"));
+        assert!(!toggles.tool_enabled("web_search"));
     }
 
     #[test]

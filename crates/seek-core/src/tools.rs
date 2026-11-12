@@ -65,35 +65,8 @@ impl BuiltinTools {
     }
 }
 
-/// The schema of the `read` tool.
-pub fn read_schema() -> ToolSchema {
-    ToolSchema::new(
-        "read",
-        "Read a file.",
-        r#"{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}"#,
-        Risk::Read,
-    )
-}
-
-/// The schema of the `write` tool.
-pub fn write_schema() -> ToolSchema {
-    ToolSchema::new(
-        "write",
-        "Write a file, replacing its content.",
-        r#"{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}"#,
-        Risk::Write,
-    )
-}
-
-/// The schema of the `edit` tool.
-pub fn edit_schema() -> ToolSchema {
-    ToolSchema::new(
-        "edit",
-        "Replace an exact string in a file. The match must be unique.",
-        r#"{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}"#,
-        Risk::Write,
-    )
-}
+// The schemas of the file tools come with them.
+pub use crate::files::{edit_schema, read_schema, write_schema};
 
 /// The schema of the `ls` tool.
 pub fn ls_schema() -> ToolSchema {
@@ -125,6 +98,9 @@ pub fn find_schema() -> ToolSchema {
     )
 }
 
+/// The schema of the `web_search` tool.
+pub use crate::websearch::web_search_schema;
+
 /// The schema of the `fetch` tool.
 pub fn fetch_schema() -> ToolSchema {
     ToolSchema::new(
@@ -145,122 +121,8 @@ pub fn bash_schema() -> ToolSchema {
     )
 }
 
-/// Reads a file.
-#[derive(Debug, Clone)]
-pub struct ReadTool {
-    root: PathBuf,
-}
-
-impl ReadTool {
-    pub fn new(root: PathBuf) -> Self {
-        ReadTool { root }
-    }
-
-    /// Read the file, honouring offset and limit.
-    pub fn read(
-        &self,
-        path: &str,
-        offset: Option<usize>,
-        limit: Option<usize>,
-    ) -> Result<String, ToolError> {
-        let resolved = resolve(&self.root, path);
-        let text = std::fs::read_to_string(&resolved)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-
-        let all: Vec<&str> = text.lines().collect();
-        let start = offset.unwrap_or(1).max(1) - 1;
-        if start >= all.len() && !all.is_empty() {
-            return Ok(format!(
-                "the file has {} lines, offset {start} is past the end",
-                all.len()
-            ));
-        }
-        let take = limit.unwrap_or(MAX_LINES).min(MAX_LINES);
-        let slice: Vec<&str> = all[start..(start + take).min(all.len())].to_vec();
-        let mut out = slice.join("\n");
-        if start + take < all.len() {
-            out.push_str(&format!(
-                "\n… [{} more lines, use offset {} to see them] …",
-                all.len() - start - take,
-                start + take + 1
-            ));
-        }
-        Ok(cap_output(&out))
-    }
-}
-
-/// Writes a file.
-#[derive(Debug, Clone)]
-pub struct WriteTool {
-    root: PathBuf,
-}
-
-impl WriteTool {
-    pub fn new(root: PathBuf) -> Self {
-        WriteTool { root }
-    }
-
-    /// Write the file, replacing its content.
-    pub fn write(&self, path: &str, content: &str) -> Result<String, ToolError> {
-        let resolved = resolve(&self.root, path);
-        if let Some(parent) = resolved.parent()
-            && !parent.exists()
-        {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| ToolError::Failed(format!("{}: {error}", parent.display())))?;
-        }
-        std::fs::write(&resolved, content)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-        Ok(format!(
-            "wrote {} bytes to {}",
-            content.len(),
-            resolved.display()
-        ))
-    }
-}
-
-/// Replaces an exact string in a file.
-#[derive(Debug, Clone)]
-pub struct EditTool {
-    root: PathBuf,
-}
-
-impl EditTool {
-    pub fn new(root: PathBuf) -> Self {
-        EditTool { root }
-    }
-
-    /// Replace `old` with `new`.
-    ///
-    /// The match has to be unique: a file that contains `old` more than once is not edited.
-    pub fn edit(&self, path: &str, old: &str, new: &str) -> Result<String, ToolError> {
-        let resolved = resolve(&self.root, path);
-        let text = std::fs::read_to_string(&resolved)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-
-        let matches = text.matches(old).count();
-        match matches {
-            0 => {
-                return Err(ToolError::Failed(format!(
-                    "the text to replace was not found in {}",
-                    resolved.display()
-                )));
-            }
-            1 => {}
-            count => {
-                return Err(ToolError::Failed(format!(
-                    "the text to replace is not unique: {count} matches in {}",
-                    resolved.display()
-                )));
-            }
-        }
-
-        let updated = text.replacen(old, new, 1);
-        std::fs::write(&resolved, &updated)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-        Ok(format!("edited {}", resolved.display()))
-    }
-}
+// The file tools live in their own module: they follow the grok-build pager (Apache-2.0).
+pub use crate::files::{EditTool, ReadTool, WriteTool};
 
 /// Runs a shell command.
 #[derive(Debug, Clone)]
@@ -409,7 +271,11 @@ impl Tool for EditTool {
             let path = string_field(&input, "path")?;
             let old = string_field(&input, "old")?;
             let new = string_field(&input, "new")?;
-            let content = self.edit(&path, &old, &new)?;
+            let replace_all = input
+                .get("replace_all")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let content = self.edit(&path, &old, &new, replace_all)?;
             Ok(ToolOutput {
                 id: String::new(),
                 name: "edit".into(),
@@ -828,7 +694,8 @@ mod tests {
         let dir = temp_dir("read");
         std::fs::write(dir.join("a.txt"), "one\ntwo\nthree").expect("written");
         let tool = ReadTool::new(dir.clone());
-        assert_eq!(tool.read("a.txt", None, None).unwrap(), "one\ntwo\nthree");
+        // The lines carry the anchors: the first one and every tenth.
+        assert_eq!(tool.read("a.txt", None, None).unwrap(), "1→one\ntwo\nthree");
     }
 
     #[test]
@@ -838,7 +705,7 @@ mod tests {
         let tool = ReadTool::new(dir.clone());
         // The reader says how to fetch the rest.
         let out = tool.read("a.txt", Some(2), Some(2)).unwrap();
-        assert!(out.starts_with("2\n3"));
+        assert!(out.starts_with("2→2\n3"), "{out}");
         assert!(out.contains("offset 4"));
     }
 
@@ -865,7 +732,7 @@ mod tests {
         let dir = temp_dir("edit");
         std::fs::write(dir.join("a.txt"), "one two three").expect("written");
         let tool = EditTool::new(dir.clone());
-        tool.edit("a.txt", "two", "TWO").expect("edited");
+        tool.edit("a.txt", "two", "TWO", false).expect("edited");
         assert_eq!(
             std::fs::read_to_string(dir.join("a.txt")).unwrap(),
             "one TWO three"
@@ -877,7 +744,7 @@ mod tests {
         let dir = temp_dir("edit-not-unique");
         std::fs::write(dir.join("a.txt"), "x x").expect("written");
         let tool = EditTool::new(dir.clone());
-        let error = tool.edit("a.txt", "x", "y").unwrap_err();
+        let error = tool.edit("a.txt", "x", "y", false).unwrap_err();
         assert!(error.to_string().contains("not unique"));
     }
 
@@ -886,7 +753,7 @@ mod tests {
         let dir = temp_dir("edit-missing");
         std::fs::write(dir.join("a.txt"), "abc").expect("written");
         let tool = EditTool::new(dir.clone());
-        let error = tool.edit("a.txt", "zzz", "y").unwrap_err();
+        let error = tool.edit("a.txt", "zzz", "y", false).unwrap_err();
         assert!(error.to_string().contains("not found"));
     }
 

@@ -7,6 +7,7 @@ pub mod config;
 pub mod context;
 pub mod event;
 pub mod external;
+pub mod files;
 pub mod r#loop;
 pub mod message;
 pub mod permission;
@@ -19,6 +20,7 @@ pub mod toggles;
 pub mod tool;
 pub mod tools;
 pub mod truncate;
+pub mod websearch;
 pub mod widget;
 
 pub use config::{

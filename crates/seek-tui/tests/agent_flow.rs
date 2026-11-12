@@ -82,6 +82,7 @@ fn agent_with_permissions(
         grep: None,
         find: None,
         fetch: None,
+        web_search: None,
     };
     let (permissions, requests) = PermissionRequests::new();
     (
