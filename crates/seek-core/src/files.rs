@@ -193,8 +193,8 @@ impl EditTool {
 
         // The answer says where the change landed, and shows the difference.
         let old_line = line_of(&text, old);
-        let new_line = old_line
-            .map(|line| line + new.lines().count().saturating_sub(old.lines().count()) as usize);
+        let new_line =
+            old_line.map(|line| line + new.lines().count().saturating_sub(old.lines().count()));
         let mut out = format!(
             "The file {} has been updated{}.",
             resolved.display(),
