@@ -58,6 +58,8 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The animation.** While the model works, a line of dark cells shows at the tail of the transcript, with a streak of brightness going through them. It is one line, eight cells, and the streak wraps around: a new one starts at the left when the old one reaches the right.
 - [ ] **A long answer.** Ask for a long text — the transcript scrolls, and the view stays at the bottom.
 - [ ] **Scroll up.** Press PageUp — the transcript scrolls up, and the newest lines are no longer glued to the bottom. PageDown scrolls back.
+- [ ] **The chat scrolls.** The wheel scrolls three lines at a time, PageUp and PageDown a page. The place in the transcript is shown in the corner while you are not at the bottom.
+- [ ] **The window holds.** Scroll up while the model writes: the message you are reading stays where it is.
 - [ ] **The log strip.** With a local model, one line of the server appears above the prompt bar: "loading model", "server is listening on ...". The strip hides itself after ten seconds of silence and comes back with the next event.
 
 ## The keys
