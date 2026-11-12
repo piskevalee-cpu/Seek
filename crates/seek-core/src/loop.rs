@@ -104,6 +104,8 @@ pub struct Agent {
     processes: Arc<ProcessRegistry>,
     /// What else goes into the prompt: the skills and the instructions of the project.
     context: String,
+    /// The name of the user: the model addresses them by it.
+    user_name: Option<String>,
     /// The external tools of `~/seek/tools`.
     external_tools: Vec<crate::external::ExternalTool>,
     /// The tokens of the last turn.
@@ -131,6 +133,7 @@ impl Agent {
             permissions,
             processes,
             context: String::new(),
+            user_name: None,
             external_tools: Vec::new(),
             usage: std::sync::Arc::new(std::sync::Mutex::new((0, 0))),
             cancel: tokio_util::sync::CancellationToken::new(),
@@ -179,9 +182,25 @@ impl Agent {
         self
     }
 
+    /// The name of the user.
+    ///
+    /// The model is told the name, and it addresses the user by it.
+    pub fn with_user_name(mut self, name: Option<String>) -> Self {
+        self.user_name = name;
+        self
+    }
+
     /// The system prompt of the request.
     fn system_prompt(&self) -> String {
         let mut prompt = crate::prompt::SYSTEM_PROMPT.to_string();
+        if let Some(name) = &self.user_name {
+            let name = name.trim();
+            if !name.is_empty() {
+                prompt.push_str("\n\n<user>\nThe user is called ");
+                prompt.push_str(name);
+                prompt.push_str(". Address them by that name.\n</user>");
+            }
+        }
         if !self.context.is_empty() {
             prompt.push_str("\n\n");
             prompt.push_str(&self.context);
@@ -697,6 +716,18 @@ mod tests {
             let next = self.responses.lock().unwrap().remove(0);
             futures::stream::iter(next.into_iter().map(Ok)).boxed()
         }
+    }
+
+    #[test]
+    fn the_model_is_told_the_name_of_the_user() {
+        let (agent, _requests, _permissions) = agent(
+            Arc::new(ScriptedProvider::new(vec![vec![]])),
+            PermissionMode::Yolo,
+        );
+        let agent = agent.with_user_name(Some("Ada".into()));
+        let prompt = agent.system_prompt();
+        assert!(prompt.contains("The user is called Ada"), "{prompt}");
+        assert!(prompt.contains("Address them by that name"), "{prompt}");
     }
 
     fn agent(

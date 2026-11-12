@@ -125,6 +125,8 @@ async fn main() -> Result<()> {
     app.local_models = runtime.local_models.clone();
     app.logs = Some(logs);
     app.skills = runtime.skills.clone();
+    // The name of the user: the first run asks for it (SPEC 9.5).
+    app.user_name = Some(runtime.user.lock().await.name.clone());
     app.toggles = runtime.toggles.clone();
     app.external_tools = runtime.external_tools.clone();
     app.widgets = runtime.widgets.clone();

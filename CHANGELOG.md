@@ -99,6 +99,12 @@ workspace; each release ships a milestone (SPEC 15).
 - Shift+Tab switches the permission mode, whatever the sidebar does.
 - The permission mode is read at every tool call: changing it while the agent works applies at
   once, to the turn that runs now.
+- The file tools follow grok-build: the read numbers the lines, the edit replaces every
+  occurrence when asked, and says the line the change landed on.
+- The web search is the one of oh-my-pi (DuckDuckGo, no key). It is off by default.
+- The system prompt is slimmer and teaches the tools: it is 701 of the 1,500 tokens.
+- The first run asks for the name of the user, `/settings` asks again, and the model addresses
+  the user by it.
 - The form that adds a provider, with the kind, the base URL, the key environment variable, the
   models, the context and the rate limits (SPEC 10.3).
 - The providers are detected from the environment when there is no `providers.toml`, so a bare

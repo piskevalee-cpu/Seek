@@ -186,6 +186,8 @@ pub enum Command {
     },
     /// Change the permission mode.
     SetMode(PermissionMode),
+    /// Change the name of the user.
+    SetUserName(String),
     /// Switch to another model. The switch happens between turns (SPEC 7.3).
     SwitchModel { id: String },
     /// Summarize the older turns into one message (SPEC 8).
@@ -241,6 +243,8 @@ pub enum PromptMode {
         tool: String,
         summary: String,
     },
+    /// The user is telling SEEK their name.
+    Name,
 }
 
 /// The choices of the permission selector.
@@ -334,6 +338,8 @@ pub struct App {
     started: std::time::Instant,
     /// Whether the model picker has been opened for the first run.
     asked_for_model: bool,
+    /// The name of the user. It is asked for on the first run.
+    pub user_name: Option<String>,
     /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
     /// from the current model.
     pub model_configured: bool,
@@ -404,6 +410,7 @@ impl App {
             turn_started: None,
             think_started: None,
             asked_for_model: false,
+            user_name: None,
             model_configured: false,
             llama_subcommand: None,
             sessions: Vec::new(),
@@ -431,6 +438,10 @@ impl App {
                 if !self.model_configured && !self.local_models.is_empty() {
                     self.asked_for_model = true;
                     self.overlay = Some(Overlay::Picker(self.model_picker()));
+                }
+                // The first run asks for the name: the model addresses the user by it.
+                if self.user_name.is_none() {
+                    self.prompt_mode = PromptMode::Name;
                 }
                 None
             }
@@ -742,6 +753,30 @@ impl App {
                         None
                     }
                 },
+                _ => None,
+            },
+            PromptMode::Name => match key.code {
+                KeyCode::Esc => {
+                    // The name is optional: the user can leave it empty.
+                    self.prompt_mode = PromptMode::Normal;
+                    self.user_name = Some(String::new());
+                    None
+                }
+                KeyCode::Enter => {
+                    let name = self.input.text().trim().to_string();
+                    self.input = Input::new();
+                    self.prompt_mode = PromptMode::Normal;
+                    self.user_name = Some(name.clone());
+                    Some(Command::SetUserName(name))
+                }
+                KeyCode::Backspace => {
+                    self.input.backspace();
+                    None
+                }
+                KeyCode::Char(c) => {
+                    self.input.insert_char(c);
+                    None
+                }
                 _ => None,
             },
             PromptMode::Tell { id, .. } => match key.code {
@@ -1477,6 +1512,12 @@ impl App {
                 self.overlay = Some(Overlay::Picker(self.mode_picker()));
                 None
             }
+            "/settings" => {
+                // The settings of the user: the name SEEK calls them by.
+                self.prompt_mode = PromptMode::Name;
+                self.input = Input::new();
+                None
+            }
             "/think" => {
                 // With no argument, the level toggles between off and the last one (SPEC 9.7).
                 self.toggle_reasoning();
@@ -1555,6 +1596,7 @@ impl App {
             "/compact" => Some("/compact"),
             "/skills" => Some("/skills"),
             "/mode" => Some("/mode"),
+            "/settings" => Some("/settings"),
             "/think" => Some("/think"),
             "/new" => Some("/new"),
             "/resume" => Some("/resume"),

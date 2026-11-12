@@ -124,6 +124,20 @@ pub fn permission_lines(mode: &PromptMode, input: &Input, theme: &Theme) -> Vec<
                 Style::new().fg(theme.dim).italic(),
             )));
         }
+        PromptMode::Name => {
+            lines.push(Line::from(vec![
+                Span::styled("? ", Style::new().fg(theme.accent_user).bold()),
+                Span::styled(
+                    "What is your name?",
+                    Style::new().fg(theme.accent_user).bold(),
+                ),
+            ]));
+            lines.push(Line::from(Span::styled(
+                "  SEEK will call you by it. Esc leaves it empty.",
+                Style::new().fg(theme.dim),
+            )));
+            lines.extend(prompt_lines(input, theme));
+        }
         PromptMode::Tell { tool, .. } => {
             lines.push(Line::from(vec![
                 Span::styled("? ", Style::new().fg(theme.warn).bold()),
