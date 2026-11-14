@@ -281,8 +281,14 @@ Two habits are watched for, both of which look like work:
   a `<system-interrupt>` that tells the model to change its arguments or yield.
 
 The numbers are the ones of oh-my-pi (MIT): a short block that comes back four times covering
-180 characters, a long one three times covering 1,024, and five identical calls. The guard fires
-at most twice per turn, and a visible answer latches it off.
+180 characters, a long one three times covering 1,024, four paragraphs in a row that are alike
+(a trigram overlap of 0.8), eight paragraphs in a row that recycle the wording without naming
+anything new, and five identical calls. The guard fires at most twice per turn, and a visible
+answer latches it off.
+
+The first version of the guard interrupted the model after a thousand characters of reasoning.
+That was too blunt: the model took the instruction literally and made a pointless call to
+satisfy it. The paragraph heuristics of oh-my-pi are the ones that work.
 
 The other two things came from there as well: every tool call carries an intent (`i`), and the
 read numbers every line so the edit can be made by line.
