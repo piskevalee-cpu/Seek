@@ -18,11 +18,8 @@ use std::path::{Path, PathBuf};
 use crate::tool::{Risk, ToolError, ToolSchema};
 use crate::truncate::cap_output;
 
-/// Every tenth line carries an anchor, and so does the first one.
-pub const ANCHOR_EVERY: usize = 10;
-
 /// The separator between the line number and the content.
-pub const ANCHOR: char = '→';
+pub const ANCHOR: char = ':';
 
 /// The most lines a read gives back.
 pub const MAX_LINES: usize = 200;
@@ -63,18 +60,15 @@ impl ReadTool {
         let take = limit.unwrap_or(MAX_LINES).min(MAX_LINES);
         let slice: Vec<&str> = all[start..(start + take).min(all.len())].to_vec();
 
-        // The anchors: the first line of the window and every tenth line of the file.
+        // Every line is numbered, the way the oh-my-pi harness (MIT) does it: the model can
+        // point at any line, and the edit tool takes the number.
         let mut out = String::new();
         for (index, line) in slice.iter().enumerate() {
             if index > 0 {
                 out.push('\n');
             }
             let number = start + index + 1;
-            if index == 0 || number.is_multiple_of(ANCHOR_EVERY) {
-                out.push_str(&format!("{number}{ANCHOR}{line}"));
-            } else {
-                out.push_str(line);
-            }
+            out.push_str(&format!("{number}:{line}"));
         }
         if start + take < all.len() {
             out.push_str(&format!(
@@ -136,6 +130,62 @@ impl EditTool {
         EditTool { root }
     }
 
+    /// Replace the lines `line..=end_line` with `new`.
+    ///
+    /// The model does not have to copy the text it read: it names the line, the way the
+    /// oh-my-pi harness (MIT) does it. The answer says which line changed and shows the
+    /// difference: the model sees what it did, and it can correct it.
+    pub fn edit_lines(
+        &self,
+        path: &str,
+        line: usize,
+        end_line: Option<usize>,
+        new: &str,
+    ) -> Result<String, ToolError> {
+        let resolved = resolve(&self.root, path);
+        let text = std::fs::read_to_string(&resolved)
+            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
+
+        let all: Vec<&str> = text.lines().collect();
+        if line == 0 || line > all.len() {
+            return Err(ToolError::Failed(format!(
+                "{} has {} lines: line {line} is not in it",
+                resolved.display(),
+                all.len()
+            )));
+        }
+        let end = end_line.unwrap_or(line).max(line).min(all.len());
+
+        // The new content keeps the indentation of the first line it replaces, unless the
+        // model wrote its own.
+        let replacement: Vec<&str> = new.lines().collect();
+        let mut updated: Vec<&str> = Vec::with_capacity(all.len());
+        updated.extend_from_slice(&all[..line - 1]);
+        updated.extend(replacement.iter().copied());
+        updated.extend_from_slice(&all[end..]);
+        let updated = updated.join("\n");
+        let updated = if text.ends_with('\n') {
+            format!("{updated}\n")
+        } else {
+            updated
+        };
+
+        std::fs::write(&resolved, &updated)
+            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
+
+        let mut out = format!("The file {} has been updated.", resolved.display());
+        out.push_str(&format!("\nLine {line} is now:"));
+        for text in new.lines() {
+            out.push_str(&format!("\n{text}"));
+        }
+        let diff = a_diff(&all[line - 1..end].join("\n"), new);
+        if !diff.is_empty() {
+            out.push_str("\n\n");
+            out.push_str(&diff);
+        }
+        Ok(out)
+    }
+
     /// Replace `old` with `new`.
     ///
     /// The match has to be unique, unless `replace_all` is set. The answer says which line
@@ -163,12 +213,20 @@ impl EditTool {
         let text = std::fs::read_to_string(&resolved)
             .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
 
+        // The model may copy the numbered lines of a read: the numbers are taken off when
+        // the text does not match as it is.
+        let old = match text.matches(old).count() {
+            0 => strip_numbers(old),
+            _ => old.to_string(),
+        };
+        let old = old.as_str();
+
         let matches = text.matches(old).count();
         match (matches, replace_all) {
             (0, _) => {
                 return Err(ToolError::Failed(format!(
-                    "the text to replace was not found in {}. Read the file again: the line \
-                     numbers of the read are anchors, not part of the file.",
+                    "the text to replace was not found in {}. Read the file again: the numbers \
+                     of the read are not part of the file.",
                     resolved.display()
                 )));
             }
@@ -219,6 +277,27 @@ impl EditTool {
     }
 }
 
+/// Take the line numbers off a text the model copied from a read.
+///
+/// The read numbers every line (`12:the line`), so the model may copy the numbers with the
+/// text. The numbers are not part of the file.
+fn strip_numbers(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for line in text.split('\n') {
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        let trimmed = line.trim_start();
+        let digits = trimmed.chars().take_while(char::is_ascii_digit).count();
+        if digits > 0 && trimmed[digits..].starts_with(':') {
+            out.push_str(&trimmed[digits + 1..]);
+        } else {
+            out.push_str(line);
+        }
+    }
+    out
+}
+
 /// The line a text starts on, counted from one.
 fn line_of(text: &str, needle: &str) -> Option<usize> {
     let position = text.find(needle)?;
@@ -252,8 +331,8 @@ fn resolve(root: &Path, path: &str) -> PathBuf {
 pub fn read_schema() -> ToolSchema {
     ToolSchema::new(
         "read",
-        "Read a file. The lines carry the anchors: the first line and every tenth line start \
-         with the line number and a →. The anchor is not part of the file.",
+        "Read a file. Every line starts with its number and a colon: 12:the line. The number \
+         is not part of the file. Use the number to edit that line.",
         r#"{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}"#,
         Risk::Read,
     )
@@ -274,11 +353,10 @@ pub fn write_schema() -> ToolSchema {
 pub fn edit_schema() -> ToolSchema {
     ToolSchema::new(
         "edit",
-        "Replace an exact string in a file. The text to replace must match exactly one place: \
-         add the lines around it to make it unique, or set replace_all to change every \
-         occurrence. An empty text to replace creates the file. The anchors of the read (the \
-         line number and a →) are not part of the file.",
-        r#"{"type":"object","properties":{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["path","old_string","new_string"]}"#,
+        "Change a file. Prefer the line form: give the line the read showed you and the text \
+         that replaces it. The old_string form replaces an exact text; it has to match one place, \
+         unless replace_all is set. An empty text to replace creates the file.",
+        r#"{"type":"object","properties":{"path":{"type":"string"},"line":{"type":"integer"},"end_line":{"type":"integer"},"new_string":{"type":"string"},"old_string":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["path","new_string"]}"#,
         Risk::Write,
     )
 }
@@ -307,12 +385,11 @@ mod tests {
             .read("a.txt", None, None)
             .expect("read");
         let lines: Vec<&str> = out.lines().collect();
-        // The first line and every tenth line carry the anchor.
-        assert!(lines[0].starts_with("1→"), "{}", lines[0]);
-        assert!(lines[1].starts_with("line 2"), "{}", lines[1]);
-        assert!(lines[9].starts_with("10→"), "{}", lines[9]);
-        assert!(lines[19].starts_with("20→"), "{}", lines[19]);
-        assert!(!lines[2].starts_with("3→"), "{}", lines[2]);
+        // Every line carries its number: the model can point at any of them.
+        assert!(lines[0].starts_with("1:line 1"), "{}", lines[0]);
+        assert!(lines[1].starts_with("2:line 2"), "{}", lines[1]);
+        assert!(lines[9].starts_with("10:line 10"), "{}", lines[9]);
+        assert!(lines[19].starts_with("20:line 20"), "{}", lines[19]);
     }
 
     #[test]
@@ -331,6 +408,46 @@ mod tests {
             std::fs::read_to_string(dir.join("a.txt")).expect("read"),
             "one\nTWO\nthree\n"
         );
+    }
+
+    #[test]
+    fn a_line_can_be_replaced_by_its_number() {
+        let dir = a_dir("edit-line");
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").expect("written");
+
+        let out = EditTool::new(dir.clone())
+            .edit_lines("a.txt", 2, None, "TWO")
+            .expect("edited");
+        assert!(out.contains("has been updated"), "{out}");
+        assert!(out.contains("Line 2"), "{out}");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("a.txt")).expect("read"),
+            "one\nTWO\nthree\n"
+        );
+    }
+
+    #[test]
+    fn a_range_of_lines_can_be_replaced() {
+        let dir = a_dir("edit-range");
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\nfour\n").expect("written");
+
+        EditTool::new(dir.clone())
+            .edit_lines("a.txt", 2, Some(3), "TWO\nTHREE")
+            .expect("edited");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("a.txt")).expect("read"),
+            "one\nTWO\nTHREE\nfour\n"
+        );
+    }
+
+    #[test]
+    fn a_line_that_is_not_in_the_file_is_refused() {
+        let dir = a_dir("edit-missing-line");
+        std::fs::write(dir.join("a.txt"), "one\n").expect("written");
+        let error = EditTool::new(dir)
+            .edit_lines("a.txt", 9, None, "x")
+            .expect_err("refused");
+        assert!(error.to_string().contains("is not in it"), "{error}");
     }
 
     #[test]

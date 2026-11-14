@@ -37,6 +37,10 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 
 - [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one.
 - [ ] **The bar holds the text and nothing else.** While the agent works, the status is in the bottom border, the box keeps its shape and the cursor is the only thing that moves in it.
+- [ ] **The guards.** Give the model a task that makes it think: it is interrupted with "Act now, not further planning" and it calls a tool instead of thinking for ever.
+- [ ] **The read numbers the lines.** Ask the model to read a file: every line comes back as `12:the line`.
+- [ ] **The edit by line.** "In the file, replace line 2 with ..." — the file changes, and the answer says which line.
+- [ ] **The intent.** The tool row shows what the model said it was doing.
 - [ ] **The commands complete.** Type `/` — a dropdown of the slash commands and the skills appears, with a column of the descriptions and the picked one marked. The arrows move it, Tab takes it, Enter takes it and runs it.
 - [ ] **The name.** On the first run the bar asks for your name. Type it and press Enter — the model calls you by it. `/settings` asks again.
 

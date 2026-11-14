@@ -229,6 +229,11 @@ impl Agent {
     ) -> TurnReason {
         let _ = events.send(AgentEvent::TurnStarted).await;
 
+        // The guards watch the model: one for the reasoning that goes nowhere, one for the
+        // call that comes back again and again (SPEC 9.1).
+        let mut thinking_guard = crate::guard::ThinkingGuard::default();
+        let mut call_guard = crate::guard::CallGuard::default();
+
         for _ in 0..self.config.max_iterations {
             if self.cancel.is_cancelled() {
                 let _ = events
@@ -246,6 +251,8 @@ impl Agent {
             let mut text = String::new();
             let mut thinking = String::new();
             let mut calls: Vec<(String, String, serde_json::Value)> = Vec::new();
+            // The reasoning went nowhere: the stream is aborted and the model is told to act.
+            let mut stalled: Option<crate::guard::Stall> = None;
 
             let mut stream = self.provider.stream(request);
             while let Some(event) = tokio::select! {
@@ -270,11 +277,19 @@ impl Agent {
                 match event {
                     ProviderEvent::TextDelta(delta) => {
                         text.push_str(&delta);
+                        // The model wrote something the user sees: it is not stalling.
+                        thinking_guard.answered();
                         let _ = events.send(AgentEvent::TextDelta(delta)).await;
                     }
                     ProviderEvent::ThinkingDelta(delta) => {
                         thinking.push_str(&delta);
+                        thinking_guard.push(&delta);
                         let _ = events.send(AgentEvent::ThinkingDelta(delta)).await;
+                        // The model is thinking and not acting: the turn is interrupted.
+                        if let Some(reason) = thinking_guard.stall() {
+                            stalled = Some(reason);
+                            break;
+                        }
                     }
                     ProviderEvent::ToolCallDelta {
                         id,
@@ -302,6 +317,7 @@ impl Agent {
                                 id: id.clone(),
                                 name: name.clone(),
                                 input: input.clone(),
+                                intent: crate::r#loop::intent_of(&input),
                             })
                             .await;
                         calls.push((id, name, input));
@@ -334,6 +350,16 @@ impl Agent {
                     input: input.clone(),
                 });
             }
+            if let Some(reason) = stalled {
+                // The turn was interrupted: the reasoning is dropped, and the model is told
+                // to act instead of thinking (SPEC 9.1).
+                let count = reason.count(&thinking_guard);
+                let message = crate::guard::thinking_interrupt(reason, count);
+                history.push(Message::user(message));
+                thinking_guard.new_request();
+                continue;
+            }
+
             if !blocks.is_empty() {
                 history.push(Message::new(Role::Assistant, blocks));
             }
@@ -346,7 +372,7 @@ impl Agent {
             }
 
             for (id, name, input) in calls {
-                let outcome = self.run_tool(&name, input).await;
+                let outcome = self.run_tool(&name, input.clone()).await;
 
                 let (content, is_error) = match outcome {
                     Ok(content) => (content, false),
@@ -362,6 +388,10 @@ impl Agent {
                     }],
                 ));
 
+                // The same call with the same arguments, again and again: the model is told
+                // to stop (SPEC 9.1).
+                call_guard.record(&name, &input, &content);
+
                 let _ = events
                     .send(AgentEvent::ToolOutput(ToolOutput {
                         id,
@@ -371,6 +401,11 @@ impl Agent {
                         duration: Duration::ZERO,
                     }))
                     .await;
+            }
+
+            if let Some(repeat) = call_guard.looped() {
+                let message = crate::guard::repeat_interrupt(&repeat);
+                history.push(Message::user(message));
             }
         }
 
@@ -422,6 +457,8 @@ impl Agent {
 
     /// Run the tool itself.
     async fn execute(&self, name: &str, input: serde_json::Value) -> Result<String, String> {
+        // The intent is for the interface, not for the tool.
+        let input = without_intent(input);
         let call = async {
             match name {
                 "read" => {
@@ -543,7 +580,8 @@ impl Agent {
     ///
     /// Only the enabled tools are sent (SPEC 9.2).
     fn schemas(&self) -> Vec<crate::tool::ToolSchema> {
-        let mut schemas = Vec::new();
+        // Every tool carries the field for the intent of the call (SPEC 9.1).
+        let mut schemas: Vec<crate::tool::ToolSchema> = Vec::new();
         if self.tools.read.is_some() {
             schemas.push(crate::tools::read_schema());
         }
@@ -571,8 +609,27 @@ impl Agent {
         for tool in &self.external_tools {
             schemas.push(tool.tool_schema());
         }
-        schemas
+        // Every tool carries the field for the intent of the call.
+        schemas.iter().map(crate::prompt::with_intent).collect()
     }
+}
+
+/// The arguments of a call, without the intent.
+fn without_intent(mut input: serde_json::Value) -> serde_json::Value {
+    if let Some(object) = input.as_object_mut() {
+        object.remove(crate::prompt::INTENT_FIELD);
+    }
+    input
+}
+
+/// The intent of a call, if it has one.
+pub fn intent_of(input: &serde_json::Value) -> Option<String> {
+    input
+        .get(crate::prompt::INTENT_FIELD)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
 }
 
 /// A one-line summary of a tool call.
@@ -701,6 +758,8 @@ mod tests {
     struct ScriptedProvider {
         responses: Mutex<Vec<Vec<ProviderEvent>>>,
         requests: Mutex<Vec<ChatRequest>>,
+        /// The last answer: it is repeated when the script runs out.
+        last: Mutex<Option<Vec<ProviderEvent>>>,
     }
 
     impl ScriptedProvider {
@@ -708,6 +767,7 @@ mod tests {
             ScriptedProvider {
                 responses: Mutex::new(responses),
                 requests: Mutex::new(Vec::new()),
+                last: Mutex::new(None),
             }
         }
     }
@@ -727,7 +787,15 @@ mod tests {
 
         fn stream<'a>(&'a self, request: ChatRequest) -> crate::provider::BoxProviderStream<'a> {
             self.requests.lock().unwrap().push(request);
-            let next = self.responses.lock().unwrap().remove(0);
+            let mut responses = self.responses.lock().unwrap();
+            let next = match responses.is_empty() {
+                true => self.last.lock().unwrap().clone().unwrap_or_default(),
+                false => {
+                    let next = responses.remove(0);
+                    *self.last.lock().unwrap() = Some(next.clone());
+                    next
+                }
+            };
             futures::stream::iter(next.into_iter().map(Ok)).boxed()
         }
     }
@@ -768,6 +836,97 @@ mod tests {
             requests,
             permissions,
         )
+    }
+
+    #[tokio::test]
+    async fn a_model_that_thinks_and_never_acts_is_interrupted() {
+        // The model thinks and thinks, and calls no tool: the agent tells it to act, and the
+        // turn goes on with the message in the history.
+        let thinking = "the plan is to look at the file and to think about it. ".repeat(40);
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            vec![
+                ProviderEvent::ThinkingDelta(thinking.clone()),
+                ProviderEvent::Done,
+            ],
+            vec![
+                ProviderEvent::ToolCall {
+                    id: "t1".into(),
+                    name: "bash".into(),
+                    input: serde_json::json!({ "command": "echo hi" }),
+                },
+                ProviderEvent::Done,
+            ],
+            vec![
+                ProviderEvent::TextDelta("the command said hi".into()),
+                ProviderEvent::Done,
+            ],
+        ]));
+        let (agent, _requests, _permissions) = agent(provider, PermissionMode::Yolo);
+        let (tx, mut rx) = mpsc::channel(32);
+
+        let mut history = History::new();
+        history.push(Message::user("hi"));
+        agent.run_turn(&mut history, &tx).await;
+
+        // The interrupt is in the history, and the model acted after it.
+        let interrupt = history
+            .messages
+            .iter()
+            .find(|message| message.plain_text().contains("<system-interrupt"))
+            .expect("the model was interrupted");
+        assert!(
+            interrupt.plain_text().contains("Act now"),
+            "{}",
+            interrupt.plain_text()
+        );
+        assert!(
+            history
+                .messages
+                .iter()
+                .any(|message| message.plain_text().contains("Act now")),
+            "the interrupt is in the history"
+        );
+
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, AgentEvent::ToolOutput(_))),
+            "the tool ran after the interrupt"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_model_that_repeats_the_same_call_is_told_to_stop() {
+        // The same call, again and again: the agent tells the model to stop repeating itself.
+        let call = ProviderEvent::ToolCall {
+            id: "t1".into(),
+            name: "bash".into(),
+            input: serde_json::json!({ "command": "echo hi" }),
+        };
+        let mut responses = Vec::new();
+        for _ in 0..8 {
+            responses.push(vec![call.clone(), ProviderEvent::Done]);
+        }
+        let provider = Arc::new(ScriptedProvider::new(responses));
+        let (agent, _requests, _permissions) = agent(provider, PermissionMode::Yolo);
+        // The channel has to hold the events of the whole turn: the test does not read them.
+        let (tx, _rx) = mpsc::channel(1024);
+
+        let mut history = History::new();
+        history.push(Message::user("hi"));
+        agent.run_turn(&mut history, &tx).await;
+
+        assert!(
+            history
+                .messages
+                .iter()
+                .any(|message| message.plain_text().contains("tool_call_loop_detected")),
+            "the model was told to stop repeating itself"
+        );
     }
 
     #[tokio::test]

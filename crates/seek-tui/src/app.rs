@@ -1783,6 +1783,7 @@ impl App {
                 self.rows.push(Row::Tool {
                     id: id.clone(),
                     name,
+                    intent: None,
                     command: id,
                     status: "running".into(),
                     duration: None,
@@ -1802,14 +1803,21 @@ impl App {
                     *command = text;
                 }
             }
-            AgentEvent::ToolCallReady { id, input, .. } => {
-                if let Some(Row::Tool { command, .. }) = self
+            AgentEvent::ToolCallReady {
+                id, input, intent, ..
+            } => {
+                if let Some(Row::Tool {
+                    command,
+                    intent: row_intent,
+                    ..
+                }) = self
                     .rows
                     .iter_mut()
                     .rev()
                     .find(|row| matches!(row, Row::Tool { id: row_id, .. } if *row_id == id))
                 {
                     *command = summarize_input(&input);
+                    *row_intent = intent;
                 }
             }
             AgentEvent::ToolOutput(output) => {
@@ -2600,6 +2608,7 @@ mod tests {
         let mut app = App::new(Theme::default());
         app.rows.push(Row::Tool {
             id: "t1".to_string(),
+            intent: None,
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),
@@ -2617,6 +2626,7 @@ mod tests {
         let mut app = App::new(Theme::default());
         app.rows.push(Row::Tool {
             id: "t1".to_string(),
+            intent: None,
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),

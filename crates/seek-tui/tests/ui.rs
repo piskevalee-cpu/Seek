@@ -273,6 +273,7 @@ fn a_tool_row_shows_the_command_and_the_status() {
     let mut app = app();
     app.rows.push(Row::Tool {
         id: "t1".to_string(),
+        intent: None,
         name: "bash".into(),
         command: "cargo test".into(),
         status: "ok".into(),
@@ -981,6 +982,7 @@ fn a_tool_row_is_closed_by_its_own_id() {
     // Two calls, and the output of the first one arrives after the second one started.
     app.rows.push(Row::Tool {
         id: "one".into(),
+        intent: None,
         name: "bash".into(),
         command: "ls".into(),
         status: "running".into(),
@@ -990,6 +992,7 @@ fn a_tool_row_is_closed_by_its_own_id() {
     });
     app.rows.push(Row::Tool {
         id: "two".into(),
+        intent: None,
         name: "bash".into(),
         command: "pwd".into(),
         status: "running".into(),

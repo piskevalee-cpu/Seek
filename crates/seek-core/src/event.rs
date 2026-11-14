@@ -68,6 +68,8 @@ pub enum AgentEvent {
         id: String,
         name: String,
         input: serde_json::Value,
+        /// What the call does, in a few words: the intent of the model.
+        intent: Option<String>,
     },
     PermissionRequest(PermissionRequest),
     ToolOutput(ToolOutput),

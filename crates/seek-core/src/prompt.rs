@@ -22,14 +22,16 @@ turn.
 
 <tools>
 - The tool results arrive as the next message. Read them before the next call.
-- `read` prefixes the lines with the number and a →. That prefix is not part of the file.
-- `edit` replaces an exact text. It has to match one place: add the lines around it, or set
-  replace_all.
+- `read` numbers every line: 12:the line. The number is not part of the file.
+- `edit` takes the line the read showed you and the text that replaces it. The text form
+  replaces an exact text and has to match one place.
 - Batch the independent calls in one turn: every turn costs seconds.
 - Prefer the paths of the working directory. Never open a file you have not been told about or
   found with a search.
 - Read the small files whole, the big ones in parts. Never read the same thing twice.
 - A tool that fails is not the end: read the error and try something different.
+- A message that begins with <system-interrupt> comes from SEEK itself, not from the user.
+  Follow it: it says that the last turn thought too long without acting.
 </tools>
 
 <work>
@@ -51,6 +53,12 @@ turn.
 - Short. A few lines for a small task, more only when the work needs it.
 - Plain words. No metaphors, no coined labels.
 </speaking>";
+
+/// The name of the field that carries the intent of a tool call.
+///
+/// The oh-my-pi harness (MIT) uses a single letter: the intent is a short present participle
+/// that names what the call does, and it makes the model say what it is about to do.
+pub const INTENT_FIELD: &str = "i";
 
 /// The four tools that are on by default (SPEC 9.2).
 pub static DEFAULT_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
@@ -114,6 +122,37 @@ pub static HELPER_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
 /// Every tool that is known, enabled or not.
 pub fn all_tools() -> impl Iterator<Item = &'static ToolSchema> {
     DEFAULT_TOOLS.iter().chain(HELPER_TOOLS.iter())
+}
+
+/// Give a schema the field that carries the intent of the call.
+///
+/// The intent is a short present participle that names what the call does. It makes the model
+/// say what it is about to do, and it is shown in the transcript (SPEC 9.1).
+pub fn with_intent(schema: &ToolSchema) -> ToolSchema {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&schema.parameters) else {
+        return schema.clone();
+    };
+    let Some(object) = value.as_object_mut() else {
+        return schema.clone();
+    };
+    let properties = object
+        .entry("properties")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(properties) = properties.as_object_mut() {
+        properties.insert(
+            INTENT_FIELD.to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Two to six words, present participle: what this call does."
+            }),
+        );
+    }
+    ToolSchema {
+        name: schema.name.clone(),
+        description: schema.description.clone(),
+        parameters: value.to_string(),
+        risk: schema.risk,
+    }
 }
 
 /// The prompt prefix that is sent to a provider: the system prompt followed by the enabled tool
@@ -201,9 +240,10 @@ mod tests {
         for rule in [
             "Batch the independent calls",
             "not part of the file",
-            "replace_all",
+            "takes the line the read showed you",
             "Do the work now",
             "only when a tool showed it",
+            "<system-interrupt>",
         ] {
             assert!(SYSTEM_PROMPT.contains(rule), "the prompt says: {rule}");
         }

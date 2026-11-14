@@ -113,6 +113,11 @@ workspace; each release ships a milestone (SPEC 15).
   arrows move the selection, Tab and Enter take it.
 - The chat scrolls: the wheel and the page keys, the window anchored to the content so the
   message being read stays put, and the place in the transcript shown in the corner.
+- The guards of the model, from oh-my-pi: a model that thinks and never acts is interrupted and
+  told to act, and a model that repeats the same call is told to stop.
+- Every tool call carries an intent: two to six words that name what the call does.
+- The read numbers every line, and the edit takes the line the read showed: the model does not
+  copy the text it read.
 - The mode of the message is the mode of the session again: the shared mode had overridden it,
   and every tool asked for a permission, even in YOLO.
 - The form that adds a provider, with the kind, the base URL, the key environment variable, the

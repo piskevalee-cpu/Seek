@@ -34,6 +34,8 @@ pub enum Row {
         /// The id of the call; the output of the tool is matched on it.
         id: String,
         name: String,
+        /// What the call does, in a few words: the intent of the model.
+        intent: Option<String>,
         command: String,
         status: String,
         duration: Option<Duration>,
@@ -95,6 +97,7 @@ pub fn transcript_lines(
             }
             Row::Tool {
                 name,
+                intent,
                 command,
                 status,
                 duration,
@@ -102,7 +105,10 @@ pub fn transcript_lines(
                 expanded,
                 ..
             } => {
-                lines.push((index, tool_line(name, command, status, *duration, theme)));
+                lines.push((
+                    index,
+                    tool_line(name, intent.as_deref(), command, status, *duration, theme),
+                ));
                 if *expanded && let Some(detail) = detail {
                     for line in detail.lines() {
                         lines.push((
@@ -218,6 +224,7 @@ fn reasoning_collapsed(theme: &Theme) -> Line<'static> {
 /// One tool row: `> bash  cargo test  ok 1.2s`.
 fn tool_line(
     name: &str,
+    intent: Option<&str>,
     command: &str,
     status: &str,
     duration: Option<Duration>,
@@ -227,6 +234,13 @@ fn tool_line(
         Span::styled(RAIL, Style::new().fg(theme.accent_tool)),
         Span::styled(name.to_string(), Style::new().fg(theme.accent_tool).bold()),
     ];
+    // The intent of the model: what it says it is doing.
+    if let Some(intent) = intent {
+        spans.push(Span::styled(
+            format!(" {intent}"),
+            Style::new().fg(theme.dim).italic(),
+        ));
+    }
     if !command.is_empty() {
         spans.push(Span::styled(
             format!("  {command}"),
@@ -326,6 +340,7 @@ mod tests {
             Row::Reasoning("thinking".into()),
             Row::Tool {
                 id: "t1".into(),
+                intent: None,
                 name: "bash".into(),
                 command: "ls".into(),
                 status: "ok".into(),
@@ -389,6 +404,7 @@ mod tests {
         let theme = Theme::default();
         let rows = [Row::Tool {
             id: "t1".to_string(),
+            intent: None,
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),

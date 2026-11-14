@@ -270,30 +270,33 @@ impl Tool for EditTool {
         Box::pin(async move {
             let path = string_field(&input, "path")?;
             // The short names are accepted too: a small model mixes them up.
-            let old = string_field_with(
-                &input,
-                "old_string",
-                &["path", "old_string", "new_string", "replace_all"],
-            )
-            .or_else(|_| {
-                string_field_with(
-                    &input,
-                    "old",
-                    &["path", "old_string", "new_string", "replace_all"],
-                )
-            })?;
-            let new = string_field_with(
-                &input,
+            let fields: &[&str] = &[
+                "path",
+                "line",
+                "end_line",
                 "new_string",
-                &["path", "old_string", "new_string", "replace_all"],
-            )
-            .or_else(|_| {
-                string_field_with(
-                    &input,
-                    "new",
-                    &["path", "old_string", "new_string", "replace_all"],
-                )
-            })?;
+                "old_string",
+                "replace_all",
+            ];
+            let new = string_field_with(&input, "new_string", fields)
+                .or_else(|_| string_field_with(&input, "new", fields))?;
+
+            // The edit by line: the model names the line it read and does not copy the text.
+            if let Some(line) = input.get("line").and_then(Value::as_u64) {
+                let end_line = input.get("end_line").and_then(Value::as_u64);
+                let content =
+                    self.edit_lines(&path, line as usize, end_line.map(|end| end as usize), &new)?;
+                return Ok(ToolOutput {
+                    id: String::new(),
+                    name: "edit".into(),
+                    content,
+                    is_error: false,
+                    duration: Duration::ZERO,
+                });
+            }
+
+            let old = string_field_with(&input, "old_string", fields)
+                .or_else(|_| string_field_with(&input, "old", fields))?;
             let replace_all = input
                 .get("replace_all")
                 .and_then(Value::as_bool)
@@ -733,8 +736,11 @@ mod tests {
         let dir = temp_dir("read");
         std::fs::write(dir.join("a.txt"), "one\ntwo\nthree").expect("written");
         let tool = ReadTool::new(dir.clone());
-        // The lines carry the anchors: the first one and every tenth.
-        assert_eq!(tool.read("a.txt", None, None).unwrap(), "1→one\ntwo\nthree");
+        // Every line carries its number.
+        assert_eq!(
+            tool.read("a.txt", None, None).unwrap(),
+            "1:one\n2:two\n3:three"
+        );
     }
 
     #[test]
@@ -744,7 +750,7 @@ mod tests {
         let tool = ReadTool::new(dir.clone());
         // The reader says how to fetch the rest.
         let out = tool.read("a.txt", Some(2), Some(2)).unwrap();
-        assert!(out.starts_with("2→2\n3"), "{out}");
+        assert!(out.starts_with("2:2\n3:3"), "{out}");
         assert!(out.contains("offset 4"));
     }
 
@@ -775,6 +781,20 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(dir.join("a.txt")).unwrap(),
             "one TWO three"
+        );
+    }
+
+    #[test]
+    fn the_numbers_of_a_read_are_not_part_of_the_file() {
+        // The model may copy the numbered lines of a read: the numbers are taken off before
+        // the text is looked for.
+        let dir = temp_dir("edit-numbers");
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").expect("written");
+        let tool = EditTool::new(dir.clone());
+        tool.edit("a.txt", "2:two", "TWO", false).expect("edited");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("a.txt")).expect("read"),
+            "one\nTWO\nthree\n"
         );
     }
 

@@ -50,6 +50,7 @@ fn main() {
     app.rows.push(Row::Assistant("Added a parser test.".into()));
     app.rows.push(Row::Tool {
         id: "t1".to_string(),
+        intent: None,
         name: "bash".into(),
         command: "cargo test".into(),
         status: "ok".into(),

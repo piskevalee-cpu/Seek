@@ -52,6 +52,7 @@ fn main() {
                 .push(Row::Assistant("Let me look at the directory.".into()));
             app.rows.push(Row::Tool {
                 id: "t1".to_string(),
+                intent: None,
                 name: "bash".into(),
                 command: "ls -la".into(),
                 status: "ok".into(),

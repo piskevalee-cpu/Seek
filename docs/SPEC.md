@@ -218,12 +218,19 @@ In `/model`, pressing right-arrow on a local model opens its options as free tex
 
 ### 9.1 Loop
 
-Stream a completion, collect tool calls, and for each: permission check, execute, append a `ToolResult`; repeat until a response has no tool calls. Guards: max iterations per turn (default 100), a cancellation token on Esc, per-tool timeouts, and errors returned to the model as `is_error` results instead of crashes. **Queued messages:** the user can type while the agent works. Messages go to a FIFO queue, show in the transcript as pending, and are delivered as one user message when the turn finishes. **\[DECISION\]** End-of-turn delivery only in v1. **Agent processes:** the `bash` tool runs each command in its own process group and registers it (PID, command, start time). Foreground commands leave the registry on exit; detached or background ones stay until they end or the user kills them.
+Stream a completion, collect tool calls, and for each: permission check, execute, append a `ToolResult`; repeat until a response has no tool calls. Guards: max iterations per turn (default 100), a cancellation token on Esc, per-tool timeouts, and errors returned to the model as `is_error` results instead of crashes.
+
+**The guards of the model.** A small model has two bad habits, and both look like work:
+- **It thinks and never acts.** The reasoning goes on and on and no tool is called. When the reasoning repeats itself (a block that comes back four times covering 180 characters, or three times covering 1,024) or grows past 1,000 characters without a tool call, the turn is interrupted: the reasoning is dropped and a message with a `<system-interrupt>` tag is put in the history, telling the model to act. The guard fires at most twice per turn, and a visible answer latches it off.
+- **It repeats itself.** The same tool with the same arguments five times in a row is a loop. A `<system-interrupt>` tells the model to use different arguments, choose another tool, or yield.
+
+The tag is a user message: the system prompt tells the model that a message with the tag comes from SEEK itself. **Queued messages:** the user can type while the agent works. Messages go to a FIFO queue, show in the transcript as pending, and are delivered as one user message when the turn finishes. **\[DECISION\]** End-of-turn delivery only in v1. **Agent processes:** the `bash` tool runs each command in its own process group and registers it (PID, command, start time). Foreground commands leave the registry on exit; detached or background ones stay until they end or the user kills them.
 
 ### 9.2 Token-efficient tool calling
 
 - Default tools: `read`, `write`, `edit`, `bash`. Read-only helpers `ls`, `grep`, `find` ship but are off by default (pi's approach).
-- The file tools follow the grok-build pager (Apache-2.0): `read` numbers the lines (the first line and every tenth carry an anchor `1→`, `11→`), `write` says whether it created or overwrote, `edit` replaces an exact text (unique, or every occurrence with `replace_all`), says the line the change landed on, and returns the difference. An empty text to replace creates the file.
+- The file tools follow the grok-build pager (Apache-2.0) and the oh-my-pi harness (MIT): `read` numbers **every** line (`12:the line`), so the model can point at any of them; `write` says whether it created or overwrote; `edit` takes the line the read showed and the text that replaces it (`line`, and `end_line` for a range), and falls back to an exact text (`old_string`, unique, or every occurrence with `replace_all`). The edit says the line the change landed on and returns the difference. An empty text to replace creates the file. The numbers of a read are not part of the file: they are taken off the text the model copied.
+- **Every tool call carries an intent** (`i`): two to six words, present participle, naming what the call does. It makes the model say what it is about to do, and it is shown in the transcript.
 - Terse descriptions, no examples inside schemas, and only enabled tools are sent.
 - `edit` is an exact-match replace with a unique-match check, never a whole-file rewrite; `read` takes offset and limit.
 - Cap every tool output (default 200 lines or 16 KB, head and tail) with a marker telling the model how to fetch more.

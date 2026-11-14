@@ -263,3 +263,28 @@ pattern of the branch matters as well: `Some(Ok(event)) = events.next()` disable
 ever when the stream hands over an error, and the user is left with a keyboard that does nothing.
 
 **Status:** accepted. The specification was updated with it (§4.2).
+
+## D-014 — The guards of the model
+
+**Date:** 2026-11-14 · **Affects:** SPEC 9.1
+
+The same 1.7B model is smart in the oh-my-pi harness and dull in SEEK. The difference is not the
+prompt: it is that oh-my-pi **watches the model and interrupts it**.
+
+Two habits are watched for, both of which look like work:
+
+- **The reasoning that goes nowhere.** When the reasoning repeats itself or grows past what a
+  turn needs, the stream is aborted and a `<system-interrupt>` is put in the history: *"Act now,
+  not further planning: emit a real call to an available tool."* The turn goes on with the
+  message in the context.
+- **The call that comes back.** The same tool with the same arguments five times in a row gets
+  a `<system-interrupt>` that tells the model to change its arguments or yield.
+
+The numbers are the ones of oh-my-pi (MIT): a short block that comes back four times covering
+180 characters, a long one three times covering 1,024, and five identical calls. The guard fires
+at most twice per turn, and a visible answer latches it off.
+
+The other two things came from there as well: every tool call carries an intent (`i`), and the
+read numbers every line so the edit can be made by line.
+
+**Status:** accepted. The specification was updated with it (§9.1).
