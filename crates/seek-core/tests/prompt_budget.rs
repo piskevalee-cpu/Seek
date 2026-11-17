@@ -40,5 +40,6 @@ fn the_prompt_is_not_smaller_than_it_needs_to_be() {
 
 #[test]
 fn every_default_tool_is_declared() {
-    assert_eq!(DEFAULT_TOOLS.len(), 4);
+    // The four file and shell tools and the web search (SPEC 9.2).
+    assert_eq!(DEFAULT_TOOLS.len(), 5);
 }

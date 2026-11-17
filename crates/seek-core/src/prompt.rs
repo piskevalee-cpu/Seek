@@ -26,6 +26,8 @@ turn.
 - `edit` takes the line the read showed you and the text that replaces it. The text form
   replaces an exact text and has to match one place.
 - Batch the independent calls in one turn: every turn costs seconds.
+- `web_search` finds pages by query, for facts the files do not hold. `fetch` reads one page
+  once a result looks right.
 - Prefer the paths of the working directory. Never open a file you have not been told about or
   found with a search.
 - Read the small files whole, the big ones in parts. Never read the same thing twice.
@@ -60,7 +62,7 @@ turn.
 /// that names what the call does, and it makes the model say what it is about to do.
 pub const INTENT_FIELD: &str = "i";
 
-/// The four tools that are on by default (SPEC 9.2).
+/// The tools that are on by default (SPEC 9.2).
 pub static DEFAULT_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
     vec![
         ToolSchema::new(
@@ -92,6 +94,7 @@ pub static DEFAULT_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
             r#"{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}"#,
             Risk::Exec,
         ),
+        crate::websearch::web_search_schema(),
     ]
 });
 
@@ -196,9 +199,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_tools_are_the_four_core_ones() {
+    fn default_tools_are_the_core_ones() {
         let names: Vec<_> = DEFAULT_TOOLS.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, ["read", "write", "edit", "bash"]);
+        assert_eq!(
+            names,
+            ["read", "write", "edit", "bash", "web_search"],
+            "the default tool set changed"
+        );
     }
 
     #[test]
@@ -241,6 +248,7 @@ mod tests {
             "Batch the independent calls",
             "not part of the file",
             "takes the line the read showed you",
+            "`web_search` finds pages by query",
             "Do the work now",
             "only when a tool showed it",
             "<system-interrupt>",

@@ -228,7 +228,7 @@ The tag is a user message: the system prompt tells the model that a message with
 
 ### 9.2 Token-efficient tool calling
 
-- Default tools: `read`, `write`, `edit`, `bash`. Read-only helpers `ls`, `grep`, `find` ship but are off by default (pi's approach).
+- Default tools: `read`, `write`, `edit`, `bash`, and `web_search`. Read-only helpers `ls`, `grep`, `find` and the `fetch` network tool ship but are off by default (pi's approach). `web_search` is on because an agent has to be able to answer a question about the world without being handed a URL.
 - The file tools follow the grok-build pager (Apache-2.0) and the oh-my-pi harness (MIT): `read` numbers **every** line (`12:the line`), so the model can point at any of them; `write` says whether it created or overwrote; `edit` takes the line the read showed and the text that replaces it (`line`, and `end_line` for a range), and falls back to an exact text (`old_string`, unique, or every occurrence with `replace_all`). The edit says the line the change landed on and returns the difference. An empty text to replace creates the file. The numbers of a read are not part of the file: they are taken off the text the model copied.
 - **Every tool call carries an intent** (`i`): two to six words, present participle, naming what the call does. It makes the model say what it is about to do, and it is shown in the transcript.
 - Terse descriptions, no examples inside schemas, and only enabled tools are sent.
@@ -248,7 +248,7 @@ The tag is a user message: the system prompt tells the model that a message with
                   non-zero exit = error
 ```
 
-`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. The `web_search` tool follows it and is a chain of providers, ported from the oh-my-pi harness (MIT): the query is parsed into its terms and its constraints, each engine is given only the syntax it understands, and the first provider that answers wins while the failures are named in a `Note:` line. The chain is `web_search.providers` in `config.toml`; the default is `duckduckgo`, `mojeek`, `startpage`, `ecosia`. The key-free providers are the scrapers `duckduckgo`, `startpage`, `mojeek`, `ecosia` and `hackernews`, the `public` fan-out over them, and the `searxng` instance named by `web_search.searxng_url`. The keyed APIs are `brave` (`BRAVE_API_KEY`), `tavily`, `exa`, `jina`, `kagi` and `firecrawl`; their keys are read from the environment or from `state/auth.json` (SPEC 5), never from `config.toml`. A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
+`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool, and it is off by default. The `web_search` tool follows it, is **on** by default, and is a chain of providers, ported from the oh-my-pi harness (MIT): the query is parsed into its terms and its constraints, each engine is given only the syntax it understands, and the first provider that answers wins while the failures are named in a `Note:` line. The chain is `web_search.providers` in `config.toml`; the default is `duckduckgo`, `mojeek`, `startpage`, `ecosia`. The key-free providers are the scrapers `duckduckgo`, `startpage`, `mojeek`, `ecosia` and `hackernews`, the `public` fan-out over them, and the `searxng` instance named by `web_search.searxng_url`. The keyed APIs are `brave` (`BRAVE_API_KEY`), `tavily`, `exa`, `jina`, `kagi` and `firecrawl`; their keys are read from the environment or from `state/auth.json` (SPEC 5), never from `config.toml`. A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
 
 ### 9.4 Permissions
 
@@ -273,7 +273,7 @@ Follow the Agent Skills format. A skill is a folder with `SKILL.md`: YAML frontm
 
 ### 9.6 Toggles
 
-`state/toggles.toml` stores enabled or disabled for tools and skills. Defaults: the four built-in tools on, helpers off, all installed skills on.
+`state/toggles.toml` stores enabled or disabled for tools and skills. Defaults: the four file and shell tools and the web search on, the helpers and `fetch` off, all installed skills on.
 
 ### 9.7 Reasoning: thinking toggle and effort
 

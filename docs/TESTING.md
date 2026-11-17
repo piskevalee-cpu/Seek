@@ -98,7 +98,7 @@ Every key of the specification, one by one.
 
 ## The tools
 
-- [ ] **The four tools.** `/tools` lists `read`, `write`, `edit` and `bash` as checked, and `ls`, `grep`, `find` and `fetch` as unchecked.
+- [ ] **The four tools and the search.** `/tools` lists `read`, `write`, `edit`, `bash` and `web_search` as checked, and `ls`, `grep`, `find` and `fetch` as unchecked.
 - [ ] **Turn one off.** Open `/tools`, move to `bash`, press Space — the check disappears. Close the picker: the next turn has no `bash` tool.
 - [ ] **Turn one on.** Do the same with `grep` — now it is on.
 - [ ] **Read a file.** "Read the first ten lines of Cargo.toml." — the tool row shows the path, the result is the content.
@@ -109,8 +109,8 @@ Every key of the specification, one by one.
 
 ## The web search
 
-- [ ] **Turn it on.** `/tools` lists `web_search` unchecked; turn it on and close the picker.
-- [ ] **A search.** In `ASK` mode, "Search the web for the Rust book." — the permission is asked for a network tool, and the answer lists numbered sources with their address.
+- [ ] **On by default.** `/tools` lists `web_search` checked; leave the picker without touching it.
+- [ ] **A search without a URL.** In `ASK` mode, "What is the latest version of Rust?" — the permission is asked for a network tool, and the answer lists numbered sources with their address.
 - [ ] **The operators.** "Search for `site:rust-lang.org async`." — the results stay on `rust-lang.org`; a constraint the engine could not honour is reported in a `Note:` line instead of an empty answer.
 - [ ] **The fallback.** Put `providers = ['mojeek', 'duckduckgo']` under `[web_search]` in `~/seek/config.toml` — a Mojeek failure is named in a `Note:` line and the answer comes from DuckDuckGo.
 - [ ] **The public fan-out.** Set `providers = ['public']` — the results merge the engines that answer, with the pages found by more than one engine first.

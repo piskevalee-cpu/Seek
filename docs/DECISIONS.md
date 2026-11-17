@@ -341,3 +341,25 @@ proof-of-work challenge. Each provider recognises its wall and names it instead 
 empty page. A keyed provider is the reliable path when the scrapers are throttled.
 
 **Status:** accepted. The specification was updated with it (§9.3).
+
+## D-016 — The web search is on by default
+
+**Date:** 2026-11-17 · **Affects:** SPEC 9.2, 9.3, 9.4
+
+The oh-my-pi agents search the web by query without being handed a URL, and the owner asked for
+the same: a question about the world should not require the user to find the page first. The tool
+was ported in D-015 but left off by default, so in practice the agent could not search until the
+user opened `/tools`. That made the port useless out of the box.
+
+`web_search` is now in `prompt::DEFAULT_TOOLS` and in `toggles::DEFAULT_ON`, next to `read`,
+`write`, `edit` and `bash`. The prompt names it, the agent sends its schema, and `/tools` shows it
+checked. The other network tool, `fetch`, is still off by default: reading one page is a narrower
+need than finding it, and the search result already carries the snippet.
+
+The permission matrix is unchanged. A search carries `Risk::Network`, so it is asked in `ask`
+mode (the default) and in `read` mode, and allowed in `yolo` mode (SPEC 9.4). Asking once per
+search is the cost of letting a tool reach the network; the user can switch to `yolo` for a
+session that searches a lot.
+
+**Status:** accepted. The specification and the prompt budget test were updated with it (§9.2,
+§9.3).

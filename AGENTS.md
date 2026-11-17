@@ -184,7 +184,8 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   `rpm` and `tpm` of the configuration. The state shows in the METRICS block only when the
   provider reports one.
 - `install.sh` is idempotent: it never overwrites a file of the user.
-- The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
+- The four tools are in `seek-core::tools` and the web search in `seek-core::websearch`. `edit`
+  refuses a text that is not unique; `read`
   caps its output and says how to fetch the rest; `bash` runs in its own process group and
   registers the process in the sidebar.
 - The capping of the tool output is in `seek-core::truncate`: the cut lands on a character

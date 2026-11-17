@@ -58,9 +58,9 @@ pub struct ToolRegistry {
     pub ls: Option<crate::tools::LsTool>,
     pub grep: Option<crate::tools::GrepTool>,
     pub find: Option<crate::tools::FindTool>,
-    /// The network tools; they are off by default (SPEC 9.4).
+    /// The network tools; `fetch` is off by default (SPEC 9.4).
     pub fetch: Option<crate::tools::FetchTool>,
-    /// The web search; it is off by default (SPEC 9.4).
+    /// The web search; it is on by default (SPEC 9.3).
     pub web_search: Option<crate::websearch::WebSearchTool>,
 }
 
@@ -606,6 +606,9 @@ impl Agent {
         if self.tools.fetch.is_some() {
             schemas.push(crate::tools::fetch_schema());
         }
+        if self.tools.web_search.is_some() {
+            schemas.push(crate::websearch::web_search_schema());
+        }
         for tool in &self.external_tools {
             schemas.push(tool.tool_schema());
         }
@@ -836,6 +839,23 @@ mod tests {
             requests,
             permissions,
         )
+    }
+
+    #[test]
+    fn the_web_search_is_in_the_schemas_when_it_is_on() {
+        let (mut agent, _requests, _permissions) = agent(
+            Arc::new(ScriptedProvider::new(vec![vec![]])),
+            PermissionMode::Ask,
+        );
+        let names: Vec<_> = agent.schemas().into_iter().map(|t| t.name).collect();
+        assert!(!names.contains(&"web_search".to_string()), "{names:?}");
+
+        agent.tools.web_search = Some(crate::websearch::WebSearchTool::new(
+            crate::websearch::Settings::default(),
+            &crate::config::Auth::default(),
+        ));
+        let names: Vec<_> = agent.schemas().into_iter().map(|t| t.name).collect();
+        assert!(names.contains(&"web_search".to_string()), "{names:?}");
     }
 
     #[tokio::test]

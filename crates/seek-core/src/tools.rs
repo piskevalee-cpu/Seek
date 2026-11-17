@@ -1,7 +1,7 @@
-//! The four built-in tools (SPEC 9.2).
+//! The file and shell tools of SPEC 9.2.
 //!
-//! `read`, `write`, `edit` and `bash` are on by default. The read-only helpers `ls`, `grep` and
-//! `find` ship but are off by default.
+//! `read`, `write`, `edit` and `bash` are on by default, and `web_search` (in `websearch`)
+//! joins them. The read-only helpers `ls`, `grep` and `find` ship but are off by default.
 //!
 //! Every output is capped: 200 lines or 16 KB, head and tail, with a marker that tells the model
 //! how to fetch more.
@@ -47,9 +47,9 @@ impl BuiltinTools {
         &self.processes
     }
 
-    /// The schemas of the enabled tools.
+    /// The schemas of the tools the struct itself runs.
     pub fn schemas(&self) -> Vec<ToolSchema> {
-        crate::prompt::DEFAULT_TOOLS.clone()
+        vec![read_schema(), write_schema(), edit_schema(), bash_schema()]
     }
 
     /// Resolve a path inside the project.

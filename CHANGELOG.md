@@ -9,6 +9,9 @@ workspace; each release ships a milestone (SPEC 15).
 ## [Unreleased]
 
 ### Added
+- The web search is on by default: `web_search` joins `read`, `write`, `edit` and `bash`, so an
+  agent can answer a question about the world without being handed a URL. `fetch` stays off
+  (SPEC 9.3).
 - The web search is a chain of providers ported from oh-my-pi: DuckDuckGo, Startpage, Mojeek,
   Ecosia, Hacker News, SearXNG, the Public Web fan-out, and the keyed Brave, Tavily, Exa, Jina,
   Kagi and Firecrawl APIs. The chain is `web_search.providers`; the first provider that answers
