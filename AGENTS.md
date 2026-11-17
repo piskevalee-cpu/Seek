@@ -117,6 +117,10 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
 - SEEK opens on the chat with `[no model selected]`; no model picker on startup. `/model` opens
   it, and a message typed before a choice stays in the bar with a note instead of being sent.
   The first run still asks for the user's name.
+- The `@` mentions in a message pin files or directories for the turn (`seek-core::pins`): only
+  paths, sizes and a few directory names go into the context, never file content, and the
+  permission matrix is unchanged (D-019). The chip row above the prompt is a view of the message
+  tokens, not a second home.
 - The prompt bar completes the message (`seek-tui::completion`): `/` commands and skills, `@`
   references searched below the project, and path tokens. A completion replaces only its token;
   Tab accepts, arrows move, Esc closes until the next edit, and Enter does not send a path.

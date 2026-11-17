@@ -19,6 +19,12 @@ workspace; each release ships a milestone (SPEC 15).
   green variant.
 
 ### Added
+- `@` pins in messages: an existing file or directory is attached to the turn as a compact name
+  and size, not its content. The agent inspects it with `read` under the usual permissions (SPEC
+  9.5, D-019).
+- A `pinned` chip row above the prompt while composing a message with `@` paths.
+- OMP-style per-pixel twinkle on the startup logo and the thinking line, on top of the diagonal
+  sheen, with `reduce_motion` still resting both (SPEC 12).
 - OMP-style transcript scrolling: a one-column side bar with a proportional thumb, wheel and
   click/drag scrolling, Shift+Up/Down for five lines, and follow-tail behaviour for new answers.
   The bar sits opposite the sidebar (SPEC 10.3).

@@ -66,6 +66,25 @@ fn input_texts(input: &Input) -> Vec<String> {
     lines
 }
 
+/// The pinned paths of the current draft, shown on one line above the completions.
+///
+/// This is a view of the `@` tokens in the message, not a second home for them: the message itself
+/// carries the pins into the turn (SPEC 10.2).
+pub fn pin_lines(pins: &[seek_core::Pin], theme: &Theme) -> Vec<Line<'static>> {
+    if pins.is_empty() {
+        return Vec::new();
+    }
+    let text = pins
+        .iter()
+        .map(|pin| format!("@{}", pin.label))
+        .collect::<Vec<_>>()
+        .join("   ");
+    vec![Line::from(vec![
+        Span::styled(" pinned  ", Style::new().fg(theme.bg).bg(theme.accent)),
+        Span::styled(text, Style::new().fg(theme.accent)),
+    ])]
+}
+
 /// The dropdown above the bar: the completions for what is typed.
 ///
 /// The layout is the one of the grok-build pager (Apache-2.0): a column of the names, a column

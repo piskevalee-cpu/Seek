@@ -2168,6 +2168,13 @@ impl App {
 
         let completions = self.completions();
         let suggestions = prompt_bar::suggestion_lines(&completions, &self.theme, self.suggestion);
+        // A pin is a view of the `@` tokens in the draft, not a second home for them.
+        let pins = if matches!(self.prompt_mode, PromptMode::Normal) {
+            seek_core::pins::find(&self.input.text(), std::path::Path::new(&self.cwd))
+        } else {
+            Vec::new()
+        };
+        let pinned = prompt_bar::pin_lines(&pins, &self.theme);
         // The box has a top border and a bottom border.
         // The box has a top border and a bottom border. The status is in the bottom
         // border, so the input keeps its height while the agent works.
@@ -2187,12 +2194,14 @@ impl App {
         let [
             transcript_area,
             log_area,
+            pinned_area,
             suggestions_area,
             prompt_area,
             footer_area,
         ] = Layout::vertical([
             Constraint::Min(3),
             Constraint::Length(log_lines.len() as u16),
+            Constraint::Length(pinned.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(prompt_height),
             Constraint::Length(1),
@@ -2201,6 +2210,9 @@ impl App {
 
         if !log_lines.is_empty() {
             frame.render_widget(ratatui::widgets::Paragraph::new(log_lines), log_area);
+        }
+        if !pinned.is_empty() {
+            frame.render_widget(ratatui::widgets::Paragraph::new(pinned), pinned_area);
         }
 
         if !suggestions.is_empty() {

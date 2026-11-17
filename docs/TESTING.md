@@ -57,6 +57,14 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The suggestions.** Type `/` — a list of the slash commands appears above the bar. Type `/mod` — the list narrows to `/model` and `/mode`.
 - [ ] **A backspace.** It deletes one character, not one byte: a character with an accent is gone in one press.
 
+## Pinned paths
+
+- [ ] **The chip.** Type "read @Cargo.toml" — a `pinned @Cargo.toml` line appears above the prompt. Delete the mention and the chip goes away.
+- [ ] **A directory.** Type `@docs` — the chip shows the path, and the agent gets the first names of the directory in its context, not their contents.
+- [ ] **Quoted spaces.** Type `@"two words.txt"` for a file with a space — the path resolves and is pinned.
+- [ ] **A miss.** Type `@does-not-exist` — no chip appears and the text stays prose.
+- [ ] **The inspection.** Ask about a pinned file — the agent reads it with `read`; in `ASK` mode a write to it still asks.
+
 ## Scrolling and the side bar
 
 - [ ] **The bar.** With a long conversation, a one-column bar appears at the right of the transcript; its thumb is a fraction of the height and the rest is a thin track. The old `↑ N of total` badge is gone.

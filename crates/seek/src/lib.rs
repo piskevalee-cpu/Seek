@@ -552,6 +552,18 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
         widgets,
     } = context;
 
+    // An `@` mention pins a path for this turn. Only the paths and their sizes go into the
+    // context: the model reads the content with `read` when it needs it (D-019).
+    let pins = seek_core::pins::find(&text, &root);
+    let pin_context = seek_core::pins::context(&pins);
+    let mut context = runtime.context();
+    if !pin_context.is_empty() {
+        if !context.is_empty() {
+            context.push_str("\n\n");
+        }
+        context.push_str(&pin_context);
+    }
+
     // Only the enabled tools are given to the agent (SPEC 9.2, 9.6).
     let tools = ToolRegistry {
         read: runtime
@@ -674,7 +686,7 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
                 processes.clone(),
                 permissions.clone(),
             )
-            .with_context(runtime.context())
+            .with_context(context)
             .with_external_tools(external_tools)
             .with_usage(Arc::clone(&usage))
             // The mode is shared: the user can change it while the turn runs.

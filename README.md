@@ -151,6 +151,9 @@ cloud catalog. The chosen model shows in the footer; the `LOCAL` tag is only in 
 * `@` completes a file of the project: `@main` finds `src/main.rs` anywhere below the project
   root.
 * A path such as `src/`, `./`, `../`, `~/` or `/tmp/` completes the entries of that directory.
+* Typed `@` paths pin an existing file or directory for the turn: the chip row above the prompt
+  shows them, and the agent gets their names and sizes, not their contents. It reads a pin with
+  `read` when it needs to, under the usual permissions.
 * `↑` / `↓` move the selection, `Tab` accepts it, `Enter` accepts and runs a command, `Esc`
   closes the list. A file path is inserted with a trailing space so the message can go on.
 
