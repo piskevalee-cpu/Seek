@@ -161,7 +161,8 @@ keys for Brave, Tavily, Exa, Jina, Kagi and Firecrawl are read from environment 
 
 **Stay in control.** The footer shows `READ`, `ASK` or `YOLO`; `Tab` cycles the mode when the
 sidebar is closed, or moves into it when it is open. In `ASK` mode a write, a command or a network
-call asks first. `Ctrl+B` opens the sidebar with sessions, processes and metrics.
+call asks first. `Ctrl+B` opens the sidebar with sessions, processes and metrics; `/settings`
+moves it to the left or the right, and the transcript scrollbar takes the other side.
 
 **Extend.** `/tools` and `/skills` are checklists. External tools live in `~/seek/tools/` and
 widgets in `~/seek/widgets/`; both are plain files.

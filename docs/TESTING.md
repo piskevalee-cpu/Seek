@@ -57,6 +57,14 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The suggestions.** Type `/` — a list of the slash commands appears above the bar. Type `/mod` — the list narrows to `/model` and `/mode`.
 - [ ] **A backspace.** It deletes one character, not one byte: a character with an accent is gone in one press.
 
+## Scrolling and the side bar
+
+- [ ] **The bar.** With a long conversation, a one-column bar appears at the right of the transcript; its thumb is a fraction of the height and the rest is a thin track. The old `↑ N of total` badge is gone.
+- [ ] **The wheel.** Scroll up — the line you were reading stays on screen while the model answers. Scroll back to the bottom — new answers follow again.
+- [ ] **The keys.** Shift+Up and Shift+Down move five lines, PgUp/PgDn a page, Home/End the ends when the prompt is empty.
+- [ ] **The mouse bar.** Click above or below the thumb to page; click the thumb and drag it — the transcript follows.
+- [ ] **Move the sidebar.** `/settings` → "Sidebar side" → "right". The sidebar moves to the right and the scrollbar moves to the left at once. Restart SEEK: the choice is kept in `state/user.toml`.
+
 ## The conversation
 
 - [ ] **Ask something.** "Say hello in three words." — the answer streams in, word by word, in a `SEEK` box.

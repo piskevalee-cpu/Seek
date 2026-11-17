@@ -7,7 +7,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use seek_core::AgentEvent;
-use seek_tui::app::{App, Message, Overlay};
+use seek_tui::app::{App, Command, Message, Overlay};
 use seek_tui::theme::Theme;
 use seek_tui::transcript::Row;
 
@@ -127,6 +127,8 @@ fn the_settings_command_asks_for_the_name_again() {
         app.update(Message::Key(key(KeyCode::Char(c))));
     }
     app.update(Message::Key(key(KeyCode::Enter)));
+    // "User name" is the first entry of the settings picker.
+    app.update(Message::Key(key(KeyCode::Enter)));
     let screen = render(&mut app, 100, 30);
     assert!(screen.contains("your name"), "{screen}");
 }
@@ -169,21 +171,25 @@ fn the_wheel_scrolls_the_transcript() {
     }
     // The bottom at first.
     render(&mut app, 100, 30);
-    assert_eq!(app.scroll, 0);
+    let max = seek_tui::scrollbar::max_offset(app.transcript_total, app.transcript_height);
+    assert_eq!(app.scroll_offset, max);
 
-    // The wheel scrolls up, and the place is shown.
+    // The wheel scrolls up, and the bar shows where the view is.
     app.update(Message::Scroll(3));
     render(&mut app, 100, 30);
-    assert!(app.scroll > 0, "the transcript is scrolled up");
+    let max = seek_tui::scrollbar::max_offset(app.transcript_total, app.transcript_height);
+    assert!(app.scroll_offset < max, "the transcript is scrolled up");
     let screen = render(&mut app, 100, 30);
-    assert!(screen.contains("\u{2191}"), "the place is shown: {screen}");
+    assert!(screen.contains("\u{2588}"), "the bar is shown: {screen}");
+    assert!(!screen.contains("\u{2191}"), "the badge is gone: {screen}");
 
     // And back down to the bottom.
     for _ in 0..40 {
         app.update(Message::Scroll(-3));
     }
     render(&mut app, 100, 30);
-    assert_eq!(app.scroll, 0, "the transcript is at the bottom");
+    let max = seek_tui::scrollbar::max_offset(app.transcript_total, app.transcript_height);
+    assert_eq!(app.scroll_offset, max, "the transcript is at the bottom");
 }
 
 #[test]
@@ -197,7 +203,85 @@ fn a_page_key_scrolls_a_page() {
     app.update(Message::Key(key(KeyCode::PageUp)));
     render(&mut app, 100, 30);
     // A page is the height of the window, not one line.
-    assert!(app.scroll >= 15, "a whole page: {}", app.scroll);
+    let max = seek_tui::scrollbar::max_offset(app.transcript_total, app.transcript_height);
+    assert!(
+        max.saturating_sub(app.scroll_offset) >= 15,
+        "a whole page: {}",
+        max - app.scroll_offset
+    );
+}
+
+#[test]
+fn the_scrollbar_sits_opposite_the_sidebar() {
+    let mut app = app();
+    for number in 1..=60 {
+        app.rows
+            .push(Row::Assistant(format!("the message {number}")));
+    }
+    app.sidebar.open = true;
+    app.sidebar_side = seek_core::user::Side::Left;
+    let lines = render_lines(&mut app, 120, 30);
+    let glyph = lines[0].chars().nth(119).expect("the bar column");
+    assert!(
+        glyph == '█' || glyph == '│',
+        "the bar is on the right: {glyph}"
+    );
+
+    app.sidebar_side = seek_core::user::Side::Right;
+    let lines = render_lines(&mut app, 120, 30);
+    let glyph = lines[0].chars().next().expect("the bar column");
+    assert!(
+        glyph == '█' || glyph == '│',
+        "the bar is on the left: {glyph}"
+    );
+}
+
+#[test]
+fn the_settings_can_move_the_sidebar() {
+    let mut app = app();
+    for c in "/settings".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    // "Sidebar side" is the second entry of the settings picker.
+    app.update(Message::Key(key(KeyCode::Down)));
+    app.update(Message::Key(key(KeyCode::Enter)));
+    // "right" is the second entry of the side picker.
+    app.update(Message::Key(key(KeyCode::Down)));
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.sidebar_side, seek_core::user::Side::Right);
+    assert_eq!(
+        command,
+        Some(Command::SetSidebarSide(seek_core::user::Side::Right))
+    );
+}
+
+#[test]
+fn scrolling_up_keeps_the_line_while_the_model_writes() {
+    let mut app = app();
+    for number in 1..=40 {
+        app.rows
+            .push(Row::Assistant(format!("the message {number}")));
+    }
+    render(&mut app, 100, 30);
+    app.update(Message::Scroll(10));
+    render(&mut app, 100, 30);
+    let held = app.scroll_offset;
+    assert!(held < seek_tui::scrollbar::max_offset(app.transcript_total, app.transcript_height));
+
+    app.rows.push(Row::Assistant("a new answer".into()));
+    render(&mut app, 100, 30);
+    assert_eq!(app.scroll_offset, held, "the read line stays in place");
+
+    // At the bottom the window follows the tail again.
+    app.update(Message::Key(key(KeyCode::End)));
+    render(&mut app, 100, 30);
+    let max = seek_tui::scrollbar::max_offset(app.transcript_total, app.transcript_height);
+    assert_eq!(app.scroll_offset, max);
+    app.rows.push(Row::Assistant("another answer".into()));
+    render(&mut app, 100, 30);
+    let max = seek_tui::scrollbar::max_offset(app.transcript_total, app.transcript_height);
+    assert_eq!(app.scroll_offset, max, "the tail is followed");
 }
 
 #[test]

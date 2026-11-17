@@ -127,6 +127,7 @@ async fn main() -> Result<()> {
     app.skills = runtime.skills.clone();
     // The name of the user: the first run asks for it (SPEC 9.5).
     app.user_name = Some(runtime.user.lock().await.name.clone());
+    app.sidebar_side = runtime.user.lock().await.sidebar_side;
     app.toggles = runtime.toggles.clone();
     app.external_tools = runtime.external_tools.clone();
     app.widgets = runtime.widgets.clone();

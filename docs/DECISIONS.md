@@ -390,3 +390,37 @@ Slash commands still work, including `/model` itself. The first run still asks f
 (SPEC 9.5). The fake demo provider is no longer reached by a normal message without a model.
 
 **Status:** accepted. The specification and the manual checklist were updated with it (§10).
+
+## D-018 — The transcript has a side bar, and the sidebar can move
+
+**Date:** 2026-11-17 · **Affects:** SPEC 9.5, 10.1, 10.2, 10.3, 10.4
+
+The owner asked for OMP's scrolling in SEEK and for a small bar on the side of the transcript. The
+sidebar itself should be able to sit on either side, with the bar always on the opposite side.
+
+**Scrolling.** The two scroll fields (`scroll` from the bottom and `scroll_top` as a frozen anchor)
+become one first-visible-row offset and a `follow_tail` flag, the way the oh-my-pi scroll view
+works (MIT). A fixed offset keeps the line the user is reading in place while the model appends;
+`follow_tail` keeps the view at the bottom only while it was already there. The thumb geometry is
+ported from `scroll-viewport.ts`: size `clamp(height² / total, 1, height)`, travel `height - size`,
+top `round(offset / maxOffset * travel)`.
+
+The bar is one column with a one-column gap, drawn only when the content overflows and never on
+Home. The text is re-wrapped with the two columns removed, so it never runs under the bar. With no
+sidebar the bar is on the right, as in OMP. The old numeric `↑ N of total` badge is the previous
+home of the same fact; it is now drawn only when the bar cannot be drawn, which keeps SPEC 10.2.
+
+**Mouse.** Mouse capture is now really enabled (`execute!(stdout(), EnableMouseCapture)`); before
+this the wheel handlers existed but no mouse events reached the event loop. A left click above or
+below the thumb pages in that direction, a click on the thumb or a drag maps the thumb row back to
+an offset with the same geometry. Shift+Up/Down scroll five lines; Up/Down stay with history and
+row selection, so they are not taken away.
+
+**Settings.** `state/user.toml` gains an optional `sidebar_side = "left" | "right"`, default
+`left`. This is a contract change but it is additive and `#[serde(default)]`: an old file parses
+unchanged, which is the migration. `/settings` opens a picker with "User name" and "Sidebar side";
+the second opens Left / Right and writes the choice back through a `SetSidebarSide` command. The
+sidebar rectangle is computed from the side, and the bar follows the opposite side at once.
+
+**Status:** accepted. The specification, the manual checklist and the changelog were updated
+(§10).

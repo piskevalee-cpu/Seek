@@ -23,6 +23,7 @@ use crate::logo;
 use crate::metrics::Metrics;
 use crate::picker::{Picker, PickerItem};
 use crate::prompt_bar;
+use crate::scrollbar;
 use crate::sidebar::{self, Sidebar};
 use crate::spinner::Spinner;
 use crate::theme::Theme;
@@ -156,12 +157,17 @@ pub enum UiMessage {
 /// Everything that can happen to the application.
 #[derive(Debug)]
 pub enum Message {
-    /// The application starts. Nothing is configured yet on the first run, so the picker asks
-    /// which model to use (SPEC 16.7).
+    /// The application starts. The chat opens with no model chosen (D-017).
     Start,
     Key(KeyEvent),
     /// The wheel of the mouse: a positive number scrolls up.
     Scroll(isize),
+    /// A click or drag on the side scrollbar; `row` is a terminal row, `col` a terminal column.
+    BarClick {
+        row: u16,
+        col: u16,
+        drag: bool,
+    },
     Resize(u16, u16),
     Tick,
     Agent(AgentEvent),
@@ -191,6 +197,8 @@ pub enum Command {
     SetMode(PermissionMode),
     /// Change the name of the user.
     SetUserName(String),
+    /// Move the sidebar to the other side. The scrollbar follows it (SPEC 10.3).
+    SetSidebarSide(seek_core::user::Side),
     /// Switch to another model. The switch happens between turns (SPEC 7.3).
     SwitchModel { id: String },
     /// Summarize the older turns into one message (SPEC 8).
@@ -291,13 +299,19 @@ pub struct App {
     pub status: Status,
     /// Messages typed while the agent is working.
     pub queued: Vec<String>,
-    /// How far the transcript is scrolled up; 0 means stuck to the bottom.
-    pub scroll: usize,
+    /// The first visible row of the transcript. A fixed offset keeps the line the user is reading
+    /// in place while the model writes more (SPEC 10.3).
+    pub scroll_offset: usize,
     /// The first line of the window, when the user scrolled up.
     ///
     /// The window is anchored to the content and not to the bottom, so the message that is
     /// being read stays where it is when the model writes more.
-    pub scroll_top: Option<usize>,
+    /// Whether new rows keep the window pinned to the bottom (SPEC 10.3).
+    pub follow_tail: bool,
+    /// Which side of the screen the sidebar sits on; the scrollbar is opposite.
+    pub sidebar_side: seek_core::user::Side,
+    /// Where the scrollbar was drawn on the last frame, for mouse hit testing.
+    bar_area: Rect,
     /// How many lines the transcript has, from the last draw.
     pub transcript_total: usize,
     /// How many lines the window of the transcript is high.
@@ -395,8 +409,10 @@ impl App {
             spinner: Spinner::new(),
             status: Status::Idle,
             queued: Vec::new(),
-            scroll: 0,
-            scroll_top: None,
+            scroll_offset: 0,
+            follow_tail: true,
+            sidebar_side: seek_core::user::Side::Left,
+            bar_area: Rect::ZERO,
             transcript_total: 0,
             transcript_height: 0,
             selected: None,
@@ -466,12 +482,12 @@ impl App {
             }
             Message::Key(key) => self.on_key(key),
             Message::Scroll(delta) => {
-                // The wheel scrolls the transcript. A negative number scrolls down.
-                if delta > 0 {
-                    self.scroll_up(delta as usize);
-                } else {
-                    self.scroll_down((-delta) as usize);
-                }
+                // The wheel scrolls the transcript. A positive number scrolls up.
+                self.scroll_by(-delta);
+                None
+            }
+            Message::BarClick { row, col, drag } => {
+                self.on_bar_click(row, col, drag);
                 None
             }
             Message::Resize(_, _) => None,
@@ -569,6 +585,16 @@ impl App {
             return None;
         }
 
+        // Up and Down are taken by the history and the selected row; Shift+Up and Shift+Down
+        // follow the oh-my-pi scroll view and move five transcript lines at a time.
+        if key.modifiers.contains(KeyModifiers::SHIFT)
+            && matches!(key.code, KeyCode::Up | KeyCode::Down)
+        {
+            let step = if key.code == KeyCode::Up { -5 } else { 5 };
+            self.scroll_by(step);
+            return None;
+        }
+
         match key.code {
             KeyCode::Enter => {
                 if key
@@ -642,20 +668,28 @@ impl App {
                 None
             }
             KeyCode::Home => {
-                self.input.move_home();
+                if self.input.is_empty() {
+                    self.set_scroll_offset(0);
+                } else {
+                    self.input.move_home();
+                }
                 None
             }
             KeyCode::End => {
-                self.input.move_end();
+                if self.input.is_empty() {
+                    self.scroll_to_bottom();
+                } else {
+                    self.input.move_end();
+                }
                 None
             }
             KeyCode::PageUp => {
-                // A page is the height of the window.
-                self.scroll_up(self.transcript_height.max(1));
+                // A page is the height of the window minus the line that stays in view.
+                self.scroll_by(-(self.transcript_height.saturating_sub(1).max(1) as isize));
                 None
             }
             KeyCode::PageDown => {
-                self.scroll_down(self.transcript_height.max(1));
+                self.scroll_by(self.transcript_height.saturating_sub(1).max(1) as isize);
                 None
             }
             KeyCode::Tab => {
@@ -788,52 +822,86 @@ impl App {
         self.completion_dismissed = false;
     }
 
-    /// The first line of the window of the transcript.
+    /// The first visible row of the transcript, clamped to the content.
     fn scroll_start(&self) -> usize {
-        match self.scroll_top {
-            Some(top) => top.min(self.transcript_total),
-            None => self
-                .transcript_total
-                .saturating_sub(self.transcript_height.saturating_add(self.scroll)),
-        }
+        scrollbar::clamp_offset(
+            self.scroll_offset,
+            self.transcript_total,
+            self.transcript_height,
+        )
     }
 
-    /// Scroll the transcript up by `lines`.
-    fn scroll_up(&mut self, lines: usize) {
-        let start = self.scroll_start().saturating_sub(lines);
-        self.set_scroll_start(start);
+    /// Move the window by `lines` (negative scrolls up).
+    fn scroll_by(&mut self, lines: isize) {
+        let start = self.scroll_start() as isize + lines;
+        self.set_scroll_offset(start.max(0) as usize);
     }
 
-    /// Scroll the transcript down by `lines`.
-    fn scroll_down(&mut self, lines: usize) {
-        let start = self.scroll_start().saturating_add(lines);
-        // The bottom is the end of the transcript: the window sticks there.
-        if start.saturating_add(self.transcript_height) >= self.transcript_total {
-            self.scroll_top = None;
-            self.scroll = 0;
-        } else {
-            self.set_scroll_start(start);
-        }
-    }
-
-    /// Put the window at a line.
-    fn set_scroll_start(&mut self, start: usize) {
-        let total = self.transcript_total;
-        let height = self.transcript_height;
-        if start.saturating_add(height) >= total {
-            // The bottom is the end of the transcript: the window sticks there.
-            self.scroll_top = None;
-            self.scroll = 0;
-            return;
-        }
-        self.scroll_top = Some(start);
-        self.scroll = total.saturating_sub(start.saturating_add(height));
+    /// Put the first visible row at `offset`.
+    ///
+    /// A manual scroll stops following the tail: new rows will then leave the line the user is
+    /// reading where it is. Reaching the bottom starts following again.
+    fn set_scroll_offset(&mut self, offset: usize) {
+        let max = scrollbar::max_offset(self.transcript_total, self.transcript_height);
+        self.scroll_offset = offset.min(max);
+        self.follow_tail = self.scroll_offset >= max;
     }
 
     /// Go back to the bottom of the transcript.
     fn scroll_to_bottom(&mut self) {
-        self.scroll = 0;
-        self.scroll_top = None;
+        self.scroll_offset = scrollbar::max_offset(self.transcript_total, self.transcript_height);
+        self.follow_tail = true;
+    }
+
+    /// The scrollbar goes opposite the sidebar; with no sidebar it sits on the right, as in
+    /// the oh-my-pi composer (MIT).
+    fn bar_side(&self, screen: Rect) -> seek_core::user::Side {
+        if self.sidebar.open && screen.width >= SIDEBAR_MIN_WIDTH {
+            self.sidebar_side.opposite()
+        } else {
+            seek_core::user::Side::Right
+        }
+    }
+
+    /// The transcript rows, with the thinking indicator at the tail when it is running.
+    fn transcript_rows(&self, width: usize) -> Vec<(usize, Line<'static>)> {
+        let mut lines = transcript_lines(&self.rows, &self.theme, self.show_reasoning, width);
+        if self.status == Status::Thinking {
+            if self.reduce_motion {
+                lines.push((
+                    usize::MAX,
+                    Line::from(Span::styled(
+                        crate::spinner::STATIC_THINKING,
+                        Style::new().fg(self.theme.dim),
+                    )),
+                ));
+            } else {
+                // The thinking line sits behind the message: a blank line, and the cubes
+                // in the column of the text.
+                lines.push((usize::MAX, Line::from("")));
+                lines.push((usize::MAX, self.spinner.shimmer_line(&self.theme)));
+            }
+        }
+        lines
+    }
+
+    /// A click or a drag on the scrollbar column.
+    fn on_bar_click(&mut self, row: u16, col: u16, drag: bool) {
+        let bar = self.bar_area;
+        if bar == Rect::ZERO || col != bar.x || row < bar.y || row >= bar.y + bar.height {
+            return;
+        }
+        let local = (row - bar.y) as usize;
+        let height = bar.height as usize;
+        let thumb = scrollbar::thumb_range(height, self.transcript_total, self.scroll_start());
+        if drag || (thumb.start..thumb.end).contains(&local) {
+            let offset = scrollbar::offset_at_row(height, self.transcript_total, local);
+            self.set_scroll_offset(offset);
+        } else if local < thumb.start {
+            self.scroll_by(-(self.transcript_height.max(1) as isize));
+        } else {
+            self.scroll_by(self.transcript_height.max(1) as isize);
+        }
     }
 
     /// Handle a key while the prompt bar asks for a permission.
@@ -1116,6 +1184,35 @@ impl App {
         };
 
         match picker.title.as_str() {
+            "settings" => {
+                if !choose {
+                    return None;
+                }
+                match picker.selected_item().map(|item| item.value.as_str()) {
+                    Some("settings:name") => {
+                        self.prompt_mode = PromptMode::Name;
+                        self.input = Input::new();
+                        return None;
+                    }
+                    Some("settings:side") => {
+                        self.overlay = Some(Overlay::Picker(self.side_picker()));
+                        return None;
+                    }
+                    _ => return None,
+                }
+            }
+            "settings-side" => {
+                if choose
+                    && let Some(value) = picker
+                        .selected_item()
+                        .and_then(|item| item.value.strip_prefix("side:"))
+                    && let Some(side) = seek_core::user::Side::parse(value)
+                {
+                    self.sidebar_side = side;
+                    return Some(Command::SetSidebarSide(side));
+                }
+                return None;
+            }
             "mode" => {
                 if let Some(value) = picker.selected_item().map(|item| item.value.clone())
                     && let Some(label) = value.strip_prefix("mode:")
@@ -1376,6 +1473,36 @@ impl App {
         })
         .collect();
         Picker::new("mode", items).tap_hint("Enter to choose, Esc to close")
+    }
+
+    /// The picker for `/settings`: the name and the side of the sidebar.
+    fn settings_picker(&self) -> Picker {
+        let items = vec![
+            PickerItem::new("User name", "settings:name")
+                .with_detail("Set the name SEEK calls you by"),
+            PickerItem::new("Sidebar side", "settings:side").with_detail(format!(
+                "The sidebar is on the {}",
+                self.sidebar_side.as_str()
+            )),
+        ];
+        Picker::new("settings", items).tap_hint("Enter to open, Esc to close")
+    }
+
+    /// The two sides for the sidebar setting.
+    fn side_picker(&self) -> Picker {
+        use seek_core::user::Side;
+        let items = [Side::Left, Side::Right]
+            .into_iter()
+            .map(|side| {
+                PickerItem::new(side.as_str(), format!("side:{}", side.as_str()))
+                    .with_check(self.sidebar_side == side)
+                    .with_detail(format!(
+                        "The scrollbar goes on the {}",
+                        side.opposite().as_str()
+                    ))
+            })
+            .collect();
+        Picker::new("settings-side", items).tap_hint("Enter to choose, Esc to close")
     }
 
     /// Toggle the reasoning level: off and the last one that was not off.
@@ -1685,9 +1812,8 @@ impl App {
                 None
             }
             "/settings" => {
-                // The settings of the user: the name SEEK calls them by.
-                self.prompt_mode = PromptMode::Name;
-                self.input = Input::new();
+                // The settings of the user: their name and where the sidebar sits.
+                self.overlay = Some(Overlay::Picker(self.settings_picker()));
                 None
             }
             "/think" => {
@@ -2003,24 +2129,31 @@ impl App {
             return;
         }
 
-        let (sidebar_area, main_area) = if self.sidebar.open && area.width >= SIDEBAR_MIN_WIDTH {
+        let use_sidebar = self.sidebar.open && area.width >= SIDEBAR_MIN_WIDTH;
+        let (sidebar_area, main_area) = if use_sidebar {
             let width = sidebar::SIDEBAR_WIDTH;
             // The gap between the sidebar and the messages: the transcript must not touch
             // the border of the sidebar.
             let gap = 2;
-            (
-                Rect::new(area.x, area.y, width, area.height),
-                Rect::new(
-                    area.x + width + gap,
-                    area.y,
-                    area.width - width - gap,
-                    area.height,
+            match self.sidebar_side {
+                seek_core::user::Side::Left => (
+                    Rect::new(area.x, area.y, width, area.height),
+                    Rect::new(
+                        area.x + width + gap,
+                        area.y,
+                        area.width - width - gap,
+                        area.height,
+                    ),
                 ),
-            )
+                seek_core::user::Side::Right => (
+                    Rect::new(area.x + area.width - width, area.y, width, area.height),
+                    Rect::new(area.x, area.y, area.width - width - gap, area.height),
+                ),
+            }
         } else {
             (Rect::ZERO, area)
         };
-        if self.sidebar.open && sidebar_area != Rect::ZERO {
+        if use_sidebar {
             self.sync_processes();
             sidebar::render(
                 frame,
@@ -2133,28 +2266,21 @@ impl App {
             return;
         }
 
-        let mut lines = transcript_lines(
-            &self.rows,
-            &self.theme,
-            self.show_reasoning,
-            area.width as usize,
-        );
-        if self.status == Status::Thinking {
-            if self.reduce_motion {
-                lines.push((
-                    usize::MAX,
-                    Line::from(Span::styled(
-                        crate::spinner::STATIC_THINKING,
-                        Style::new().fg(self.theme.dim),
-                    )),
-                ));
-            } else {
-                // The thinking line sits behind the message: a blank line, and the cubes
-                // in the column of the text.
-                lines.push((usize::MAX, Line::from("")));
-                lines.push((usize::MAX, self.spinner.shimmer_line(&self.theme)));
-            }
-        }
+        // Render once at the full width to decide whether the bar is needed, then again with a
+        // column reserved for the bar and its gap so the text never wraps under it.
+        let height = area.height as usize;
+        let full = self.transcript_rows(area.width as usize);
+        let show_bar = full.len() > height && area.width > 2;
+        let content_width = if show_bar {
+            area.width as usize - 2
+        } else {
+            area.width as usize
+        };
+        let lines = if show_bar {
+            self.transcript_rows(content_width)
+        } else {
+            full
+        };
 
         // The selected row is highlighted, so it is clear what Ctrl+O will expand.
         let selected = self.selected;
@@ -2170,31 +2296,56 @@ impl App {
             .collect();
 
         // The window of the transcript. It is anchored to the content when the user scrolled
-        // up, so the message that is being read stays where it is while the model writes.
-        let height = area.height as usize;
+        // up, so the message that is being read stays where it is while the model writes. Rows
+        // appended at the tail move the window only while it was following the tail.
         let total = lines.len();
         self.transcript_total = total;
         self.transcript_height = height;
+        if self.follow_tail {
+            self.scroll_offset = scrollbar::max_offset(total, height);
+        }
         let start = self.scroll_start();
         let end = start.saturating_add(height).min(total);
         let visible: Vec<Line> = lines[start..end].to_vec();
 
-        frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
+        if show_bar {
+            let bar_x = match self.bar_side(frame.area()) {
+                seek_core::user::Side::Right => area.x + area.width - 1,
+                seek_core::user::Side::Left => area.x,
+            };
+            self.bar_area = Rect::new(bar_x, area.y, 1, area.height);
+            let text_area = match self.bar_side(frame.area()) {
+                seek_core::user::Side::Right => {
+                    Rect::new(area.x, area.y, area.width - 2, area.height)
+                }
+                seek_core::user::Side::Left => {
+                    Rect::new(area.x + 2, area.y, area.width - 2, area.height)
+                }
+            };
+            frame.render_widget(ratatui::widgets::Paragraph::new(visible), text_area);
+            scrollbar::render(frame, self.bar_area, &self.theme, total, self.scroll_offset);
+        } else {
+            self.bar_area = Rect::ZERO;
+            frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
+        }
 
-        // The place in the transcript, when the user is not at the bottom: without it, the
-        // view looks the same however far up it is.
-        if self.scroll > 0 && area.height > 1 {
-            let badge = format!("↑ {} of {}", self.scroll, total);
-            let width = badge.chars().count() as u16 + 2;
-            let x = area.x + area.width.saturating_sub(width);
-            let badge_area = Rect::new(x, area.y, width, 1);
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(Span::styled(
-                    format!(" {badge} "),
-                    Style::new().fg(self.theme.bg).bg(self.theme.accent),
-                )),
-                badge_area,
-            );
+        // The numeric badge was the old home for the scroll position. It is kept only when the
+        // bar cannot be drawn; the bar is the home otherwise (SPEC 10.2).
+        if !show_bar && area.height > 1 {
+            let from_bottom = scrollbar::max_offset(total, height).saturating_sub(start);
+            if from_bottom > 0 {
+                let badge = format!("↑ {from_bottom} of {total}");
+                let width = badge.chars().count() as u16 + 2;
+                let x = area.x + area.width.saturating_sub(width);
+                let badge_area = Rect::new(x, area.y, width, 1);
+                frame.render_widget(
+                    ratatui::widgets::Paragraph::new(Span::styled(
+                        format!(" {badge} "),
+                        Style::new().fg(self.theme.bg).bg(self.theme.accent),
+                    )),
+                    badge_area,
+                );
+            }
         }
     }
 

@@ -19,6 +19,11 @@ workspace; each release ships a milestone (SPEC 15).
   green variant.
 
 ### Added
+- OMP-style transcript scrolling: a one-column side bar with a proportional thumb, wheel and
+  click/drag scrolling, Shift+Up/Down for five lines, and follow-tail behaviour for new answers.
+  The bar sits opposite the sidebar (SPEC 10.3).
+- `/settings` now offers the sidebar side (left or right) alongside the user name; the choice is
+  saved in `state/user.toml` as `sidebar_side` (SPEC 9.5).
 - OMP-style message completion in the prompt bar: `/` commands and skills, `@` file references
   found anywhere below the project, and path completion for `src/`, `./`, `../`, `~/` and absolute
   paths. Tab accepts, arrows move, Esc closes, and a path replaces only its token (SPEC 10.3).
