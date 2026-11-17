@@ -16,6 +16,8 @@
     <img src="assets/logo.png" alt="SEEK logo" width="240" height="240">
   </a>
 
+  <br /><br />
+
   <p align="center">
     A thin, local-first coding-agent harness for the terminal.
     <br />
