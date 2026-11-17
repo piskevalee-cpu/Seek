@@ -142,10 +142,11 @@ impl ThinkingGuard {
                         .to_string();
                     raw
                 }
-                // A paragraph that runs on is cut at the cap.
+                // A paragraph that runs on is cut at the cap, on a character boundary.
                 None if self.pending.len() > SEGMENT_CAP => {
-                    let raw = self.pending[..SEGMENT_CAP].to_string();
-                    self.pending = self.pending[SEGMENT_CAP..].to_string();
+                    let cut = char_floor(&self.pending, SEGMENT_CAP);
+                    let raw = self.pending[..cut].to_string();
+                    self.pending = self.pending[cut..].to_string();
                     raw
                 }
                 None => return,
@@ -242,7 +243,14 @@ impl ThinkingGuard {
     /// covering at least [`CYCLE_SHORT_MIN`] characters, or a long block that comes back three
     /// times covering at least [`CYCLE_LONG_MIN`].
     fn in_a_cycle(&self) -> bool {
-        let tail = &self.text[self.text.len().saturating_sub(CYCLE_TAIL)..];
+        // The lengths are character counts, so work on chars: a byte slice could start inside a
+        // multi-byte character and panic (SPEC 9.1).
+        let chars: Vec<char> = self.text.chars().collect();
+        let tail = if chars.len() > CYCLE_TAIL {
+            &chars[chars.len() - CYCLE_TAIL..]
+        } else {
+            &chars
+        };
         let n = tail.len();
 
         // A short block: four repeats.
@@ -483,8 +491,17 @@ fn summarize_text(text: &str, limit: usize) -> String {
     }
 }
 
+/// The last character boundary at or before `max` bytes, for cutting text safely.
+fn char_floor(text: &str, max: usize) -> usize {
+    text.char_indices()
+        .map(|(index, _)| index)
+        .take_while(|&index| index <= max)
+        .last()
+        .unwrap_or(0)
+}
+
 /// Whether the text ends with the same block, `repeats` times in a row.
-fn repeats_at(text: &str, length: usize, repeats: usize) -> bool {
+fn repeats_at(text: &[char], length: usize, repeats: usize) -> bool {
     let n = text.len();
     if length == 0 || n < length * repeats {
         return false;
@@ -657,6 +674,23 @@ fn push_reference(out: &mut Vec<String>, word: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn unicode_reasoning_does_not_panic() {
+        // The cycle check used to slice the text at byte offsets and panicked inside `è`.
+        let mut guard = ThinkingGuard::default();
+        let block = "Caffè e più tè, perché sì. ".repeat(8);
+        guard.push(&block);
+        let _ = guard.stall();
+    }
+
+    #[test]
+    fn a_long_unicode_paragraph_is_cut_on_a_boundary() {
+        let mut guard = ThinkingGuard::default();
+        guard.push(&"é".repeat(SEGMENT_CAP / 2 + 10));
+        // Draining the long paragraph must not split the last character.
+        let _ = guard.stall();
+    }
 
     #[test]
     fn a_short_reasoning_is_not_a_stall() {
