@@ -125,10 +125,16 @@ impl WebSearchTool {
             let Some(provider) = providers::provider(id) else {
                 continue;
             };
+            let label = provider.label();
             if !provider.is_available(&params) {
+                // A provider that is named but has no key is worth a word: the
+                // chain did not fail on the network, it never started.
+                if providers::needs_key(id) {
+                    let variable = providers::key_env_of(id).unwrap_or("the key");
+                    failures.push((label.to_string(), format!("{variable} is not set")));
+                }
                 continue;
             }
-            let label = provider.label();
             match provider.search(&params).await {
                 Ok(response) if response.sources.is_empty() => {
                     failures.push((label.to_string(), "no result".to_string()));
