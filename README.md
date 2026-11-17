@@ -49,6 +49,7 @@
     </li>
     <li><a href="#usage">Usage</a></li>
     <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#next-steps">Next Steps</a></li>
     <li><a href="#contributing">Contributing</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#contact">Contact</a></li>
@@ -188,13 +189,31 @@ known gaps.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+<!-- NEXT STEPS -->
+## Next Steps
+
+The three areas we want to grow next:
+
+1. **Provider support.** More model providers and auth flows, with the same streaming interface:
+   cloud APIs, local servers and gateways behind one catalog. Keys keep living in the environment
+   or `state/auth.json`.
+2. **Universal skills and tools.** Finish the skill and tool contracts so a `SKILL.md` or a
+   `tool.toml` can be shared between harnesses without rewriting it: discovery, permissions,
+   argument schemas and output stay portable (SPEC §9.3 and §9.5).
+3. **Widgets.** Broaden the home-screen widgets — more built-ins, configurable layout and live
+   data — while keeping the one-fact-one-home rule (SPEC §10.2 and §10.5).
+
+<p align="right">(<a href="#readme-top">back to top</a>)</p>
+
 <!-- CONTRIBUTING -->
 ## Contributing
 
 Contributions are welcome. Read [docs/SPEC.md](docs/SPEC.md) first: it is the source of truth.
+Branch rules, Conventional Commits, versioning and the checks to run before a pull request are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 1. Fork the repository.
-2. Create a branch from `develop` (`git checkout -b feat/short-name develop`).
+2. Create a branch from `develop` (`git checkout -b feature/<scope>-<short-name> develop`).
 3. Commit with a Conventional Commit (`feat(tui): add …`).
 4. Run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings` and
    `cargo test --workspace` before pushing.

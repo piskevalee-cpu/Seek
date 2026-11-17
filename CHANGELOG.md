@@ -9,6 +9,8 @@ workspace; each release ships a milestone (SPEC 15).
 ## [Unreleased]
 
 ### Changed
+- The README has a Next Steps section (provider support, universal skills and tools, widgets) and
+  points contributors to the new `CONTRIBUTING.md`.
 - SEEK opens on the chat with `[no model selected]` in the footer and in the prompt border; the
   model is chosen with `/model`. A message typed before that stays in the bar and gets a one-line
   note instead of being sent (SPEC 10.1).
