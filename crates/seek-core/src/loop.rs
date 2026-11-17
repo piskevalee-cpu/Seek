@@ -7,7 +7,7 @@
 //! a timeout per tool call, and errors that are returned to the model as `is_error` results
 //! instead of crashing the turn.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use futures::StreamExt;
@@ -62,6 +62,8 @@ pub struct ToolRegistry {
     pub fetch: Option<crate::tools::FetchTool>,
     /// The web search; it is on by default (SPEC 9.3).
     pub web_search: Option<crate::websearch::WebSearchTool>,
+    /// The external tools of `~/seek/tools`, filtered by the current toggles.
+    pub external: Vec<crate::external::ExternalTool>,
 }
 
 /// The permission mode, shared by the turns.
@@ -95,7 +97,9 @@ impl PermissionModeCell {
 /// The agent: a provider, the tools and the permission mode.
 pub struct Agent {
     provider: Arc<dyn Provider>,
-    tools: ToolRegistry,
+    /// Shared with the interface: `/tools` can replace the registry while a turn is running, and
+    /// the next request of the same turn sees the change (D-020).
+    tools: Arc<RwLock<ToolRegistry>>,
     /// The permission mode, read at every tool call.
     mode: PermissionModeCell,
     root: std::path::PathBuf,
@@ -104,6 +108,8 @@ pub struct Agent {
     processes: Arc<ProcessRegistry>,
     /// What else goes into the prompt: the skills and the instructions of the project.
     context: String,
+    /// A shared copy of the context, refreshed when `/skills` changes (D-020).
+    shared_context: Option<Arc<RwLock<String>>>,
     /// The name of the user: the model addresses them by it.
     user_name: Option<String>,
     /// The external tools of `~/seek/tools`.
@@ -126,13 +132,14 @@ impl Agent {
     ) -> Self {
         Agent {
             provider,
-            tools,
+            tools: Arc::new(RwLock::new(tools)),
             mode: PermissionModeCell::new(mode),
             root,
             config: AgentConfig::default(),
             permissions,
             processes,
             context: String::new(),
+            shared_context: None,
             user_name: None,
             external_tools: Vec::new(),
             usage: std::sync::Arc::new(std::sync::Mutex::new((0, 0))),
@@ -170,7 +177,22 @@ impl Agent {
 
     /// The external tools the agent may call.
     pub fn with_external_tools(mut self, tools: Vec<crate::external::ExternalTool>) -> Self {
-        self.external_tools = tools;
+        self.external_tools = tools.clone();
+        self.tools.write().expect("tools are not poisoned").external = tools;
+        self
+    }
+
+    /// Share the tool registry with the interface. `/tools` replaces its contents in place, so a
+    /// running turn sees the change on its next request (D-020).
+    pub fn with_shared_tools(mut self, tools: Arc<RwLock<ToolRegistry>>) -> Self {
+        self.tools = tools;
+        self
+    }
+
+    /// Share the context with the interface, so `/skills` changes the next request of a running
+    /// turn as well (D-020).
+    pub fn with_shared_context(mut self, context: Arc<RwLock<String>>) -> Self {
+        self.shared_context = Some(context);
         self
     }
 
@@ -201,16 +223,23 @@ impl Agent {
                 prompt.push_str(". Address them by that name.\n</user>");
             }
         }
-        if !self.context.is_empty() {
-            prompt.push_str("\n\n");
-            prompt.push_str(&self.context);
+        let live = self
+            .shared_context
+            .as_ref()
+            .map(|shared| shared.read().expect("context is not poisoned").clone())
+            .unwrap_or_default();
+        for context in [live, self.context.clone()] {
+            if !context.is_empty() {
+                prompt.push_str("\n\n");
+                prompt.push_str(&context);
+            }
         }
         prompt
     }
 
-    /// The tools the agent may call.
-    pub fn tools(&self) -> &ToolRegistry {
-        &self.tools
+    /// The tools the agent may call, as a snapshot for this request.
+    pub fn tools(&self) -> ToolRegistry {
+        self.tools.read().expect("tools are not poisoned").clone()
     }
 
     /// The process registry.
@@ -459,75 +488,67 @@ impl Agent {
     async fn execute(&self, name: &str, input: serde_json::Value) -> Result<String, String> {
         // The intent is for the interface, not for the tool.
         let input = without_intent(input);
+        let tools = self.tools();
         let call = async {
             match name {
                 "read" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .read
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("read is off".into()))?;
                     tool.call(input).await
                 }
                 "write" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .write
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("write is off".into()))?;
                     tool.call(input).await
                 }
                 "edit" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .edit
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("edit is off".into()))?;
                     tool.call(input).await
                 }
                 "bash" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .bash
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("bash is off".into()))?;
                     tool.call(input).await
                 }
                 "ls" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .ls
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("ls is off".into()))?;
                     tool.call(input).await
                 }
                 "grep" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .grep
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("grep is off".into()))?;
                     tool.call(input).await
                 }
                 "find" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .find
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("find is off".into()))?;
                     tool.call(input).await
                 }
                 "fetch" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .fetch
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("fetch is off".into()))?;
                     tool.call(input).await
                 }
                 "web_search" => {
-                    let tool = self
-                        .tools
+                    let tool = tools
                         .web_search
                         .as_ref()
                         .ok_or_else(|| ToolError::NotFound("web_search is off".into()))?;
@@ -535,10 +556,7 @@ impl Agent {
                 }
                 other => {
                     // An external tool runs its own executable.
-                    let Some(tool) = self
-                        .external_tools
-                        .iter()
-                        .find(|tool| tool.config.name == other)
+                    let Some(tool) = tools.external.iter().find(|tool| tool.config.name == other)
                     else {
                         return Err(ToolError::NotFound(other.to_string()));
                     };
@@ -580,36 +598,38 @@ impl Agent {
     ///
     /// Only the enabled tools are sent (SPEC 9.2).
     fn schemas(&self) -> Vec<crate::tool::ToolSchema> {
+        // A fresh snapshot per request: a toggle changed by `/tools` mid-turn is visible now.
+        let tools = self.tools();
         // Every tool carries the field for the intent of the call (SPEC 9.1).
         let mut schemas: Vec<crate::tool::ToolSchema> = Vec::new();
-        if self.tools.read.is_some() {
+        if tools.read.is_some() {
             schemas.push(crate::tools::read_schema());
         }
-        if self.tools.write.is_some() {
+        if tools.write.is_some() {
             schemas.push(crate::tools::write_schema());
         }
-        if self.tools.edit.is_some() {
+        if tools.edit.is_some() {
             schemas.push(crate::tools::edit_schema());
         }
-        if self.tools.bash.is_some() {
+        if tools.bash.is_some() {
             schemas.push(crate::tools::bash_schema());
         }
-        if self.tools.ls.is_some() {
+        if tools.ls.is_some() {
             schemas.push(crate::tools::ls_schema());
         }
-        if self.tools.grep.is_some() {
+        if tools.grep.is_some() {
             schemas.push(crate::tools::grep_schema());
         }
-        if self.tools.find.is_some() {
+        if tools.find.is_some() {
             schemas.push(crate::tools::find_schema());
         }
-        if self.tools.fetch.is_some() {
+        if tools.fetch.is_some() {
             schemas.push(crate::tools::fetch_schema());
         }
-        if self.tools.web_search.is_some() {
+        if tools.web_search.is_some() {
             schemas.push(crate::websearch::web_search_schema());
         }
-        for tool in &self.external_tools {
+        for tool in &tools.external {
             schemas.push(tool.tool_schema());
         }
         // Every tool carries the field for the intent of the call.
@@ -832,6 +852,7 @@ mod tests {
             find: None,
             fetch: None,
             web_search: None,
+            external: Vec::new(),
         };
         let (permissions, requests) = PermissionRequests::new();
         (
@@ -842,15 +863,60 @@ mod tests {
     }
 
     #[test]
+    fn the_agent_sees_tools_and_skills_change_mid_turn() {
+        let root = std::env::temp_dir().join("seek-agent-live-test");
+        let _ = std::fs::create_dir_all(&root);
+        let processes = Arc::new(ProcessRegistry::new());
+        let (permissions, _requests) = PermissionRequests::new();
+        let shared_tools = Arc::new(RwLock::new(ToolRegistry {
+            read: Some(ReadTool::new(root.clone())),
+            write: None,
+            edit: None,
+            bash: Some(BashTool::new(root.clone(), processes.clone())),
+            ls: None,
+            grep: None,
+            find: None,
+            fetch: None,
+            web_search: None,
+            external: Vec::new(),
+        }));
+        let shared_context = Arc::new(RwLock::new("skills: init".to_string()));
+        let agent = Agent::new(
+            Arc::new(ScriptedProvider::new(vec![vec![]])),
+            ToolRegistry::default(),
+            PermissionMode::Ask,
+            root,
+            processes,
+            permissions,
+        )
+        .with_shared_tools(shared_tools.clone())
+        .with_shared_context(shared_context.clone());
+
+        assert!(agent.schemas().iter().any(|tool| tool.name == "bash"));
+        assert!(agent.system_prompt().contains("skills: init"));
+
+        // The interface replaces the shared cells while the turn is running.
+        shared_tools.write().expect("tools").bash = None;
+        shared_context.write().expect("context").clear();
+
+        assert!(!agent.schemas().iter().any(|tool| tool.name == "bash"));
+        assert!(!agent.system_prompt().contains("skills: init"));
+    }
+
+    #[test]
     fn the_web_search_is_in_the_schemas_when_it_is_on() {
-        let (mut agent, _requests, _permissions) = agent(
+        let (agent, _requests, _permissions) = agent(
             Arc::new(ScriptedProvider::new(vec![vec![]])),
             PermissionMode::Ask,
         );
         let names: Vec<_> = agent.schemas().into_iter().map(|t| t.name).collect();
         assert!(!names.contains(&"web_search".to_string()), "{names:?}");
 
-        agent.tools.web_search = Some(crate::websearch::WebSearchTool::new(
+        agent
+            .tools
+            .write()
+            .expect("tools are not poisoned")
+            .web_search = Some(crate::websearch::WebSearchTool::new(
             crate::websearch::Settings::default(),
             &crate::config::Auth::default(),
         ));

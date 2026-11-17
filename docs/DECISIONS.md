@@ -477,3 +477,29 @@ positions and slowed to six seconds per traverse, peaking at 0.9 instead of 0.33
 twinkle was raised from 0.16 to 0.20. `reduce_motion` still holds both animations still.
 
 **Status:** accepted. The specification and the changelog were updated.
+
+## D-021 — Toggles are live mid-turn, the logo sweeps down, and the installer wears the mark
+
+**Date:** 2026-11-18 · **Affects:** SPEC 9.6, 12, 13
+
+The owner asked for tooling and skills to be toggleable in real time — the agent must see the
+change while it is working — and for the startup logo to be faster and more evident, sweeping
+from the top right to the low left. They also wanted that aesthetic in `install.sh`.
+
+**Live toggles.** `Runtime` now owns a shared `Arc<RwLock<ToolRegistry>>` and a shared context
+string. `save_toggles` writes the file and replaces both in place; `Agent` snapshots them at each
+request and each tool call. An external tool turned off is removed from the registry too. Skills
+changed with `/skills` rewrite the shared context, so the next request of the same turn sees the
+new catalog. Pins stay fixed for the turn as a separate context block. A turn still reads one
+consistent registry per call; only the permission mode applies at the instant of the call.
+
+**Logo.** The streak runs backwards along the diagonal (top right to low left), takes 4.2 seconds
+instead of six, is four diagonal cells wide, peaks at full highlight, and the small per-pixel
+twinkle was raised to 0.20. `reduce_motion` still rests it.
+
+**Installer.** `install.sh` prints the same 25 x 9 bitmap before it does any work. On a terminal
+it animates five frames with the same sweep; when stdout is not a TTY, or `NO_COLOR`/`CI` is set,
+it prints the resting frame in plain blocks. It uses `awk`, which POSIX sh already relies on, and
+no build artefacts.
+
+**Status:** accepted. The specification and the changelog were updated.
