@@ -283,7 +283,7 @@ Follow the Agent Skills format. A skill is a folder with `SKILL.md`: YAML frontm
 
 ### 9.6 Toggles
 
-`state/toggles.toml` stores enabled or disabled for tools and skills. Defaults: the four file and shell tools and the web search on, the helpers and `fetch` off, all installed skills on. `/tools` and `/skills` change the file **and** the running session: the next turn builds its tool list and skill catalog from the new toggles, so a tool turned off is neither announced nor callable (D-020).
+`state/toggles.toml` stores enabled or disabled for tools and skills. Defaults: the four file and shell tools and the web search on, the helpers and `fetch` off, all installed skills on. `/tools` and `/skills` change the file **and** the running session: the tool registry and the skill catalog are shared with the agent and replaced on every change, so the agent's next request sees them even in the middle of a turn. A tool turned off is neither announced nor callable (D-020).
 
 ### 9.7 Reasoning: thinking toggle and effort
 
@@ -458,11 +458,11 @@ Asset: `assets/logo.png`. The supplied version has a green background for contra
 - The symbol is a 3 x 3 square with a one-pixel arm in each of the four directions (a plus-shaped star in a 5 x 5 box), plus four detached single-pixel sparkles around it. It is exactly as tall as the letters, so they share a baseline.
 - The 3 x 3 core echoes the 3 x 3 thinking spinner, which gives the brand a consistent visual family.
 - Terminal rendering: extract the grid from the PNG once with a script, commit it as a constant bitmap in `seek-tui`, and draw each pixel as two columns of full blocks (50 x 9 cells), or with half-blocks (25 x 5) on short terminals. Below 56 columns show the word SEEK as plain text. Never scale the PNG at runtime.
-- Only the lit pixels are drawn: the background of the logo is the background of the terminal, not a block of colour. A wrapping streak like the thinking line's travels along the diagonal once every six seconds and lights the pixels enough to see, with a small per-pixel twinkle like the landing page's logo riding on it. The thinking line uses the same twinkle over its faster travelling streak. Both rest with `reduce_motion` (D-019, D-020).
+- Only the lit pixels are drawn: the background of the logo is the background of the terminal, not a block of colour. A wrapping streak like the thinking line's travels from the top right to the low left along the diagonal once every 4.2 seconds and lights the pixels at full brightness, with the per-pixel twinkle of the landing page's logo riding on it. The thinking line uses the same twinkle over its faster travelling streak. Both rest with `reduce_motion` (D-019, D-020).
 
 ## 13. Install script
 
-`install.sh` must be idempotent and never overwrite user files. It: (1) creates `~/seek/{skills,tools,models,widgets}`; (2) copies the built-in `init` skill and the `git` and `usage` widgets only if absent; (3) installs the `seek` binary to `~/.local/bin`, downloading the GitHub Release for the platform or running `cargo install --path crates/seek` with `--from-source`; (4) checks for `llama-server` and `git` and prints how to fix what is missing; (5) prints the next step. An optional `seek doctor` command repeats these checks.
+`install.sh` must be idempotent and never overwrite user files. It opens with the 25 x 9 logo in the terminal palette: a short diagonal sweep on an interactive terminal, the resting frame when output is piped, `NO_COLOR` or `CI` is set (D-021). It: (1) creates `~/seek/{skills,tools,models,widgets}`; (2) copies the built-in `init` skill and the `git` and `usage` widgets only if absent; (3) installs the `seek` binary to `~/.local/bin`, downloading the GitHub Release for the platform or running `cargo install --path crates/seek` with `--from-source`; (4) checks for `llama-server` and `git` and prints how to fix what is missing; (5) prints the next step. An optional `seek doctor` command repeats these checks.
 
 ## 14. Testing
 

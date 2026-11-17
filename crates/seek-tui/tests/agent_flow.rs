@@ -83,6 +83,7 @@ fn agent_with_permissions(
         find: None,
         fetch: None,
         web_search: None,
+        external: Vec::new(),
     };
     let (permissions, requests) = PermissionRequests::new();
     (

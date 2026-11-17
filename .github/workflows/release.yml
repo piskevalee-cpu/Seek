@@ -78,10 +78,15 @@ jobs:
           path: artifacts
       - name: The notes
         run: |
+          version="${GITHUB_REF_NAME#v}"
           {
             echo "## SEEK ${GITHUB_REF_NAME}"
             echo
-            sed -n '/^## \[Unreleased\]/,/^## \[/p' CHANGELOG.md | sed '1d;$d'
+            awk -v heading="## [${version}]" '
+              index($0, heading) == 1 { show = 1; next }
+              /^## \[/ && show { exit }
+              show
+            ' CHANGELOG.md
           } > notes.md
           cat notes.md
       - uses: softprops/action-gh-release@v2

@@ -8,12 +8,22 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-18
+
+The first patch after 0.7.0: a live tool and skill matrix, web search by query, OMP-style
+completion, `@` pins, the side scrollbar, the brand shimmer and the guard fix.
+
 ### Fixed
+- `/tools` and `/skills` now reach the running agent: the tool registry and skill catalog are
+  shared cells replaced on every toggle change, so the next request of the same turn sees them.
+  External tools follow the same rule (D-021).
+- The startup logo's streak now runs from the top right to the low left, takes 4.2 seconds, and
+  reaches full brightness; the old sweep was too faint and went the other way (D-021).
+- `install.sh` prints the 25 x 9 logo with the same sweep, and rests on a plain frame when piped
+  or when `NO_COLOR`/`CI` is set (D-021).
 - `/tools` and `/skills` now change the running session as well as the file: the next turn's tool
   list and skill catalog come from the new toggles, and disabled tools are no longer announced to
   the model. The system prompt no longer names individual tools (D-020).
-- The startup logo's shine is a visible wrapping streak like the thinking line's, but slower;
-  the previous band was too faint to see (D-020).
 - The thinking guard no longer panics on non-ASCII reasoning: cycle checks now index characters,
   and a paragraph cut at the cap lands on a character boundary. Tool output capping was already
   safe; this was the guard inspecting the model's own text (SPEC 9.1).

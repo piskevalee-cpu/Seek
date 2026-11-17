@@ -37,6 +37,83 @@ say() {
 	printf '%s\n' "$*"
 }
 
+# The same 25 x 9 bitmap the TUI draws. A short diagonal sweep runs from the top right to the
+# low left, the way the startup logo does; a non-interactive install gets the resting frame.
+print_logo_frame() {
+	awk -v frame="$1" -v plain="${2:-0}" '
+	{
+		rows[NR] = $0
+		while (length(rows[NR]) < 25) rows[NR] = rows[NR] " "
+	}
+	END {
+		esc = sprintf("%c", 27)
+		head = 1 - frame / 5
+		for (r = 1; r <= NR; r++) {
+			line = ""
+			for (c = 1; c <= 25; c++) {
+				ch = substr(rows[r], c, 1)
+				if (ch == " ") { line = line "  "; continue }
+				d = ((c - 1) + (9 - r)) / 34
+				forward = d - head
+				while (forward < 0) forward += 1
+				backward = head - d
+				while (backward < 0) backward += 1
+				dist = (forward < backward ? forward : backward) * 34
+				shine = dist < 4 ? (1 - dist / 4) ^ 2 : 0
+				if (ch == "#") {
+					br = 120; bg = 116; bb = 133
+					hr = 214; hg = 193; hb = 240
+					t = 0.55 + 0.45 * shine
+				} else {
+					br = 47; bg = 43; bb = 60
+					hr = 160; hg = 154; hb = 176
+					t = 0.6 * shine
+				}
+				if (t > 1) t = 1
+				rr = int(br + (hr - br) * t + 0.5)
+				gg = int(bg + (hg - bg) * t + 0.5)
+				b2 = int(bb + (hb - bb) * t + 0.5)
+				if (plain) {
+					line = line (ch == "#" ? "██" : "░░")
+				} else {
+					line = line esc "[38;2;" rr ";" gg ";" b2 "m██"
+				}
+			}
+			print line (plain ? "" : esc "[0m")
+		}
+	}
+	' <<'LOGO'
+    .
+  .
+ .  # .   ### ### ### # #
+   ### .  #   #   #   # #
+  #####.  ### ### ### ##
+   ###      # #   #   # #
+.   #     ### ### ### # #
+  ...
+      ..
+LOGO
+}
+
+banner() {
+	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ -z "${CI:-}" ]; then
+		frame=0
+		while [ "$frame" -lt 5 ]; do
+			if [ "$frame" -gt 0 ]; then
+				printf '\033[9A'
+			fi
+			print_logo_frame "$frame"
+			sleep 0.07
+			frame=$((frame + 1))
+		done
+	else
+		print_logo_frame 5 1
+	fi
+}
+
+banner
+say ""
+
 # ---------------------------------------------------------------- the folders
 
 say "==> the folders of $SEEK_HOME"

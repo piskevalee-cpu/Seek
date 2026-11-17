@@ -46,6 +46,13 @@ pub struct Runtime {
     /// Which tools and skills are enabled. Shared so `/tools` changes apply to the turns that
     /// follow without a restart.
     pub toggles: std::sync::RwLock<seek_core::Toggles>,
+    /// The tools of the turn that is running. `/tools` replaces its contents in place, so the
+    /// agent sees a change on its next request (D-020).
+    pub tools: Arc<std::sync::RwLock<seek_core::r#loop::ToolRegistry>>,
+    /// The context of the turn that is running, refreshed when `/skills` changes (D-020).
+    pub live_context: Arc<std::sync::RwLock<String>>,
+    /// The processes the tools have started.
+    pub processes: Arc<seek_core::ProcessRegistry>,
     /// The instructions of the project: the AGENTS.md of the working directory.
     pub project_context: String,
     /// The external tools of `~/seek/tools`.
@@ -117,6 +124,11 @@ impl Runtime {
             current_model: Mutex::new(None),
             skills,
             toggles: std::sync::RwLock::new(toggles),
+            tools: Arc::new(std::sync::RwLock::new(
+                seek_core::r#loop::ToolRegistry::default(),
+            )),
+            live_context: Arc::new(std::sync::RwLock::new(String::new())),
+            processes: Arc::new(seek_core::ProcessRegistry::new()),
             project_context,
             external_tools,
             widgets,
@@ -286,9 +298,66 @@ impl Runtime {
     /// Write the toggles to the state.
     pub fn save_toggles(&self, toggles: &seek_core::Toggles) {
         let _ = toggles.write(&self.state_dir.join("toggles.toml"));
-        // The file is the contract; the in-memory copy is what the next turn reads. Without this
-        // a tool turned off in `/tools` would still be announced to the model (D-020).
+        // The file is the contract; the shared copies are what the running agent reads.
         *self.toggles.write().expect("toggles are not poisoned") = toggles.clone();
+        self.refresh_live();
+    }
+
+    /// Rebuild everything the running agent sees from the current toggles.
+    ///
+    /// The tool registry and the skill catalog are shared with the agent, so `/tools` and
+    /// `/skills` reach even a turn that is in progress (D-020).
+    pub fn refresh_live(&self) {
+        *self.live_context.write().expect("context is not poisoned") = self.context();
+        let tools = self.build_tools(&self.root.clone());
+        *self.tools.write().expect("tools are not poisoned") = tools;
+    }
+
+    /// The tools enabled by the current toggles, rooted at `root`.
+    fn build_tools(&self, root: &Path) -> ToolRegistry {
+        let toggles = self.toggles.read().expect("toggles are not poisoned");
+        let external = self
+            .external_tools
+            .iter()
+            .filter(|tool| toggles.tool_enabled(&tool.config.name))
+            .cloned()
+            .collect();
+        ToolRegistry {
+            read: toggles
+                .tool_enabled("read")
+                .then(|| ReadTool::new(root.to_path_buf())),
+            write: toggles
+                .tool_enabled("write")
+                .then(|| WriteTool::new(root.to_path_buf())),
+            edit: toggles
+                .tool_enabled("edit")
+                .then(|| EditTool::new(root.to_path_buf())),
+            bash: toggles
+                .tool_enabled("bash")
+                .then(|| BashTool::new(root.to_path_buf(), self.processes.clone())),
+            ls: toggles
+                .tool_enabled("ls")
+                .then(|| seek_core::tools::LsTool::new(root.to_path_buf())),
+            grep: toggles
+                .tool_enabled("grep")
+                .then(|| seek_core::tools::GrepTool::new(root.to_path_buf())),
+            find: toggles
+                .tool_enabled("find")
+                .then(|| seek_core::tools::FindTool::new(root.to_path_buf())),
+            fetch: toggles
+                .tool_enabled("fetch")
+                .then(seek_core::tools::FetchTool::new),
+            web_search: toggles.tool_enabled("web_search").then(|| {
+                let config = load_config(&self.home);
+                let auth =
+                    seek_core::Auth::read(&self.home.join("state/auth.json")).unwrap_or_default();
+                seek_core::websearch::WebSearchTool::new(
+                    seek_core::websearch::Settings::from_config(&config.web_search),
+                    &auth,
+                )
+            }),
+            external,
+        }
     }
 
     /// Add to the lifetime usage and write it to the state.
@@ -386,7 +455,7 @@ pub async fn agent_loop(
     runtime: Arc<Runtime>,
 ) {
     let root = runtime.root.clone();
-    let processes = Arc::new(ProcessRegistry::new());
+    let processes = runtime.processes.clone();
 
     while let Some(command) = commands.recv().await {
         match command {
@@ -561,62 +630,9 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
     // context: the model reads the content with `read` when it needs it (D-019).
     let pins = seek_core::pins::find(&text, &root);
     let pin_context = seek_core::pins::context(&pins);
-    let mut context = runtime.context();
-    if !pin_context.is_empty() {
-        if !context.is_empty() {
-            context.push_str("\n\n");
-        }
-        context.push_str(&pin_context);
-    }
-
-    // Only the enabled tools are given to the agent (SPEC 9.2, 9.6). A snapshot is taken at the
-    // start of the turn, after any `/tools` change has been written by the command loop.
-    let toggles = runtime
-        .toggles
-        .read()
-        .expect("toggles are not poisoned")
-        .clone();
-    let tools = ToolRegistry {
-        read: toggles
-            .tool_enabled("read")
-            .then(|| ReadTool::new(root.clone())),
-        write: toggles
-            .tool_enabled("write")
-            .then(|| WriteTool::new(root.clone())),
-        edit: toggles
-            .tool_enabled("edit")
-            .then(|| EditTool::new(root.clone())),
-        bash: toggles
-            .tool_enabled("bash")
-            .then(|| BashTool::new(root.clone(), processes.clone())),
-        ls: toggles
-            .tool_enabled("ls")
-            .then(|| seek_core::tools::LsTool::new(root.clone())),
-        grep: toggles
-            .tool_enabled("grep")
-            .then(|| seek_core::tools::GrepTool::new(root.clone())),
-        find: toggles
-            .tool_enabled("find")
-            .then(|| seek_core::tools::FindTool::new(root.clone())),
-        fetch: toggles
-            .tool_enabled("fetch")
-            .then(seek_core::tools::FetchTool::new),
-        web_search: toggles.tool_enabled("web_search").then(|| {
-            let config = load_config(&runtime.home);
-            let auth = seek_core::Auth::read(&runtime.home.join("state").join("auth.json"))
-                .unwrap_or_default();
-            seek_core::websearch::WebSearchTool::new(
-                seek_core::websearch::Settings::from_config(&config.web_search),
-                &auth,
-            )
-        }),
-    };
-    let external_tools: Vec<_> = runtime
-        .external_tools
-        .iter()
-        .filter(|tool| toggles.tool_enabled(&tool.config.name))
-        .cloned()
-        .collect();
+    // The tool registry and the skill catalog are shared with the agent; rebuilding them here
+    // also applies any toggle change made since the last turn (D-020).
+    runtime.refresh_live();
 
     // The conversation goes on from turn to turn: the model sees what was said before.
     // The mode of the message is the mode of the session: the interface sends it with every
@@ -681,16 +697,23 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
 
     match provider {
         Some(provider) => {
+            let tool_snapshot = runtime
+                .tools
+                .read()
+                .expect("tools are not poisoned")
+                .clone();
             let agent = Agent::new(
                 Arc::from(provider),
-                tools,
+                tool_snapshot,
                 mode,
                 root.clone(),
                 processes.clone(),
                 permissions.clone(),
             )
-            .with_context(context)
-            .with_external_tools(external_tools)
+            // Pins are fixed for this turn; skills and tools can change mid-turn.
+            .with_context(pin_context)
+            .with_shared_tools(runtime.tools.clone())
+            .with_shared_context(runtime.live_context.clone())
             .with_usage(Arc::clone(&usage))
             // The mode is shared: the user can change it while the turn runs.
             .with_permission_mode(runtime.mode.clone())
@@ -1114,6 +1137,16 @@ mod tests {
                 .read()
                 .expect("toggles")
                 .skill_enabled("init")
+        );
+        let live = runtime.tools.read().expect("live tools");
+        assert!(live.bash.is_none(), "the running agent loses bash at once");
+        assert!(
+            !runtime
+                .live_context
+                .read()
+                .expect("live context")
+                .contains("init"),
+            "the running agent loses the skill at once"
         );
         let read = seek_core::Toggles::read(&home.join("state/toggles.toml")).expect("the file");
         assert_eq!(read, toggles);

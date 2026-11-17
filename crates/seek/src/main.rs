@@ -121,7 +121,7 @@ async fn main() -> Result<()> {
     app.branch = seek::git_branch();
     app.reduce_motion = cli.reduce_motion;
     app.providers = providers;
-    app.processes = Some(Arc::new(seek_core::ProcessRegistry::new()));
+    app.processes = Some(runtime.processes.clone());
     app.local_models = runtime.local_models.clone();
     app.logs = Some(logs);
     app.skills = runtime.skills.clone();

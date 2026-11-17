@@ -46,21 +46,22 @@ pub fn twinkle(index: usize, total: usize, secs: f32) -> f32 {
 ///
 /// `diag` is the normalized position on the diagonal: 0 is the bottom left, 1 is the top right.
 /// This is the same wrapping streak the thinking line uses, stretched over the whole mark and
-/// slowed down so it reads as a sweep rather than a blink. The head travels from the bottom left
-/// to the top right in [`LOGO_PERIOD`] seconds and wraps around to the bottom left.
-pub const LOGO_PERIOD: f32 = 6.0;
+/// slowed down so it reads as a sweep rather than a blink. The head travels from the top right
+/// to the bottom left in [`LOGO_PERIOD`] seconds and wraps back to the top right.
+pub const LOGO_PERIOD: f32 = 4.2;
 
 /// The half width of the streak, in diagonal pixels.
-const LOGO_HALF_WIDTH: f32 = 3.0;
+const LOGO_HALF_WIDTH: f32 = 4.0;
 /// The number of positions along the diagonal of the 25 x 9 bitmap.
 const LOGO_DIAGONAL: f32 = 34.0;
-/// The peak strength of the streak; the thinking line reaches 1.0, the logo is a touch softer.
-const LOGO_SHINE: f32 = 0.9;
+/// The peak strength of the streak; lit pixels reach the full highlight.
+const LOGO_SHINE: f32 = 1.0;
 /// A gentle breathing underneath the streak.
-const LOGO_PULSE: f32 = 0.05;
+const LOGO_PULSE: f32 = 0.08;
 
 pub fn shine_opacity(diag: f32, secs: f32) -> f32 {
-    let head = (secs / LOGO_PERIOD).rem_euclid(1.0);
+    // Run the head backwards along the diagonal: the sweep starts at the top right.
+    let head = (1.0 - (secs / LOGO_PERIOD).rem_euclid(1.0)).rem_euclid(1.0);
     let forward = (diag - head).rem_euclid(1.0);
     let backward = (head - diag).rem_euclid(1.0);
     let distance = forward.min(backward) * LOGO_DIAGONAL;
@@ -179,13 +180,15 @@ mod tests {
         };
         let start = peak_at(0.0);
         let middle = peak_at(LOGO_PERIOD / 2.0);
-        assert!(
-            start <= 1 || start >= 38,
-            "the streak starts at the edge: {start}"
-        );
+        let quarter = peak_at(LOGO_PERIOD / 4.0);
+        assert!(start >= 38, "the streak starts at the top right: {start}");
         assert!(
             (18..=21).contains(&middle),
             "the streak moves halfway: {middle}"
+        );
+        assert!(
+            (27..=31).contains(&quarter),
+            "it goes towards the low left: {quarter}"
         );
         assert_eq!(peak_at(LOGO_PERIOD), start, "it comes back around");
     }
