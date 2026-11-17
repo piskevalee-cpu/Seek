@@ -267,7 +267,10 @@ The tag is a user message: the system prompt tells the model that a message with
 
 The name of the user is asked for on the first run, in the prompt bar, and `/settings` asks it
 again. It is kept in `state/user.toml` (`schema = 1`) and goes into the prompt: the model
-addresses the user by it.
+addresses the user by it. The same file holds the optional `sidebar_side` (`left`, default, or
+`right`): `/settings` changes it, the sidebar moves at once, and the transcript scrollbar goes on
+the opposite side (10.3). An older file without the field reads as `left`; no schema bump is
+needed for the additive field.
 
 Follow the Agent Skills format. A skill is a folder with `SKILL.md`: YAML frontmatter (`name` up to 64 chars, lowercase letters, numbers and hyphens, matching the folder; `description` up to 1,024 chars saying what it does and when to use it; optional `license`, `compatibility`, `metadata`, `allowed-tools`) followed by Markdown instructions; optional `scripts/`, `references/`, `assets/`. Progressive disclosure: only `name`, `description` and path of enabled skills go in the prompt (about 100 tokens each); the model loads the body with `read`. The user runs a skill with `/<skill-name> <prompt>`, which inserts the body into that turn. `/skills` toggles each skill. `/init` ships as a built-in skill (like opencode's) that inspects the repo and writes `AGENTS.md`; SEEK loads `AGENTS.md` from the project root into the prompt when present.
 
@@ -327,16 +330,16 @@ reasoning_effort = 'medium'
 
 ### 10.1 Screens and regions
 
-Two states, one layout. Home (no messages yet) and Chat share the same regions; Home swaps the transcript for the logo and widgets. The chat is shown on the first frame with no model selected; the picker is opened by `/model`, never on startup.
+Two states, one layout. Home (no messages yet) and Chat share the same regions; Home swaps the transcript for the logo and widgets. The chat is shown on the first frame with no model selected; the picker is opened by `/model`, never on startup. The sidebar can sit on either side; the one-column transcript scrollbar is always drawn on the opposite side (right when the sidebar is closed).
 
 ```
 SIDEBAR OFF                              SIDEBAR ON (Ctrl+B)
-+------------------------------------+   +-----------+------------------------+
-| TRANSCRIPT                         |   | SESSIONS  | TRANSCRIPT             |
-| (Home: logo + widgets)             |   |           | (Home: logo + widgets) |
-|                                    |   | PROCESSES |                        |
-|                                    |   |           |                        |
-+------------------------------------+   | METRICS   +------------------------+
++------------------------------------+   +-----------+----------------------+
+| TRANSCRIPT                     |BR|   | SESSIONS  | TRANSCRIPT        |BR|
+| (Home: logo + widgets)         |  |   |           | (Home: logo ...)  |  |
+|                                |  |   | PROCESSES |                   |  |
+|                                |  |   |           |                   |  |
++------------------------------------+   | METRICS   +----------------------+
 | LOG STRIP (0-3 lines)              |   | ctx bar   | LOG STRIP              |
 | PROMPT BAR                         |   | tps, time | PROMPT BAR             |
 | METRICS (one line)                 |   | vitals    | FOOTER                 |
@@ -344,7 +347,7 @@ SIDEBAR OFF                              SIDEBAR ON (Ctrl+B)
 +------------------------------------+
 ```
 
-Minimum size 80x24; below that show one 'terminal too small' message. Sidebar width 30 columns; it hides automatically below 100 columns.
+Minimum size 80x24; below that show one 'terminal too small' message. Sidebar width 30 columns; it hides automatically below 100 columns. The scrollbar reserves one column plus a one-column gap inside the transcript area, only while the content overflows.
 
 ### 10.2 Ownership table (each fact has exactly one home)
 
@@ -363,6 +366,7 @@ Minimum size 80x24; below that show one 'terminal too small' message. Sidebar wi
 | Tool calls and results | Transcript, tool rows | Collapsed by default |
 | Queued messages | Transcript tail, pending style |  |
 | Turn-ending errors | Transcript, error row |  |
+| Scroll position | Transcript side bar | The numeric badge is used only when the bar cannot be drawn |
 | Permission prompt | Prompt bar (it changes mode) | No popup |
 | Thinking and loading animation | Transcript tail | One spinner at a time |
 | Provider setup | `/provider` picker |  |
@@ -384,7 +388,7 @@ Lifetime usage across sessions is the `usage` widget on Home; METRICS is the cur
 - **Metrics block.** Rows in this order: context bar with counts; tps and think time; rate limit (only if reported); CPU, RAM, GPU, VRAM. In the sidebar form each row has its own line; in the footer it drops elements from the right when the line is narrow.
 - **Log strip.** The newest line of the server and model events, dim. It hides after 10 s of silence and reappears on new events.
 - **Prompt bar.** A box with rounded corners: the name of the model in the top border, the keys and the status in the bottom one. The first frame is the chat with `[no model selected]` in both places: the model is chosen with `/model`, and a message typed before that stays in the bar with a one-line note instead of being sent.
-- **Scrolling.** The wheel scrolls the transcript, three lines at a time, and PageUp/PageDown scroll a page. The window is anchored to the content and not to the bottom, so the message that is being read stays where it is while the model writes. The place in the transcript is shown in the corner while the user is not at the bottom. The area of the input holds the text and nothing else, so the cursor is the only thing that moves in it, and the box keeps its shape while the agent works.
+- **Scrolling and the side bar.** The window is a single first-visible-row offset, clamped to `[0, total - height]`, with an oh-my-pi-style thumb (MIT): size `clamp(height² / total, 1, height)`, position proportional to the offset, drawn as `█` on a `│` track. The bar uses one column plus a one-column gap inside the transcript, is drawn only when the content overflows, and sits opposite the sidebar. The wheel scrolls three lines, Shift+Up/Down five, PgUp/PgDn a page (`height - 1`), Home/End the ends; the bar can be clicked or dragged. New rows keep the window pinned to the bottom only while it was at the bottom; otherwise the offset stays fixed, so the message being read does not move. The area of the input holds the text and nothing else, so the cursor is the only thing that moves in it, and the box keeps its shape while the agent works.
 - **Completion.** The composer completes what is typed, following the oh-my-pi composer (MIT): `/` completes the slash commands and the skills, `@` searches the files of the project (including hidden ones and paths below the first folder), and a path token that starts with `.`, `./`, `../`, `~/`, `/` or holds a `/` completes the entries of that directory. A command replaces the whole line; a path replaces only its token, keeping the prose around it and quoting a path with a space. A file is inserted with a trailing space; a directory keeps the token open so the list moves inside it. The arrows move the selection, Tab takes it, Enter takes a path without sending but takes and runs a command, Esc closes the list until the text changes. Multi-line input. Enter sends; Shift+Enter or Alt+Enter inserts a newline; Up and Down walk history on a single-line draft. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
 - **Footer.** One line: a mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name, then the reasoning chip (for example think: high; hidden when the model has no levels), then the working directory (shortened: the home is a `~`) and the git branch, and the metrics of the session. The metrics are in the footer when the sidebar is closed and at the bottom of the sidebar when it is open — never both (10.2). The `LOCAL` tag is only in the model picker: the chat names the model, and that is enough.
 - **Sidebar.** Sections in order: Sessions (title and relative time, current project first, Enter resumes), Processes (PID, tag, command, uptime; `x` kills the selected one), then Metrics pinned to the bottom. Tab moves focus into the sidebar when it is open.
@@ -398,6 +402,7 @@ Lifetime usage across sessions is the `usage` widget on Home; METRICS is the cur
 | `/provider` | Add or edit providers |
 | `/tools`, `/skills` | Toggle tools, skills |
 | `/mode` | Set permission mode |
+| `/settings` | Set the user name or the sidebar side |
 | `/new` | Start a new session |
 | `/resume` | Open the sidebar on Sessions |
 | `/compact` | Summarize older context |
@@ -416,7 +421,11 @@ Lifetime usage across sessions is the `usage` widget on Home; METRICS is the cur
 | Ctrl+B | Toggle sidebar |
 | Ctrl+O | Expand or collapse a tool row |
 | Ctrl+C | Clear input; twice quits |
-| PgUp / PgDn | Scroll transcript |
+| PgUp / PgDn | Scroll transcript by a page |
+| Shift+Up / Shift+Down | Scroll transcript by five lines |
+| Home / End | Scroll to the top / bottom when the prompt is empty |
+| Mouse wheel | Scroll transcript by three lines |
+| Click / drag the side bar | Page or jump to a position in the transcript |
 | Ctrl+T | Cycle the reasoning level |
 | Alt+T | Show or hide reasoning text |
 

@@ -139,8 +139,13 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   the lines, the edit says the line the change landed on.
 - The name of the user is in `state/user.toml`; the first run asks for it and `/settings` asks
   again.
-- The transcript is anchored to the content when the user scrolls up (`scroll_top` in the app),
-  not to the bottom: the message being read stays where it is while the model writes.
+- The transcript is anchored to the content when the user scrolls up (a single `scroll_offset`
+  plus `follow_tail` in the app, as in OMP), not to the bottom: the message being read stays where
+  it is while the model writes. The one-column scrollbar (`seek-tui::scrollbar`) is drawn opposite
+  the sidebar; with no sidebar it is on the right. It is the only home of the scroll position —
+  the old numeric badge is used only when the bar cannot be drawn (D-018).
+- Mouse capture is really enabled in `run.rs`; without `execute!(EnableMouseCapture)` the wheel
+  and the scrollbar drag never reach the event loop.
 - The tests that start a llama server take the lock of `seek_local::ServerLock` first: they are
   heavy, and the tests of the workspace run in parallel processes.
 - The keys come from a thread of their own (`crates/seek-tui/src/run.rs`). The reader of the

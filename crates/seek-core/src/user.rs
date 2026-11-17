@@ -19,6 +19,9 @@ pub struct UserSettings {
     /// The name of the user. The model addresses them by it.
     #[serde(default)]
     pub name: String,
+    /// Which side of the screen the sidebar sits on. The scrollbar is opposite (SPEC 10.3).
+    #[serde(default)]
+    pub sidebar_side: Side,
 }
 
 /// The schema version of the settings.
@@ -26,11 +29,52 @@ fn default_schema() -> u32 {
     1
 }
 
+/// Which side of the screen the sidebar sits on.
+///
+/// The transcript scrollbar is drawn on the opposite side (SPEC 10.3).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    /// The sidebar is on the left, the scrollbar on the right.
+    #[default]
+    Left,
+    /// The sidebar is on the right, the scrollbar on the left.
+    Right,
+}
+
+impl Side {
+    /// The name written to the settings file.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Side::Left => "left",
+            Side::Right => "right",
+        }
+    }
+
+    /// The other side.
+    pub fn opposite(self) -> Self {
+        match self {
+            Side::Left => Side::Right,
+            Side::Right => Side::Left,
+        }
+    }
+
+    /// Parse a name from the settings or the picker.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_lowercase().as_str() {
+            "left" => Some(Side::Left),
+            "right" => Some(Side::Right),
+            _ => None,
+        }
+    }
+}
+
 impl Default for UserSettings {
     fn default() -> Self {
         UserSettings {
             schema: 1,
             name: String::new(),
+            sidebar_side: Side::Left,
         }
     }
 }
@@ -95,11 +139,27 @@ mod tests {
         let settings = UserSettings {
             schema: 1,
             name: "Ada".into(),
+            sidebar_side: Side::Right,
         };
         settings.write(&path).expect("written");
         let read = UserSettings::read(&path);
         assert_eq!(read.name, "Ada");
+        assert_eq!(read.sidebar_side, Side::Right);
         assert!(read.has_name());
+    }
+
+    #[test]
+    fn an_old_file_without_a_side_gets_the_default() {
+        let dir = std::env::temp_dir().join("seek-user-side-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the folder is created");
+        let path = dir.join(USER_FILE);
+        std::fs::write(&path, "schema = 1\nname = 'Ada'\n").expect("written");
+        let read = UserSettings::read(&path);
+        assert_eq!(read.name, "Ada");
+        assert_eq!(read.sidebar_side, Side::Left);
+        assert_eq!(Side::Right.opposite(), Side::Left);
+        assert_eq!(Side::parse("RIGHT"), Some(Side::Right));
     }
 
     #[test]
@@ -107,6 +167,7 @@ mod tests {
         let settings = UserSettings {
             schema: 1,
             name: "Ada".into(),
+            sidebar_side: Side::Left,
         };
         let line = settings.prompt_line().expect("a line");
         assert!(line.contains("Ada"), "{line}");

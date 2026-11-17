@@ -14,6 +14,7 @@ pub mod metrics;
 pub mod picker;
 pub mod prompt_bar;
 pub mod run;
+pub mod scrollbar;
 pub mod shimmer;
 pub mod sidebar;
 pub mod spinner;

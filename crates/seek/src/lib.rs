@@ -449,6 +449,12 @@ pub async fn agent_loop(
                 user.name = name;
                 let _ = user.write(&runtime.state_dir.join(seek_core::user::USER_FILE));
             }
+            Command::SetSidebarSide(side) => {
+                // The scrollbar is drawn on the opposite side (SPEC 10.3).
+                let mut user = runtime.user.lock().await;
+                user.sidebar_side = side;
+                let _ = user.write(&runtime.state_dir.join(seek_core::user::USER_FILE));
+            }
             Command::SetMode(mode) => {
                 // The mode is read at every tool call: it applies to the turn that runs now
                 // (SPEC 9.4).

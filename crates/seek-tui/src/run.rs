@@ -26,15 +26,16 @@ pub type SeekTerminal = Terminal<CrosstermBackend<Stdout>>;
 /// terminal in a broken state (SPEC 4.2). The mouse is taken as well: the wheel scrolls
 /// the transcript, the way a chat does.
 pub fn init_terminal() -> SeekTerminal {
-    use crossterm::event::EnableMouseCapture;
-    let _ = EnableMouseCapture;
-    ratatui::init()
+    let terminal = ratatui::init();
+    // The wheel scrolls the transcript and the side bar can be dragged, so mouse capture has to
+    // be really on: naming the crossterm type is not enough.
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
+    terminal
 }
 
 /// Put the terminal back the way it was.
 pub fn restore_terminal() {
-    use crossterm::event::DisableMouseCapture;
-    let _ = DisableMouseCapture;
+    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
 }
 
@@ -84,6 +85,16 @@ pub async fn run(
                         crossterm::event::MouseEventKind::ScrollDown => {
                             Some(Message::Scroll(-MOUSE_SCROLL))
                         }
+                        kind @ (crossterm::event::MouseEventKind::Down(
+                            crossterm::event::MouseButton::Left,
+                        )
+                        | crossterm::event::MouseEventKind::Drag(
+                            crossterm::event::MouseButton::Left,
+                        )) => Some(Message::BarClick {
+                            row: mouse.row,
+                            col: mouse.column,
+                            drag: matches!(kind, crossterm::event::MouseEventKind::Drag(_)),
+                        }),
                         _ => None,
                     },
                     _ => None,
