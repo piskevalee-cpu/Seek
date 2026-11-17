@@ -43,8 +43,9 @@ pub struct Runtime {
     current_model: Mutex<Option<String>>,
     /// The installed skills.
     pub skills: Vec<seek_core::Skill>,
-    /// Which tools and skills are enabled.
-    pub toggles: seek_core::Toggles,
+    /// Which tools and skills are enabled. Shared so `/tools` changes apply to the turns that
+    /// follow without a restart.
+    pub toggles: std::sync::RwLock<seek_core::Toggles>,
     /// The instructions of the project: the AGENTS.md of the working directory.
     pub project_context: String,
     /// The external tools of `~/seek/tools`.
@@ -115,7 +116,7 @@ impl Runtime {
             local_models,
             current_model: Mutex::new(None),
             skills,
-            toggles,
+            toggles: std::sync::RwLock::new(toggles),
             project_context,
             external_tools,
             widgets,
@@ -269,8 +270,9 @@ impl Runtime {
     /// The context that goes into the prompt: the catalog of the skills and the instructions of
     /// the project.
     pub fn context(&self) -> String {
+        let enabled = self.toggles.read().expect("toggles are not poisoned");
         let mut context =
-            seek_core::skill::catalog(&self.skills, &|name| self.toggles.skill_enabled(name));
+            seek_core::skill::catalog(&self.skills, &|name| enabled.skill_enabled(name));
         if !self.project_context.is_empty() {
             if !context.is_empty() {
                 context.push_str("\n\n");
@@ -284,6 +286,9 @@ impl Runtime {
     /// Write the toggles to the state.
     pub fn save_toggles(&self, toggles: &seek_core::Toggles) {
         let _ = toggles.write(&self.state_dir.join("toggles.toml"));
+        // The file is the contract; the in-memory copy is what the next turn reads. Without this
+        // a tool turned off in `/tools` would still be announced to the model (D-020).
+        *self.toggles.write().expect("toggles are not poisoned") = toggles.clone();
     }
 
     /// Add to the lifetime usage and write it to the state.
@@ -564,41 +569,39 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
         context.push_str(&pin_context);
     }
 
-    // Only the enabled tools are given to the agent (SPEC 9.2, 9.6).
+    // Only the enabled tools are given to the agent (SPEC 9.2, 9.6). A snapshot is taken at the
+    // start of the turn, after any `/tools` change has been written by the command loop.
+    let toggles = runtime
+        .toggles
+        .read()
+        .expect("toggles are not poisoned")
+        .clone();
     let tools = ToolRegistry {
-        read: runtime
-            .toggles
+        read: toggles
             .tool_enabled("read")
             .then(|| ReadTool::new(root.clone())),
-        write: runtime
-            .toggles
+        write: toggles
             .tool_enabled("write")
             .then(|| WriteTool::new(root.clone())),
-        edit: runtime
-            .toggles
+        edit: toggles
             .tool_enabled("edit")
             .then(|| EditTool::new(root.clone())),
-        bash: runtime
-            .toggles
+        bash: toggles
             .tool_enabled("bash")
             .then(|| BashTool::new(root.clone(), processes.clone())),
-        ls: runtime
-            .toggles
+        ls: toggles
             .tool_enabled("ls")
             .then(|| seek_core::tools::LsTool::new(root.clone())),
-        grep: runtime
-            .toggles
+        grep: toggles
             .tool_enabled("grep")
             .then(|| seek_core::tools::GrepTool::new(root.clone())),
-        find: runtime
-            .toggles
+        find: toggles
             .tool_enabled("find")
             .then(|| seek_core::tools::FindTool::new(root.clone())),
-        fetch: runtime
-            .toggles
+        fetch: toggles
             .tool_enabled("fetch")
             .then(seek_core::tools::FetchTool::new),
-        web_search: runtime.toggles.tool_enabled("web_search").then(|| {
+        web_search: toggles.tool_enabled("web_search").then(|| {
             let config = load_config(&runtime.home);
             let auth = seek_core::Auth::read(&runtime.home.join("state").join("auth.json"))
                 .unwrap_or_default();
@@ -611,7 +614,7 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
     let external_tools: Vec<_> = runtime
         .external_tools
         .iter()
-        .filter(|tool| runtime.toggles.tool_enabled(&tool.config.name))
+        .filter(|tool| toggles.tool_enabled(&tool.config.name))
         .cloned()
         .collect();
 
@@ -1070,5 +1073,49 @@ pub fn git_branch() -> Option<String> {
         None
     } else {
         Some(branch)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_turned_off_in_tools_is_off_for_the_next_turn() {
+        let home =
+            std::env::temp_dir().join(format!("seek-runtime-toggles-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).expect("the home is created");
+        let runtime = Runtime::new(&home, "llama", Some("serve".into()));
+
+        assert!(
+            runtime
+                .toggles
+                .read()
+                .expect("toggles")
+                .tool_enabled("bash")
+        );
+        let mut toggles = runtime.toggles.read().expect("toggles").clone();
+        toggles.set_tool("bash", false);
+        toggles.set_skill("init", false);
+        runtime.save_toggles(&toggles);
+
+        // The running session sees the change at once, and the file keeps it for the next run.
+        assert!(
+            !runtime
+                .toggles
+                .read()
+                .expect("toggles")
+                .tool_enabled("bash")
+        );
+        assert!(
+            !runtime
+                .toggles
+                .read()
+                .expect("toggles")
+                .skill_enabled("init")
+        );
+        let read = seek_core::Toggles::read(&home.join("state/toggles.toml")).expect("the file");
+        assert_eq!(read, toggles);
     }
 }

@@ -453,3 +453,27 @@ over its travelling streak. `reduce_motion` still holds both still. This is colo
 keeps the terminal background behind its unlit pixels, and there is no new green in the theme.
 
 **Status:** accepted. The specification, the manual checklist and the changelog were updated.
+
+## D-020 — Toggles reach the running session, and the logo uses a visible streak
+
+**Date:** 2026-11-18 · **Affects:** SPEC 9.2, 9.6, 12
+
+A user reported that turning a tool off in `/tools` did not remove it: the model still saw its
+schema and called it. `Runtime::save_toggles` wrote `state/toggles.toml` but never updated the
+in-memory `Runtime.toggles` that every turn reads. The change only took effect after a restart.
+
+`Runtime.toggles` is now an `RwLock<Toggles>`. `save_toggles` writes the file and replaces the
+in-memory copy, and `run_turn` takes a snapshot before it builds the tool registry and the skill
+catalog. A tool turned off is therefore absent from the next request's `tools` and rejected if
+the model calls it by name; a skill turned off leaves the next turn's catalog. The snapshot rule
+keeps a turn consistent while it runs; the permission mode remains the only setting that applies
+mid-turn (SPEC 9.4). The system prompt no longer names individual tools — their schemas and
+descriptions are the home of that information — so the model is not told about a tool that was
+disabled.
+
+The startup logo's shine was too subtle to see. Replaced the wide raised-cosine band with the
+same wrapping triangular streak the thinking line uses, stretched over the logo's 34 diagonal
+positions and slowed to six seconds per traverse, peaking at 0.9 instead of 0.33. The per-pixel
+twinkle was raised from 0.16 to 0.20. `reduce_motion` still holds both animations still.
+
+**Status:** accepted. The specification and the changelog were updated.

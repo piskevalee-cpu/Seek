@@ -128,7 +128,11 @@ async fn main() -> Result<()> {
     // The name of the user: the first run asks for it (SPEC 9.5).
     app.user_name = Some(runtime.user.lock().await.name.clone());
     app.sidebar_side = runtime.user.lock().await.sidebar_side;
-    app.toggles = runtime.toggles.clone();
+    app.toggles = runtime
+        .toggles
+        .read()
+        .expect("toggles are not poisoned")
+        .clone();
     app.external_tools = runtime.external_tools.clone();
     app.widgets = runtime.widgets.clone();
     app.llama_subcommand = llama_subcommand;

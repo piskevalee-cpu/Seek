@@ -117,6 +117,9 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
 - SEEK opens on the chat with `[no model selected]`; no model picker on startup. `/model` opens
   it, and a message typed before a choice stays in the bar with a note instead of being sent.
   The first run still asks for the user's name.
+- Toggles live in `state/toggles.toml` and in a `RwLock` in `Runtime`: `save_toggles` updates
+  both, so a tool or skill turned off in `/tools` or `/skills` is absent from the next turn's
+  request. The system prompt does not name tools; their schemas do (D-020).
 - The `@` mentions in a message pin files or directories for the turn (`seek-core::pins`): only
   paths, sizes and a few directory names go into the context, never file content, and the
   permission matrix is unchanged (D-019). The chip row above the prompt is a view of the message
