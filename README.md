@@ -11,7 +11,7 @@
 <br />
 <div align="center">
   <a href="https://github.com/piskevalee-cpu/Seek">
-    <img src="assets/logo.png" alt="SEEK logo" width="120" height="120">
+    <img src="assets/logo.png" alt="SEEK logo" width="200" height="200">
   </a>
 
   <h3 align="center">SEEK</h3>
