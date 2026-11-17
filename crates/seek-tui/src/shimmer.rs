@@ -36,43 +36,40 @@ pub fn wave_brightness(tick: u64, index: u16, width: u16, speed: f32) -> f32 {
 /// cosine so index zero of an even-sized row is bright and the middle one rests at time zero.
 pub fn twinkle(index: usize, total: usize, secs: f32) -> f32 {
     const PERIOD: f32 = 0.75;
-    const AMPLITUDE: f32 = 0.16;
+    const AMPLITUDE: f32 = 0.20;
     let phase = index as f32 / total.max(1) as f32 * std::f32::consts::TAU;
     let wave = 0.5 + 0.5 * (std::f32::consts::TAU * secs / PERIOD + phase).cos();
     AMPLITUDE * wave
 }
 
-/// The opacity of the shine at a diagonal position, at a point in time.
+/// The travelling shine on the diagonal of the logo, in `[0, 1]`.
 ///
 /// `diag` is the normalized position on the diagonal: 0 is the bottom left, 1 is the top right.
-/// A raised-cosine band sweeps from the bottom left to the top right, and a gentle pulse
-/// breathes underneath it.
+/// This is the same wrapping streak the thinking line uses, stretched over the whole mark and
+/// slowed down so it reads as a sweep rather than a blink. The head travels from the bottom left
+/// to the top right in [`LOGO_PERIOD`] seconds and wraps around to the bottom left.
+pub const LOGO_PERIOD: f32 = 6.0;
+
+/// The half width of the streak, in diagonal pixels.
+const LOGO_HALF_WIDTH: f32 = 3.0;
+/// The number of positions along the diagonal of the 25 x 9 bitmap.
+const LOGO_DIAGONAL: f32 = 34.0;
+/// The peak strength of the streak; the thinking line reaches 1.0, the logo is a touch softer.
+const LOGO_SHINE: f32 = 0.9;
+/// A gentle breathing underneath the streak.
+const LOGO_PULSE: f32 = 0.05;
+
 pub fn shine_opacity(diag: f32, secs: f32) -> f32 {
-    /// The half width of the band; wider means a more gradual falloff.
-    const BAND: f32 = 0.38;
-    /// The seconds of one sweep plus its rest.
-    const CYCLE: f32 = 4.0;
-    /// The part of the cycle that is spent sweeping.
-    const SWEEP_FRAC: f32 = 0.32;
-    /// The peak strength of the shine.
-    const SHINE: f32 = 0.33;
-    /// The amount of the global breathing.
-    const PULSE: f32 = 0.06;
-    /// The period of the breathing, in seconds.
-    const PULSE_SECS: f32 = 5.0;
-
-    let p = (secs % CYCLE) / CYCLE;
-    let q = (p / SWEEP_FRAC).min(1.0);
-    let band_pos = -BAND + q * (1.0 + 2.0 * BAND);
-    let pulse = PULSE * (0.5 - 0.5 * (std::f32::consts::TAU * secs / PULSE_SECS).cos());
-
-    let d = (diag - band_pos).abs();
-    let shine = if d < BAND {
-        0.5 * (1.0 + (std::f32::consts::PI * d / BAND).cos())
-    } else {
+    let head = (secs / LOGO_PERIOD).rem_euclid(1.0);
+    let forward = (diag - head).rem_euclid(1.0);
+    let backward = (head - diag).rem_euclid(1.0);
+    let distance = forward.min(backward) * LOGO_DIAGONAL;
+    let streak = if distance >= LOGO_HALF_WIDTH {
         0.0
+    } else {
+        (1.0 - distance / LOGO_HALF_WIDTH).powf(2.0)
     };
-    (pulse + SHINE * shine).clamp(0.0, 1.0)
+    (LOGO_PULSE + LOGO_SHINE * streak).clamp(0.0, 1.0)
 }
 
 /// Blend a colour toward another one.
@@ -101,7 +98,7 @@ mod tests {
         for index in 0..8 {
             for secs in [0.0, 0.1, 0.4, 1.0] {
                 let value = twinkle(index, 8, secs);
-                assert!((0.0..=0.16).contains(&value), "{value}");
+                assert!((0.0..=0.20).contains(&value), "{value}");
             }
         }
         assert_ne!(twinkle(0, 8, 0.0), twinkle(4, 8, 0.0));
@@ -163,6 +160,34 @@ mod tests {
                 assert!((0.0..=1.0).contains(&opacity), "{opacity}");
             }
         }
+    }
+
+    #[test]
+    fn the_logo_streak_is_bright_enough_to_see() {
+        let peak = (0..40)
+            .map(|step| shine_opacity(step as f32 / 39.0, 0.0))
+            .fold(0.0f32, f32::max);
+        assert!(peak >= 0.8, "the streak should light up the mark: {peak}");
+    }
+
+    #[test]
+    fn the_logo_streak_travels_and_wraps() {
+        let peak_at = |secs| {
+            (0..40)
+                .max_by_key(|step| (shine_opacity(*step as f32 / 39.0, secs) * 1000.0) as u32)
+                .unwrap()
+        };
+        let start = peak_at(0.0);
+        let middle = peak_at(LOGO_PERIOD / 2.0);
+        assert!(
+            start <= 1 || start >= 38,
+            "the streak starts at the edge: {start}"
+        );
+        assert!(
+            (18..=21).contains(&middle),
+            "the streak moves halfway: {middle}"
+        );
+        assert_eq!(peak_at(LOGO_PERIOD), start, "it comes back around");
     }
 
     #[test]

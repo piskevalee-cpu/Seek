@@ -22,12 +22,12 @@ turn.
 
 <tools>
 - The tool results arrive as the next message. Read them before the next call.
-- `read` numbers every line: 12:the line. The number is not part of the file.
-- `edit` takes the line the read showed you and the text that replaces it. The text form
+- A file reader numbers every line: 12:the line. The number is not part of the file.
+- An edit takes the line the read showed you and the text that replaces it. The text form
   replaces an exact text and has to match one place.
 - Batch the independent calls in one turn: every turn costs seconds.
-- `web_search` finds pages by query, for facts the files do not hold. Search instead of guessing.
-- A pinned path was named by the user with `@`; inspect it with `read` when it matters.
+- Search the web when the answer depends on facts the files do not hold. Search instead of guessing.
+- A pinned path was named by the user with `@`; inspect it when it matters.
 - Prefer the paths of the working directory. Never open a file you have not been told about or
   found with a search.
 - Read the small files whole, the big ones in parts. Never read the same thing twice.
@@ -38,8 +38,8 @@ turn.
 
 <work>
 - Do the work now. Do not ask whether you should, and do not end with an offer to do it later.
-- Read a file before you change it. Prefer `edit` over `write`: `edit` needs the exact text,
-  `write` replaces everything.
+- Read a file before you change it. Prefer an exact edit over a whole-file write: the exact form
+  needs a unique match, the other replaces everything.
 - Change only what the request needs. Keep the conventions of the code around it.
 - Run the narrowest check that covers the change, once. Say what it said.
 - Say a thing is done, fixed or tested only when a tool showed it. Otherwise say what you did
@@ -248,7 +248,7 @@ mod tests {
             "Batch the independent calls",
             "not part of the file",
             "takes the line the read showed you",
-            "`web_search` finds pages by query",
+            "Search the web when the answer depends",
             "Do the work now",
             "only when a tool showed it",
             "<system-interrupt>",

@@ -9,6 +9,11 @@ workspace; each release ships a milestone (SPEC 15).
 ## [Unreleased]
 
 ### Fixed
+- `/tools` and `/skills` now change the running session as well as the file: the next turn's tool
+  list and skill catalog come from the new toggles, and disabled tools are no longer announced to
+  the model. The system prompt no longer names individual tools (D-020).
+- The startup logo's shine is a visible wrapping streak like the thinking line's, but slower;
+  the previous band was too faint to see (D-020).
 - The thinking guard no longer panics on non-ASCII reasoning: cycle checks now index characters,
   and a paragraph cut at the cap lands on a character boundary. Tool output capping was already
   safe; this was the guard inspecting the model's own text (SPEC 9.1).
