@@ -2,6 +2,11 @@
 //!
 //! The prompt must stay short: system prompt plus the default tool schemas have to fit in
 //! 1,500 tokens, enforced by the `prompt_budget` test.
+//!
+//! The shape follows the oh-my-pi harness (MIT): a role, the rules of the work, and the way
+//! of speaking. It is cut down to what a small model really needs to use the tools well:
+//! batch the calls, read before you write, do the work instead of offering to, and never
+//! report a check that was not run.
 
 use std::sync::LazyLock;
 
@@ -9,39 +14,77 @@ use crate::tool::{Risk, ToolSchema};
 
 /// The system prompt.
 ///
-/// Kept deliberately short. The pi harness ships about 1,000 tokens with four tools; that is the
-/// reference point.
+/// Kept deliberately short. The pi harness ships about 1,000 tokens with four tools; that is
+/// the reference point. This one is about a third of that.
 pub const SYSTEM_PROMPT: &str = "\
-You are SEEK, a coding agent working in the user's terminal.
+You are SEEK, a coding agent in the user's terminal. Complete what the user asked for, in this
+turn.
 
-Work in small steps: read before you write, prefer editing a file over rewriting it, and run the
-project's own checks after you change code.
+<tools>
+- The tool results arrive as the next message. Read them before the next call.
+- `read` numbers every line: 12:the line. The number is not part of the file.
+- `edit` takes the line the read showed you and the text that replaces it. The text form
+  replaces an exact text and has to match one place.
+- Batch the independent calls in one turn: every turn costs seconds.
+- `web_search` finds pages by query, for facts the files do not hold. Search instead of guessing.
+- Prefer the paths of the working directory. Never open a file you have not been told about or
+  found with a search.
+- Read the small files whole, the big ones in parts. Never read the same thing twice.
+- A tool that fails is not the end: read the error and try something different.
+- A message that begins with <system-interrupt> comes from SEEK itself, not from the user.
+  Follow it: it says that the last turn thought too long without acting.
+</tools>
 
-The user sees your messages as they stream. Tool results arrive as the next input, so call a tool
-again instead of guessing what it would have returned. If a tool fails, read the error and correct
-it.
+<work>
+- Do the work now. Do not ask whether you should, and do not end with an offer to do it later.
+- Read a file before you change it. Prefer `edit` over `write`: `edit` needs the exact text,
+  `write` replaces everything.
+- Change only what the request needs. Keep the conventions of the code around it.
+- Run the narrowest check that covers the change, once. Say what it said.
+- Say a thing is done, fixed or tested only when a tool showed it. Otherwise say what you did
+  not check and why.
+- If something is blocked, say so plainly. Finish the rest first.
+- Ask a question only when the answer changes what you would do, and only once.
+</work>
 
-Keep replies short. Say what you did and what you would do next.";
+<speaking>
+- Answer first: what is true, or what to do. Then the detail that supports it.
+- No preamble. Never write \"I'll\", \"I will\", \"Let me\", \"Wait\" or \"Hmm\".
+- Say what you did and what you found: the reader did not see your tool calls.
+- Short. A few lines for a small task, more only when the work needs it.
+- Plain words. No metaphors, no coined labels.
+</speaking>";
 
-/// The four tools that are on by default (SPEC 9.2).
+/// The name of the field that carries the intent of a tool call.
+///
+/// The oh-my-pi harness (MIT) uses a single letter: the intent is a short present participle
+/// that names what the call does, and it makes the model say what it is about to do.
+pub const INTENT_FIELD: &str = "i";
+
+/// The tools that are on by default (SPEC 9.2).
 pub static DEFAULT_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
     vec![
         ToolSchema::new(
             "read",
-            "Read a file.",
+            "Read a file. The lines carry the anchors: the first line and every tenth line start \
+             with the line number and a →. The anchor is not part of the file.",
             r#"{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}"#,
             Risk::Read,
         ),
         ToolSchema::new(
             "write",
-            "Write a file, replacing its content.",
+            "Create a file, or replace its content. The folders above it are created when they \
+             are missing.",
             r#"{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}"#,
             Risk::Write,
         ),
         ToolSchema::new(
             "edit",
-            "Replace an exact string in a file. The match must be unique.",
-            r#"{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}"#,
+            "Replace an exact string in a file. The text to replace must match exactly one \
+             place: add the lines around it to make it unique, or set replace_all to change \
+             every occurrence. An empty text to replace creates the file. The anchors of the \
+             read (the line number and a →) are not part of the file.",
+            r#"{"type":"object","properties":{"path":{"type":"string"},"old_string":{"type":"string"},"new_string":{"type":"string"},"replace_all":{"type":"boolean"}},"required":["path","old_string","new_string"]}"#,
             Risk::Write,
         ),
         ToolSchema::new(
@@ -50,6 +93,7 @@ pub static DEFAULT_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
             r#"{"type":"object","properties":{"command":{"type":"string"}},"required":["command"]}"#,
             Risk::Exec,
         ),
+        crate::websearch::web_search_schema(),
     ]
 });
 
@@ -80,6 +124,37 @@ pub static HELPER_TOOLS: LazyLock<Vec<ToolSchema>> = LazyLock::new(|| {
 /// Every tool that is known, enabled or not.
 pub fn all_tools() -> impl Iterator<Item = &'static ToolSchema> {
     DEFAULT_TOOLS.iter().chain(HELPER_TOOLS.iter())
+}
+
+/// Give a schema the field that carries the intent of the call.
+///
+/// The intent is a short present participle that names what the call does. It makes the model
+/// say what it is about to do, and it is shown in the transcript (SPEC 9.1).
+pub fn with_intent(schema: &ToolSchema) -> ToolSchema {
+    let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&schema.parameters) else {
+        return schema.clone();
+    };
+    let Some(object) = value.as_object_mut() else {
+        return schema.clone();
+    };
+    let properties = object
+        .entry("properties")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(properties) = properties.as_object_mut() {
+        properties.insert(
+            INTENT_FIELD.to_string(),
+            serde_json::json!({
+                "type": "string",
+                "description": "Two to six words, present participle: what this call does."
+            }),
+        );
+    }
+    ToolSchema {
+        name: schema.name.clone(),
+        description: schema.description.clone(),
+        parameters: value.to_string(),
+        risk: schema.risk,
+    }
 }
 
 /// The prompt prefix that is sent to a provider: the system prompt followed by the enabled tool
@@ -123,9 +198,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_tools_are_the_four_core_ones() {
+    fn default_tools_are_the_core_ones() {
         let names: Vec<_> = DEFAULT_TOOLS.iter().map(|t| t.name.as_str()).collect();
-        assert_eq!(names, ["read", "write", "edit", "bash"]);
+        assert_eq!(
+            names,
+            ["read", "write", "edit", "bash", "web_search"],
+            "the default tool set changed"
+        );
     }
 
     #[test]
@@ -159,5 +238,21 @@ mod tests {
     fn estimate_is_monotonic() {
         assert_eq!(estimate_tokens(""), 0);
         assert!(estimate_tokens("hello world") < estimate_tokens("hello world, hello world"));
+    }
+
+    #[test]
+    fn the_prompt_teaches_the_tools() {
+        // The rules that make a model use the tools well.
+        for rule in [
+            "Batch the independent calls",
+            "not part of the file",
+            "takes the line the read showed you",
+            "`web_search` finds pages by query",
+            "Do the work now",
+            "only when a tool showed it",
+            "<system-interrupt>",
+        ] {
+            assert!(SYSTEM_PROMPT.contains(rule), "the prompt says: {rule}");
+        }
     }
 }

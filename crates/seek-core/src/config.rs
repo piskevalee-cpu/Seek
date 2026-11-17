@@ -131,6 +131,16 @@ impl ProviderConfig {
         }
         None
     }
+
+    /// The key of the provider, from the environment or from the auth file.
+    pub fn api_key_with(&self, auth: &Auth) -> Option<String> {
+        if let Some(key) = self.api_key() {
+            return Some(key);
+        }
+        self.env
+            .iter()
+            .find_map(|name| auth.key(name).map(str::to_string))
+    }
 }
 
 /// The contents of `providers.toml`.
@@ -197,6 +207,80 @@ impl ProvidersConfig {
     }
 }
 
+/// The keys of the user, in `state/auth.json`.
+///
+/// The file is written with the mode 0600; the keys are never in `config.toml` or
+/// `providers.toml` (SPEC 5).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Auth {
+    /// The keys, by the name of the environment variable they stand in for.
+    #[serde(default)]
+    pub keys: BTreeMap<String, String>,
+}
+
+impl Auth {
+    /// Read the file.
+    pub fn read(path: &Path) -> std::io::Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        serde_json::from_str(&text).map_err(|error| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, error.to_string())
+        })
+    }
+
+    /// Write the file, readable by the owner only.
+    pub fn write(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(self).unwrap_or_default())?;
+        restrict_to_the_owner(path)
+    }
+
+    /// The key with that name.
+    pub fn key(&self, name: &str) -> Option<&str> {
+        self.keys.get(name).map(String::as_str)
+    }
+}
+
+/// Make a file readable and writable by its owner only.
+fn restrict_to_the_owner(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
+}
+
+/// The settings of the web search (SPEC 9.4).
+///
+/// The chain names the providers in the order they are tried. A provider that
+/// needs a key names the environment variable the key is in; the key itself
+/// never goes into this file (SPEC 5).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebSearchConfig {
+    /// The providers of the chain, in order. Empty means the default chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<String>>,
+    /// The address of a SearXNG instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub searxng_url: Option<String>,
+    /// The environment variable the key of a provider is in, by provider id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub key_env: BTreeMap<String, String>,
+}
+
+impl WebSearchConfig {
+    /// Whether the section is empty, so it can be left out of the file.
+    pub fn is_empty(&self) -> bool {
+        self.providers.is_none() && self.searxng_url.is_none() && self.key_env.is_empty()
+    }
+}
+
 /// The contents of `config.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
@@ -231,6 +315,9 @@ pub struct Config {
     /// Whether the animations are replaced by static text.
     #[serde(default)]
     pub reduce_motion: Option<bool>,
+    /// The settings of the web search.
+    #[serde(default, skip_serializing_if = "WebSearchConfig::is_empty")]
+    pub web_search: WebSearchConfig,
 }
 
 impl Default for Config {
@@ -245,6 +332,7 @@ impl Default for Config {
             llama_server_path: None,
             show_reasoning: None,
             reduce_motion: None,
+            web_search: WebSearchConfig::default(),
         }
     }
 }
@@ -353,6 +441,47 @@ tpm = 100000
     }
 
     #[test]
+    fn the_keys_live_in_the_auth_file() {
+        let dir = std::env::temp_dir().join("seek-auth-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("state").join("auth.json");
+
+        let mut auth = Auth::default();
+        auth.keys
+            .insert("ANTHROPIC_API_KEY".into(), "secret".into());
+        auth.write(&path).expect("written");
+
+        let read = Auth::read(&path).expect("read");
+        assert_eq!(read.key("ANTHROPIC_API_KEY"), Some("secret"));
+
+        // The file is readable by its owner only.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&path)
+                .expect("metadata")
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "the mode is {mode:o}");
+        }
+    }
+
+    #[test]
+    fn a_provider_finds_its_key_in_the_auth_file() {
+        let mut auth = Auth::default();
+        auth.keys.insert("MY_KEY".into(), "secret".into());
+        let provider = ProviderConfig {
+            name: None,
+            kind: None,
+            base_url: None,
+            env: vec!["MY_KEY".into()],
+            models: BTreeMap::new(),
+        };
+        // The environment has nothing, so the auth file is used.
+        assert_eq!(provider.api_key_with(&auth).as_deref(), Some("secret"));
+    }
+
+    #[test]
     fn the_config_round_trips() {
         let config = Config::parse("schema = 1\ndefault_mode = 'ask'\n").expect("parses");
         assert_eq!(config.schema, 1);
@@ -390,6 +519,35 @@ tpm = 100000
         let (path, subcommand) = config.llama_command();
         assert_eq!(path, "/usr/bin/llama");
         assert_eq!(subcommand.as_deref(), Some("serve"));
+    }
+
+    #[test]
+    fn the_web_search_section_is_read() {
+        let config = Config::parse(
+            "schema = 1\n[web_search]\nproviders = ['duckduckgo', 'brave']\n\
+             searxng_url = 'https://searx.example.org'\n\
+             [web_search.key_env]\nbrave = 'MY_BRAVE_KEY'\n",
+        )
+        .expect("parses");
+        assert_eq!(
+            config.web_search.providers.as_deref(),
+            Some(&["duckduckgo".to_string(), "brave".to_string()][..])
+        );
+        assert_eq!(
+            config.web_search.searxng_url.as_deref(),
+            Some("https://searx.example.org")
+        );
+        assert_eq!(
+            config.web_search.key_env.get("brave").map(String::as_str),
+            Some("MY_BRAVE_KEY")
+        );
+    }
+
+    #[test]
+    fn an_empty_web_search_section_is_not_written() {
+        let config = Config::parse("schema = 1\n").expect("parses");
+        let text = toml::to_string_pretty(&config).expect("serializes");
+        assert!(!text.contains("web_search"), "{text}");
     }
 
     #[test]

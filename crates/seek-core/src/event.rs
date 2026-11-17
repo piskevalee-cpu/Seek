@@ -57,10 +57,19 @@ pub enum AgentEvent {
         id: String,
         name: String,
     },
+    /// The tool call is still arriving: the arguments grow.
+    ToolCallDelta {
+        id: String,
+        name: String,
+        /// The arguments as they have come so far.
+        arguments: String,
+    },
     ToolCallReady {
         id: String,
         name: String,
         input: serde_json::Value,
+        /// What the call does, in a few words: the intent of the model.
+        intent: Option<String>,
     },
     PermissionRequest(PermissionRequest),
     ToolOutput(ToolOutput),

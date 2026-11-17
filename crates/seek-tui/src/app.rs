@@ -16,6 +16,7 @@ use seek_llm::catalog::{ModelInfo, bundled_models};
 use seek_local::model::{LocalModel, sidecar_path};
 use seek_local::options::LaunchOptions;
 
+use crate::completion::{self, Completion, Kind};
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
 use crate::input::Input;
 use crate::logo;
@@ -42,6 +43,116 @@ pub const SIDEBAR_MIN_WIDTH: u16 = 100;
 /// A tick is sent every 100 ms (SPEC 4.2).
 pub const TICK_MS: u64 = 100;
 
+/// The form that adds a provider (SPEC 10.3).
+///
+/// The fields are edited in place; Tab moves to the next one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProviderForm {
+    /// The fields, as (label, value).
+    pub fields: Vec<(String, String)>,
+    /// The field that is edited.
+    pub current: usize,
+}
+
+impl Default for ProviderForm {
+    fn default() -> Self {
+        ProviderForm::new()
+    }
+}
+
+impl ProviderForm {
+    /// A form with the fields of the specification.
+    pub fn new() -> Self {
+        ProviderForm {
+            fields: vec![
+                ("name".into(), String::new()),
+                ("kind".into(), "anthropic-messages".into()),
+                ("base url".into(), String::new()),
+                ("key env".into(), String::new()),
+                ("models".into(), String::new()),
+                ("context".into(), String::new()),
+                ("rpm".into(), String::new()),
+                ("tpm".into(), String::new()),
+            ],
+            current: 0,
+        }
+    }
+
+    /// The value of a field.
+    pub fn value(&self, label: &str) -> String {
+        self.fields
+            .iter()
+            .find(|(name, _)| name == label)
+            .map(|(_, value)| value.clone())
+            .unwrap_or_default()
+    }
+
+    /// The provider the form describes, if it is complete enough.
+    pub fn to_config(&self) -> Option<seek_core::ProviderConfig> {
+        let name = self.value("name");
+        let base_url = self.value("base url");
+        if name.is_empty() || base_url.is_empty() {
+            return None;
+        }
+        let kind = match self.value("kind").as_str() {
+            "anthropic-messages" => "anthropic-messages",
+            "openai-chat" => "openai-chat",
+            _ => return None,
+        };
+
+        let mut models = std::collections::BTreeMap::new();
+        for model in self.value("models").split(',') {
+            let model = model.trim();
+            if model.is_empty() {
+                continue;
+            }
+            models.insert(
+                model.to_string(),
+                seek_core::ModelConfig {
+                    name: None,
+                    context: self.value("context").parse().ok(),
+                    rpm: self.value("rpm").parse().ok(),
+                    tpm: self.value("tpm").parse().ok(),
+                    variant_default: None,
+                    variants: std::collections::BTreeMap::new(),
+                    disabled: None,
+                },
+            );
+        }
+
+        let env = self.value("key env");
+        Some(seek_core::ProviderConfig {
+            name: Some(self.value("name")),
+            kind: Some(kind.to_string()),
+            base_url: Some(base_url),
+            env: if env.is_empty() {
+                Vec::new()
+            } else {
+                env.split(',')
+                    .map(|name| name.trim().to_string())
+                    .filter(|name| !name.is_empty())
+                    .collect()
+            },
+            models,
+        })
+    }
+}
+
+/// What the UI receives from outside the agent.
+#[derive(Debug, Clone, PartialEq)]
+pub enum UiMessage {
+    /// The output of a home widget (SPEC 10.5).
+    Widget(seek_core::WidgetOutput),
+    /// The size of the window of the model that is running (SPEC 8).
+    Context(u32),
+    /// The sessions of the sidebar (SPEC 10.2).
+    Sessions(Vec<seek_core::SessionInfo>),
+    /// The messages of a session that was resumed (SPEC 11).
+    Session(Vec<seek_core::Message>),
+    /// The models an endpoint knows (SPEC 6).
+    Models(std::collections::BTreeMap<String, Vec<String>>),
+}
+
 /// Everything that can happen to the application.
 #[derive(Debug)]
 pub enum Message {
@@ -49,15 +160,25 @@ pub enum Message {
     /// which model to use (SPEC 16.7).
     Start,
     Key(KeyEvent),
+    /// The wheel of the mouse: a positive number scrolls up.
+    Scroll(isize),
     Resize(u16, u16),
     Tick,
     Agent(AgentEvent),
     /// The output of a home widget (SPEC 10.5).
     Widget(seek_core::WidgetOutput),
+    /// The size of the window of the model that is running (SPEC 8).
+    Context(u32),
+    /// The sessions of the sidebar (SPEC 10.2).
+    Sessions(Vec<seek_core::SessionInfo>),
+    /// The messages of a session that was resumed (SPEC 11).
+    Session(Vec<seek_core::Message>),
+    /// The models an endpoint knows (SPEC 6).
+    Models(std::collections::BTreeMap<String, Vec<String>>),
 }
 
 /// A side effect that the binary has to perform.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub enum Command {
     /// Hand a message to the agent, with the permission mode the user chose.
     Submit { text: String, mode: PermissionMode },
@@ -66,12 +187,29 @@ pub enum Command {
         id: u64,
         decision: PermissionDecision,
     },
+    /// Change the permission mode.
+    SetMode(PermissionMode),
+    /// Change the name of the user.
+    SetUserName(String),
     /// Switch to another model. The switch happens between turns (SPEC 7.3).
     SwitchModel { id: String },
     /// Summarize the older turns into one message (SPEC 8).
     Compact { messages: Vec<CoreMessage> },
     /// Write the toggles to the state.
     SetToggles(seek_core::Toggles),
+    /// A picker closed: the toggles changed and a model may have been chosen.
+    PickerClosed {
+        toggles: seek_core::Toggles,
+        model: Option<String>,
+    },
+    /// Start a new session (SPEC 11).
+    NewSession,
+    /// Resume a session (SPEC 11).
+    ResumeSession(String),
+    /// Stop the turn that is running (SPEC 9.1).
+    Cancel,
+    /// Add a provider (SPEC 10.3).
+    AddProvider(seek_core::ProviderConfig),
     /// Run the home widgets.
     RunWidgets,
     /// Leave.
@@ -108,6 +246,8 @@ pub enum PromptMode {
         tool: String,
         summary: String,
     },
+    /// The user is telling SEEK their name.
+    Name,
 }
 
 /// The choices of the permission selector.
@@ -119,6 +259,8 @@ pub enum Overlay {
     Help,
     /// A filterable list.
     Picker(Picker),
+    /// The form that adds a provider.
+    ProviderForm(ProviderForm),
     /// The launch options of a local model (SPEC 7.4).
     Options {
         /// The id of the model.
@@ -131,6 +273,9 @@ pub enum Overlay {
         input: Input,
     },
 }
+
+/// The text of the model chip before the user chooses a model with `/model`.
+pub const NO_MODEL: &str = "[no model selected]";
 
 /// The application state.
 #[derive(Debug)]
@@ -148,6 +293,15 @@ pub struct App {
     pub queued: Vec<String>,
     /// How far the transcript is scrolled up; 0 means stuck to the bottom.
     pub scroll: usize,
+    /// The first line of the window, when the user scrolled up.
+    ///
+    /// The window is anchored to the content and not to the bottom, so the message that is
+    /// being read stays where it is when the model writes more.
+    pub scroll_top: Option<usize>,
+    /// How many lines the transcript has, from the last draw.
+    pub transcript_total: usize,
+    /// How many lines the window of the transcript is high.
+    pub transcript_height: usize,
     /// The selected transcript row.
     pub selected: Option<usize>,
     pub overlay: Option<Overlay>,
@@ -169,6 +323,8 @@ pub struct App {
     pub current: Option<ModelInfo>,
     /// The reasoning level of the current model.
     pub reasoning: Option<String>,
+    /// The last level that was not off, so that `/think` can toggle back to it (SPEC 9.7).
+    pub last_reasoning: Option<String>,
     /// What the prompt bar is doing.
     pub prompt_mode: PromptMode,
     /// The processes the agent started.
@@ -193,13 +349,27 @@ pub struct App {
     pub widget_outputs: Vec<seek_core::WidgetOutput>,
     /// Whether the widgets have been run for this home screen.
     widgets_ran: bool,
-    /// Whether the model picker has been opened for the first run.
-    asked_for_model: bool,
+    /// When the application started, for the shimmer.
+    started: std::time::Instant,
+    /// The text of the model chip when no model was chosen yet.
+    pub user_name: Option<String>,
+    /// The suggestion that is picked in the dropdown of the completions.
+    suggestion: usize,
+    /// Whether Esc closed the dropdown. Typing opens it again.
+    completion_dismissed: bool,
     /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
     /// from the current model.
     pub model_configured: bool,
     /// The subcommand that starts the local server, when there is one.
     pub llama_subcommand: Option<String>,
+    /// The sessions of the sidebar (SPEC 10.2).
+    pub sessions: Vec<seek_core::SessionInfo>,
+    /// The models the endpoints know, by provider (SPEC 6).
+    pub discovered: std::collections::BTreeMap<String, Vec<String>>,
+    /// The selected session.
+    pub session_selected: usize,
+    /// Whether the keyboard is in the sidebar.
+    pub sidebar_focused: bool,
     /// Which tools and skills are enabled.
     pub toggles: seek_core::Toggles,
     /// When the turn started.
@@ -214,8 +384,8 @@ impl App {
             theme,
             mode: PermissionMode::Ask,
             model: ModelChip {
-                provider: "fake".into(),
-                model: "fake/demo".into(),
+                provider: String::new(),
+                model: NO_MODEL.to_string(),
                 local: false,
             },
             rows: Vec::new(),
@@ -226,6 +396,9 @@ impl App {
             status: Status::Idle,
             queued: Vec::new(),
             scroll: 0,
+            scroll_top: None,
+            transcript_total: 0,
+            transcript_height: 0,
             selected: None,
             overlay: None,
             should_quit: false,
@@ -239,6 +412,7 @@ impl App {
             catalog: bundled_models(),
             current: None,
             reasoning: None,
+            last_reasoning: None,
             prompt_mode: PromptMode::Normal,
             processes: None,
             process_selected: 0,
@@ -251,12 +425,19 @@ impl App {
             widgets: Vec::new(),
             widget_outputs: Vec::new(),
             widgets_ran: false,
+            started: std::time::Instant::now(),
             toggles: seek_core::Toggles::default(),
             turn_started: None,
             think_started: None,
-            asked_for_model: false,
+            user_name: None,
+            suggestion: 0,
+            completion_dismissed: false,
             model_configured: false,
             llama_subcommand: None,
+            sessions: Vec::new(),
+            discovered: std::collections::BTreeMap::new(),
+            session_selected: 0,
+            sidebar_focused: false,
         }
     }
 
@@ -265,18 +446,34 @@ impl App {
         self.dirty
     }
 
+    /// The seconds since the application started, for the shimmer.
+    pub fn anim_secs(&self) -> f32 {
+        self.started.elapsed().as_secs_f32()
+    }
+
     /// Handle a message.
     pub fn update(&mut self, message: Message) -> Option<Command> {
         self.dirty = true;
         let command = match message {
             Message::Start => {
-                if !self.model_configured && !self.local_models.is_empty() {
-                    self.asked_for_model = true;
-                    self.overlay = Some(Overlay::Picker(self.model_picker()));
+                // The chat opens at once. The model is chosen with `/model`; no picker is put in
+                // the way of the first turn, and the footer says `[no model selected]`.
+                // The first run asks for the name: the model addresses the user by it.
+                if self.user_name.as_deref().unwrap_or("").is_empty() {
+                    self.prompt_mode = PromptMode::Name;
                 }
                 None
             }
             Message::Key(key) => self.on_key(key),
+            Message::Scroll(delta) => {
+                // The wheel scrolls the transcript. A negative number scrolls down.
+                if delta > 0 {
+                    self.scroll_up(delta as usize);
+                } else {
+                    self.scroll_down((-delta) as usize);
+                }
+                None
+            }
             Message::Resize(_, _) => None,
             Message::Tick => {
                 if self.status != Status::Idle {
@@ -291,6 +488,37 @@ impl App {
             Message::Agent(event) => self.on_agent_event(event),
             Message::Widget(output) => {
                 self.widget_outputs.push(output);
+                None
+            }
+            Message::Context(total) => {
+                // The window of the model that is running (SPEC 8).
+                self.metrics.context.total = total;
+                None
+            }
+            Message::Sessions(sessions) => {
+                self.sessions = sessions;
+                None
+            }
+            Message::Models(models) => {
+                // The models an endpoint knows (SPEC 6).
+                self.discovered = models;
+                None
+            }
+            Message::Session(messages) => {
+                // The conversation of a session that was resumed (SPEC 11).
+                self.rows.clear();
+                for message in messages {
+                    match message.role {
+                        seek_core::Role::User => {
+                            self.rows.push(Row::User(message.plain_text()));
+                        }
+                        seek_core::Role::Assistant => {
+                            self.rows.push(Row::Assistant(message.plain_text()));
+                        }
+                        seek_core::Role::System => {}
+                    }
+                }
+                self.scroll_to_bottom();
                 None
             }
         };
@@ -313,12 +541,21 @@ impl App {
         match &self.overlay {
             Some(Overlay::Picker(_)) => return self.on_picker_key(key),
             Some(Overlay::Options { .. }) => return self.on_options_key(key),
+            Some(Overlay::ProviderForm(_)) => return self.on_provider_form_key(key),
             _ => {}
         }
 
         // The permission selector takes the keyboard too.
         if !matches!(self.prompt_mode, PromptMode::Normal) {
             return self.on_permission_key(key);
+        }
+
+        // The dropdown of the completions takes the keyboard while it is open.
+        let completions = self.completions();
+        if !completions.is_empty()
+            && let Some(command) = self.on_suggestion_key(key, &completions)
+        {
+            return command;
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -341,6 +578,15 @@ impl App {
                     self.input.insert_newline();
                     return None;
                 }
+                if self.sidebar_focused {
+                    // Enter resumes the selected session (SPEC 10.3).
+                    if let Some(session) = self.sessions.get(self.session_selected) {
+                        let id = session.id.clone();
+                        self.sidebar_focused = false;
+                        return Some(Command::ResumeSession(id));
+                    }
+                    return None;
+                }
                 self.submit()
             }
             KeyCode::Esc => {
@@ -348,16 +594,23 @@ impl App {
                     self.overlay = None;
                     return None;
                 }
-                // Interrupting a turn arrives with the next agent event.
-                self.scroll = 0;
+                if self.status != Status::Idle {
+                    // Esc stops the turn that is running (SPEC 9.1). The status stays until
+                    // the turn ends: a message that is written in the meantime is queued,
+                    // and goes to the model when the turn is over (SPEC 9.1).
+                    return Some(Command::Cancel);
+                }
+                self.scroll_to_bottom();
                 None
             }
             KeyCode::Backspace => {
                 self.input.backspace();
+                self.completion_dismissed = false;
                 None
             }
             KeyCode::Delete => {
                 self.input.delete();
+                self.completion_dismissed = false;
                 None
             }
             KeyCode::Left => {
@@ -369,7 +622,9 @@ impl App {
                 None
             }
             KeyCode::Up => {
-                if self.input.is_empty() {
+                if self.sidebar_focused {
+                    self.move_session_selection(-1);
+                } else if self.input.is_empty() {
                     self.move_selection(-1);
                 } else {
                     self.input.history_prev();
@@ -377,7 +632,9 @@ impl App {
                 None
             }
             KeyCode::Down => {
-                if self.input.is_empty() {
+                if self.sidebar_focused {
+                    self.move_session_selection(1);
+                } else if self.input.is_empty() {
                     self.move_selection(1);
                 } else {
                     self.input.history_next();
@@ -393,20 +650,30 @@ impl App {
                 None
             }
             KeyCode::PageUp => {
-                self.scroll = self.scroll.saturating_add(1);
+                // A page is the height of the window.
+                self.scroll_up(self.transcript_height.max(1));
                 None
             }
             KeyCode::PageDown => {
-                self.scroll = self.scroll.saturating_sub(1);
+                self.scroll_down(self.transcript_height.max(1));
                 None
             }
             KeyCode::Tab => {
-                self.mode = self.mode.next();
+                if self.sidebar.open {
+                    // Tab moves the focus into the sidebar (SPEC 10.3).
+                    self.sidebar_focused = !self.sidebar_focused;
+                }
                 None
+            }
+            KeyCode::BackTab => {
+                // Shift+Tab cycles the mode, whatever the sidebar does (SPEC 9.4).
+                self.mode = self.mode.next();
+                Some(Command::SetMode(self.mode))
             }
             KeyCode::Char(c) => {
                 self.last_ctrl_c = 0;
                 self.input.insert_char(c);
+                self.completion_dismissed = false;
                 None
             }
             _ => None,
@@ -451,6 +718,124 @@ impl App {
         }
     }
 
+    /// The completions that can be accepted right now.
+    ///
+    /// The slash commands and the skills at the start of the line, an `@` file reference and a
+    /// path in the message. Esc closes the list until the text changes again.
+    pub fn completions(&self) -> Vec<Completion> {
+        if self.completion_dismissed {
+            return Vec::new();
+        }
+        completion::completions(&self.input, &self.skills, std::path::Path::new(&self.cwd))
+    }
+
+    /// Handle a key while a completion is open.
+    ///
+    /// The arrows move the selection, Tab and Enter take it, Esc closes the list. Enter takes a
+    /// path without sending the message; a command is taken and run, as before.
+    fn on_suggestion_key(
+        &mut self,
+        key: KeyEvent,
+        items: &[Completion],
+    ) -> Option<Option<Command>> {
+        match key.code {
+            KeyCode::Up => {
+                self.suggestion = if self.suggestion == 0 {
+                    items.len().saturating_sub(1)
+                } else {
+                    self.suggestion - 1
+                };
+                Some(None)
+            }
+            KeyCode::Down => {
+                self.suggestion = (self.suggestion + 1) % items.len().max(1);
+                Some(None)
+            }
+            KeyCode::Esc => {
+                // The list goes away; the text stays. Typing brings it back.
+                self.suggestion = 0;
+                self.completion_dismissed = true;
+                Some(None)
+            }
+            KeyCode::Tab | KeyCode::Enter => {
+                let Some(chosen) = items.get(self.suggestion).cloned() else {
+                    self.suggestion = 0;
+                    return Some(None);
+                };
+                let runs_command = key.code == KeyCode::Enter && chosen.kind == Kind::Command;
+                self.accept_completion(&chosen);
+                self.suggestion = 0;
+                if runs_command {
+                    return Some(self.submit());
+                }
+                Some(None)
+            }
+            // The other keys are the ordinary ones: the text is typed.
+            _ => None,
+        }
+    }
+
+    /// Put a completion in place of the token under the cursor.
+    fn accept_completion(&mut self, item: &Completion) {
+        if item.kind == Kind::Command {
+            self.input.replace_current_line(&item.value);
+        } else if let Some(completion::Context::Path { start, .. }) =
+            completion::context(&self.input)
+        {
+            let (_, column) = self.input.cursor();
+            self.input.replace_current_span(start, column, &item.value);
+        }
+        self.completion_dismissed = false;
+    }
+
+    /// The first line of the window of the transcript.
+    fn scroll_start(&self) -> usize {
+        match self.scroll_top {
+            Some(top) => top.min(self.transcript_total),
+            None => self
+                .transcript_total
+                .saturating_sub(self.transcript_height.saturating_add(self.scroll)),
+        }
+    }
+
+    /// Scroll the transcript up by `lines`.
+    fn scroll_up(&mut self, lines: usize) {
+        let start = self.scroll_start().saturating_sub(lines);
+        self.set_scroll_start(start);
+    }
+
+    /// Scroll the transcript down by `lines`.
+    fn scroll_down(&mut self, lines: usize) {
+        let start = self.scroll_start().saturating_add(lines);
+        // The bottom is the end of the transcript: the window sticks there.
+        if start.saturating_add(self.transcript_height) >= self.transcript_total {
+            self.scroll_top = None;
+            self.scroll = 0;
+        } else {
+            self.set_scroll_start(start);
+        }
+    }
+
+    /// Put the window at a line.
+    fn set_scroll_start(&mut self, start: usize) {
+        let total = self.transcript_total;
+        let height = self.transcript_height;
+        if start.saturating_add(height) >= total {
+            // The bottom is the end of the transcript: the window sticks there.
+            self.scroll_top = None;
+            self.scroll = 0;
+            return;
+        }
+        self.scroll_top = Some(start);
+        self.scroll = total.saturating_sub(start.saturating_add(height));
+    }
+
+    /// Go back to the bottom of the transcript.
+    fn scroll_to_bottom(&mut self) {
+        self.scroll = 0;
+        self.scroll_top = None;
+    }
+
     /// Handle a key while the prompt bar asks for a permission.
     fn on_permission_key(&mut self, key: KeyEvent) -> Option<Command> {
         match self.prompt_mode.clone() {
@@ -488,6 +873,22 @@ impl App {
                         decision: PermissionDecision::Deny,
                     })
                 }
+                KeyCode::Char('n') | KeyCode::Char('N') => {
+                    // "n" is the short way of saying no.
+                    self.prompt_mode = PromptMode::Normal;
+                    Some(Command::Permission {
+                        id,
+                        decision: PermissionDecision::Deny,
+                    })
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    // "y" is the short way of saying yes.
+                    self.prompt_mode = PromptMode::Normal;
+                    Some(Command::Permission {
+                        id,
+                        decision: PermissionDecision::Allow,
+                    })
+                }
                 KeyCode::Enter => match choice {
                     0 => {
                         self.prompt_mode = PromptMode::Normal;
@@ -510,6 +911,30 @@ impl App {
                         None
                     }
                 },
+                _ => None,
+            },
+            PromptMode::Name => match key.code {
+                KeyCode::Esc => {
+                    // The name is optional: the user can leave it empty.
+                    self.prompt_mode = PromptMode::Normal;
+                    self.user_name = Some(String::new());
+                    None
+                }
+                KeyCode::Enter => {
+                    let name = self.input.text().trim().to_string();
+                    self.input = Input::new();
+                    self.prompt_mode = PromptMode::Normal;
+                    self.user_name = Some(name.clone());
+                    Some(Command::SetUserName(name))
+                }
+                KeyCode::Backspace => {
+                    self.input.backspace();
+                    None
+                }
+                KeyCode::Char(c) => {
+                    self.input.insert_char(c);
+                    None
+                }
                 _ => None,
             },
             PromptMode::Tell { id, .. } => match key.code {
@@ -604,6 +1029,44 @@ impl App {
         }
     }
 
+    /// Handle a key while the provider form is open.
+    fn on_provider_form_key(&mut self, key: KeyEvent) -> Option<Command> {
+        let Some(Overlay::ProviderForm(form)) = self.overlay.as_mut() else {
+            return None;
+        };
+        match key.code {
+            KeyCode::Esc => {
+                self.overlay = None;
+            }
+            KeyCode::Tab | KeyCode::Down => {
+                form.current = (form.current + 1) % form.fields.len();
+            }
+            KeyCode::BackTab | KeyCode::Up => {
+                form.current = (form.current + form.fields.len() - 1) % form.fields.len();
+            }
+            KeyCode::Enter => {
+                let config = form.to_config();
+                self.overlay = None;
+                if let Some(config) = config {
+                    return Some(Command::AddProvider(config));
+                }
+                self.rows.push(Row::Error(
+                    "the provider needs a name and a base URL, and a known kind".to_string(),
+                ));
+            }
+            KeyCode::Backspace => {
+                let (_, value) = &mut form.fields[form.current];
+                value.pop();
+            }
+            KeyCode::Char(c) => {
+                let (_, value) = &mut form.fields[form.current];
+                value.push(c);
+            }
+            _ => {}
+        }
+        None
+    }
+
     /// Handle a key while a picker is open.
     fn on_picker_key(&mut self, key: KeyEvent) -> Option<Command> {
         let Some(Overlay::Picker(picker)) = self.overlay.as_mut() else {
@@ -653,6 +1116,16 @@ impl App {
         };
 
         match picker.title.as_str() {
+            "mode" => {
+                if let Some(value) = picker.selected_item().map(|item| item.value.clone())
+                    && let Some(label) = value.strip_prefix("mode:")
+                    && let Some(mode) = PermissionMode::parse(label)
+                {
+                    self.mode = mode;
+                    // The mode is read at every tool call: it applies at once (SPEC 9.4).
+                    return Some(Command::SetMode(mode));
+                }
+            }
             "skills" => {
                 for item in &picker.items {
                     if let Some(checked) = item.checked {
@@ -670,7 +1143,9 @@ impl App {
             _ => {}
         }
 
-        let command = if choose {
+        // A model may have been chosen; the picker of the tools and the skills only changes
+        // the toggles.
+        let model = if choose {
             let chosen = picker.selected_item().map(|item| item.value.clone());
             match chosen {
                 Some(value) => self.apply_picker_value(&value),
@@ -681,20 +1156,23 @@ impl App {
         };
 
         // The toggles are written by the binary.
-        Some(Command::SetToggles(self.toggles.clone())).or(command)
+        Some(Command::PickerClosed {
+            toggles: self.toggles.clone(),
+            model,
+        })
     }
 
     /// Apply what the user chose in a picker.
-    fn apply_picker_value(&mut self, value: &str) -> Option<Command> {
+    ///
+    /// Returns the model that was chosen, if any.
+    fn apply_picker_value(&mut self, value: &str) -> Option<String> {
         if let Some(model_id) = value.strip_prefix("model:") {
             if !self.switch_fits(model_id) {
                 return None;
             }
             self.select_model(model_id);
             self.model_configured = true;
-            return Some(Command::SwitchModel {
-                id: model_id.to_string(),
-            });
+            return Some(model_id.to_string());
         }
         if let Some(local_id) = value.strip_prefix("local:") {
             if !self.switch_fits(local_id) {
@@ -702,15 +1180,10 @@ impl App {
             }
             self.select_local_model(local_id);
             self.model_configured = true;
-            return Some(Command::SwitchModel {
-                id: local_id.to_string(),
-            });
+            return Some(local_id.to_string());
         }
         if value == "provider:add" {
-            // Adding a provider needs a form; that lands with the provider editor.
-            self.rows.push(Row::Error(
-                "adding a provider needs the provider editor".to_string(),
-            ));
+            self.overlay = Some(Overlay::ProviderForm(ProviderForm::new()));
             return None;
         }
         if let Some(model) = self
@@ -720,7 +1193,8 @@ impl App {
         {
             let id = model.id.clone();
             self.select_model(&id);
-            return Some(Command::SwitchModel { id });
+            self.model_configured = true;
+            return Some(id);
         }
         None
     }
@@ -736,10 +1210,14 @@ impl App {
             model: model.name.clone(),
             local: model.local,
         };
-        // Switching to a model restores its level, else its default (SPEC 9.7).
+        // Switching to a model restores its own level, else its default (SPEC 9.7).
+        let stored = self.toggles.reasoning(&model.id);
         self.reasoning = model
-            .resolve(self.reasoning.as_deref())
+            .resolve(stored.as_deref())
             .map(|variant| variant.id.clone());
+        if self.reasoning.as_deref() != Some("off") {
+            self.last_reasoning = self.reasoning.clone();
+        }
         // The window of the model comes from the catalog (SPEC 8).
         self.metrics.context.total = model.context;
     }
@@ -802,7 +1280,11 @@ impl App {
             .position(|variant| Some(&variant.id) == self.reasoning.as_ref())
             .map(|index| (index + 1) % model.variants.len())
             .unwrap_or(0);
-        self.reasoning = Some(model.variants[index].id.clone());
+        let level = model.variants[index].id.clone();
+        self.reasoning = Some(level.clone());
+        if level != "off" {
+            self.last_reasoning = Some(level);
+        }
         true
     }
 
@@ -815,6 +1297,11 @@ impl App {
             return false;
         }
         self.reasoning = Some(level.to_string());
+        if level != "off" {
+            self.last_reasoning = Some(level.to_string());
+        }
+        // The level belongs to the model (SPEC 9.7).
+        self.toggles.set_reasoning(&model.id, level);
         true
     }
 
@@ -822,6 +1309,20 @@ impl App {
     fn model_picker(&self) -> Picker {
         let mut items: Vec<PickerItem> = Vec::new();
         for (id, provider) in &self.providers.provider {
+            // The models the endpoint knows come first; the entries of the configuration
+            // override them (SPEC 6).
+            if let Some(discovered) = self.discovered.get(id) {
+                for model_id in discovered {
+                    if provider.models.contains_key(model_id) {
+                        continue;
+                    }
+                    items.push(
+                        PickerItem::new(model_id.clone(), format!("model:{model_id}"))
+                            .with_group(provider.display_name(id))
+                            .with_detail("found on the endpoint"),
+                    );
+                }
+            }
             for (model_id, model) in &provider.models {
                 if model.disabled.unwrap_or(false) {
                     continue;
@@ -858,6 +1359,60 @@ impl App {
         Picker::new("models", items).tap_hint("Enter to choose, Esc to close")
     }
 
+    /// The picker for `/mode`: the three permission modes.
+    fn mode_picker(&self) -> Picker {
+        let items = [
+            (PermissionMode::Read, "read only"),
+            (PermissionMode::Ask, "ask before writing or running"),
+            (PermissionMode::Yolo, "allow everything"),
+        ]
+        .into_iter()
+        .map(|(mode, description)| {
+            let label = mode.label();
+            let checked = self.mode == mode;
+            PickerItem::new(label, format!("mode:{label}"))
+                .with_check(checked)
+                .with_detail(description)
+        })
+        .collect();
+        Picker::new("mode", items).tap_hint("Enter to choose, Esc to close")
+    }
+
+    /// Toggle the reasoning level: off and the last one that was not off.
+    fn toggle_reasoning(&mut self) {
+        let Some(model) = &self.current else {
+            self.rows.push(Row::Error(
+                "reasoning is not configurable for this model".to_string(),
+            ));
+            return;
+        };
+        if !model.has_variants() {
+            self.rows.push(Row::Error(
+                "reasoning is not configurable for this model".to_string(),
+            ));
+            return;
+        }
+        if self.reasoning.as_deref() == Some("off") {
+            // The last level that was not off, else the first one.
+            let level = self
+                .last_reasoning
+                .clone()
+                .or_else(|| {
+                    model
+                        .variants
+                        .iter()
+                        .find(|variant| variant.id != "off")
+                        .map(|variant| variant.id.clone())
+                })
+                .unwrap_or_else(|| "off".to_string());
+            self.set_reasoning(&level);
+        } else {
+            let level = self.reasoning.clone();
+            self.reasoning = Some("off".to_string());
+            self.last_reasoning = level;
+        }
+    }
+
     /// The picker for `/skills`: a checklist of the installed skills.
     fn skills_picker(&self) -> Picker {
         let items: Vec<PickerItem> = self
@@ -879,13 +1434,24 @@ impl App {
             .iter()
             .chain(seek_core::HELPER_TOOLS.iter())
         {
+            let group = if tool.name == "web_search" {
+                "network"
+            } else {
+                "built-in"
+            };
             items.push(
                 PickerItem::new(tool.name.clone(), tool.name.clone())
                     .with_check(self.toggles.tool_enabled(&tool.name))
-                    .with_group("built-in")
+                    .with_group(group)
                     .with_detail(tool.description.clone()),
             );
         }
+        items.push(
+            PickerItem::new("fetch", "fetch")
+                .with_check(self.toggles.tool_enabled("fetch"))
+                .with_group("network")
+                .with_detail("Fetch a URL and return it as text."),
+        );
         for tool in &self.external_tools {
             items.push(
                 PickerItem::new(tool.config.name.clone(), tool.config.name.clone())
@@ -921,7 +1487,7 @@ impl App {
     ///
     /// The strip shows the last three lines of the local server and hides after ten seconds of
     /// silence (SPEC 10.3).
-    fn log_strip_lines(&self) -> Vec<Line<'static>> {
+    fn log_strip_lines(&self, width: usize) -> Vec<Line<'static>> {
         let Some(logs) = &self.logs else {
             return Vec::new();
         };
@@ -931,19 +1497,19 @@ impl App {
         if logs.is_quiet(std::time::Duration::from_secs(10)) {
             return Vec::new();
         }
-        logs.last(3)
-            .into_iter()
-            .map(|line| {
-                Line::from(Span::styled(
-                    line.text.clone(),
-                    Style::new().fg(if line.error {
-                        self.theme.warn
-                    } else {
-                        self.theme.dim
-                    }),
-                ))
-            })
-            .collect()
+        // One line: the newest event of the local server.
+        let Some(line) = logs.last(1).into_iter().next() else {
+            return Vec::new();
+        };
+        let text: String = line.text.chars().take(width).collect();
+        vec![Line::from(Span::styled(
+            text,
+            Style::new().fg(if line.error {
+                self.theme.warn
+            } else {
+                self.theme.dim
+            }),
+        ))]
     }
 
     /// Copy the running processes into the sidebar.
@@ -973,6 +1539,17 @@ impl App {
         if let Some(entry) = processes.get(self.process_selected) {
             registry.kill(entry.pid);
         }
+    }
+
+    /// Move the session selection in the sidebar.
+    fn move_session_selection(&mut self, delta: isize) {
+        if self.sessions.is_empty() {
+            self.session_selected = 0;
+            return;
+        }
+        let length = self.sessions.len() as isize;
+        let next = (self.session_selected as isize + delta).rem_euclid(length);
+        self.session_selected = next as usize;
     }
 
     /// Move the transcript selection up or down.
@@ -1026,11 +1603,39 @@ impl App {
         if text.is_empty() {
             return None;
         }
-        self.input = Input::new();
+
+        // `/think <level>` sets the level of the model.
+        if let Some(level) = text.strip_prefix("/think ") {
+            let level = level.trim();
+            if !level.is_empty() {
+                if !self.set_reasoning(level) {
+                    self.rows.push(Row::Error(
+                        "reasoning is not configurable for this model".to_string(),
+                    ));
+                }
+                self.input = Input::new();
+                self.completion_dismissed = false;
+                return None;
+            }
+        }
 
         if let Some(command) = self.slash_command(&text) {
+            self.input = Input::new();
+            self.completion_dismissed = false;
             return self.run_slash_command(command);
         }
+
+        // A message needs a model. Slash commands still work: `/model` is how one is chosen.
+        // The draft stays so it can be sent as soon as a model is picked.
+        if !self.model_configured {
+            self.rows.push(Row::Error(
+                "no model selected: choose one with /model".to_string(),
+            ));
+            self.scroll_to_bottom();
+            return None;
+        }
+        self.input = Input::new();
+        self.completion_dismissed = false;
 
         // A skill is run with `/<skill-name> <prompt>`; its body goes into the turn (SPEC 9.5).
         let text = match self.match_skill(&text) {
@@ -1045,7 +1650,7 @@ impl App {
         };
 
         self.rows.push(Row::User(text.clone()));
-        self.scroll = 0;
+        self.scroll_to_bottom();
         self.selected = None;
 
         if self.status != Status::Idle {
@@ -1073,6 +1678,37 @@ impl App {
             }
             "/thoughts" => {
                 self.show_reasoning = !self.show_reasoning;
+                None
+            }
+            "/mode" => {
+                self.overlay = Some(Overlay::Picker(self.mode_picker()));
+                None
+            }
+            "/settings" => {
+                // The settings of the user: the name SEEK calls them by.
+                self.prompt_mode = PromptMode::Name;
+                self.input = Input::new();
+                None
+            }
+            "/think" => {
+                // With no argument, the level toggles between off and the last one (SPEC 9.7).
+                self.toggle_reasoning();
+                None
+            }
+            "/new" => {
+                // A new session: the transcript starts empty again (SPEC 11).
+                self.rows.clear();
+                self.queued.clear();
+                self.scroll_to_bottom();
+                self.selected = None;
+                self.sidebar_focused = false;
+                Some(Command::NewSession)
+            }
+            "/resume" => {
+                // The sidebar opens on the sessions (SPEC 10.2).
+                self.sidebar.open = true;
+                self.sidebar_focused = true;
+                self.session_selected = 0;
                 None
             }
             "/compact" => {
@@ -1131,6 +1767,11 @@ impl App {
             "/provider" => Some("/provider"),
             "/compact" => Some("/compact"),
             "/skills" => Some("/skills"),
+            "/mode" => Some("/mode"),
+            "/settings" => Some("/settings"),
+            "/think" => Some("/think"),
+            "/new" => Some("/new"),
+            "/resume" => Some("/resume"),
             "/tools" => Some("/tools"),
             "/truncate" => Some("/truncate"),
             _ => None,
@@ -1161,7 +1802,9 @@ impl App {
             AgentEvent::ToolCallStarted { id, name } => {
                 self.close_think_time();
                 self.rows.push(Row::Tool {
+                    id: id.clone(),
                     name,
+                    intent: None,
                     command: id,
                     status: "running".into(),
                     duration: None,
@@ -1169,19 +1812,48 @@ impl App {
                     expanded: false,
                 });
             }
-            AgentEvent::ToolCallReady { name, input, .. } => {
-                if let Some(Row::Tool { command, .. }) = self.rows.last_mut() {
-                    *command = summarize_input(&input);
+            AgentEvent::ToolCallDelta { id, arguments, .. } => {
+                // The command is shown while it is written.
+                let text = summarize_arguments(&arguments);
+                if let Some(Row::Tool { command, .. }) = self
+                    .rows
+                    .iter_mut()
+                    .rev()
+                    .find(|row| matches!(row, Row::Tool { id: row_id, .. } if *row_id == id))
+                {
+                    *command = text;
                 }
-                let _ = name;
+            }
+            AgentEvent::ToolCallReady {
+                id, input, intent, ..
+            } => {
+                if let Some(Row::Tool {
+                    command,
+                    intent: row_intent,
+                    ..
+                }) = self
+                    .rows
+                    .iter_mut()
+                    .rev()
+                    .find(|row| matches!(row, Row::Tool { id: row_id, .. } if *row_id == id))
+                {
+                    *command = summarize_input(&input);
+                    *row_intent = intent;
+                }
             }
             AgentEvent::ToolOutput(output) => {
+                // The row of the call is found by its id: the output of one call can arrive
+                // after the next call has started.
                 if let Some(Row::Tool {
                     status,
                     duration,
                     detail,
                     ..
-                }) = self.rows.last_mut()
+                }) = self
+                    .rows
+                    .iter_mut()
+                    .rev()
+                    .find(|row| matches!(row, Row::Tool { id, .. } if *id == output.id))
                 {
                     *status = if output.is_error {
                         "error".into()
@@ -1231,7 +1903,7 @@ impl App {
                 self.rows.clear();
                 self.rows.push(Row::User("[compacted]".into()));
                 self.rows.push(Row::Assistant(summary));
-                self.scroll = 0;
+                self.scroll_to_bottom();
             }
             AgentEvent::Error(message) => {
                 self.rows.push(Row::Error(message));
@@ -1333,9 +2005,17 @@ impl App {
 
         let (sidebar_area, main_area) = if self.sidebar.open && area.width >= SIDEBAR_MIN_WIDTH {
             let width = sidebar::SIDEBAR_WIDTH;
+            // The gap between the sidebar and the messages: the transcript must not touch
+            // the border of the sidebar.
+            let gap = 2;
             (
                 Rect::new(area.x, area.y, width, area.height),
-                Rect::new(area.x + width, area.y, area.width - width, area.height),
+                Rect::new(
+                    area.x + width + gap,
+                    area.y,
+                    area.width - width - gap,
+                    area.height,
+                ),
             )
         } else {
             (Rect::ZERO, area)
@@ -1348,42 +2028,40 @@ impl App {
                 &self.sidebar,
                 &self.theme,
                 &self.metrics,
+                &self.sessions,
+                self.session_selected,
             );
         }
 
-        let suggestions = prompt_bar::suggestion_lines(&self.input, &self.theme);
-        let mut prompt_height = self.input.len().max(1) as u16;
-        if self.status != Status::Idle {
-            prompt_height += 1;
-        }
+        let completions = self.completions();
+        let suggestions = prompt_bar::suggestion_lines(&completions, &self.theme, self.suggestion);
+        // The box has a top border and a bottom border.
+        // The box has a top border and a bottom border. The status is in the bottom
+        // border, so the input keeps its height while the agent works.
+        let mut prompt_height = self.input.len().max(1) as u16 + 2;
         if !matches!(self.prompt_mode, PromptMode::Normal) {
-            // The permission selector needs five lines: the question, the summary and the choices.
-            prompt_height = prompt_height.max(5);
+            // The permission selector needs five lines: the question, the summary, the three
+            // choices and the line with the keys.
+            prompt_height = prompt_height.max(7);
         }
 
-        let log_lines = self.log_strip_lines();
+        let log_lines = self.log_strip_lines(main_area.width as usize);
 
         // The metrics have exactly one home: the bottom of the sidebar when it is open, the
-        // line under the prompt bar otherwise. Never both (SPEC 10.2).
-        let metrics_height: u16 = if self.sidebar.open && sidebar_area != Rect::ZERO {
-            0
-        } else {
-            1
-        };
+        // footer line otherwise. Never both (SPEC 10.2).
+        let metrics_in_footer = !(self.sidebar.open && sidebar_area != Rect::ZERO);
 
         let [
             transcript_area,
             log_area,
             suggestions_area,
             prompt_area,
-            metrics_area,
             footer_area,
         ] = Layout::vertical([
             Constraint::Min(3),
             Constraint::Length(log_lines.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(prompt_height),
-            Constraint::Length(metrics_height),
             Constraint::Length(1),
         ])
         .areas(main_area);
@@ -1406,24 +2084,30 @@ impl App {
             prompt_area,
             &self.input,
             &self.theme,
-            self.status != Status::Idle,
-            self.queued.len(),
-            &self.prompt_mode,
+            &prompt_bar::PromptState {
+                busy: self.status != Status::Idle,
+                queued: self.queued.len(),
+                mode: self.prompt_mode.clone(),
+                caption: self.model.model.clone(),
+            },
         );
 
-        if metrics_height > 0 {
-            crate::metrics::render_one_line(frame, metrics_area, &self.metrics, &self.theme);
-        }
-
+        // The metrics have exactly one home: the bottom of the sidebar when it is open, the
+        // footer line otherwise. Never both (SPEC 10.2).
         let footer = Footer {
             mode: self.mode,
             model: self.model.clone(),
             reasoning: self.reasoning.clone(),
             cwd: self.cwd.clone(),
             branch: self.branch.clone(),
+            metrics: match metrics_in_footer {
+                // The metrics are in the footer when the sidebar is closed.
+                true => Some(self.metrics.clone()),
+                false => None,
+            },
         };
         frame.render_widget(
-            ratatui::widgets::Paragraph::new(footer_line(&footer, &self.theme)),
+            ratatui::widgets::Paragraph::new(footer_line(&footer, &self.theme, footer_area.width)),
             footer_area,
         );
 
@@ -1436,6 +2120,7 @@ impl App {
                 input,
                 ..
             }) => self.render_options(frame, area, name, prefix, input),
+            Some(Overlay::ProviderForm(form)) => self.render_provider_form(frame, area, form),
             None => {}
         }
     }
@@ -1448,7 +2133,12 @@ impl App {
             return;
         }
 
-        let mut lines = transcript_lines(&self.rows, &self.theme, self.show_reasoning);
+        let mut lines = transcript_lines(
+            &self.rows,
+            &self.theme,
+            self.show_reasoning,
+            area.width as usize,
+        );
         if self.status == Status::Thinking {
             if self.reduce_motion {
                 lines.push((
@@ -1459,12 +2149,10 @@ impl App {
                     )),
                 ));
             } else {
-                lines.extend(
-                    self.spinner
-                        .thinking_lines(&self.theme)
-                        .into_iter()
-                        .map(|line| (usize::MAX, line)),
-                );
+                // The thinking line sits behind the message: a blank line, and the cubes
+                // in the column of the text.
+                lines.push((usize::MAX, Line::from("")));
+                lines.push((usize::MAX, self.spinner.shimmer_line(&self.theme)));
             }
         }
 
@@ -1481,27 +2169,58 @@ impl App {
             })
             .collect();
 
+        // The window of the transcript. It is anchored to the content when the user scrolled
+        // up, so the message that is being read stays where it is while the model writes.
         let height = area.height as usize;
         let total = lines.len();
-        let end = total.min(height.saturating_add(self.scroll).min(total));
-        let start = total.saturating_sub(height + self.scroll);
-        let visible: Vec<Line> = lines[start.min(total)..end].to_vec();
+        self.transcript_total = total;
+        self.transcript_height = height;
+        let start = self.scroll_start();
+        let end = start.saturating_add(height).min(total);
+        let visible: Vec<Line> = lines[start..end].to_vec();
 
         frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
+
+        // The place in the transcript, when the user is not at the bottom: without it, the
+        // view looks the same however far up it is.
+        if self.scroll > 0 && area.height > 1 {
+            let badge = format!("↑ {} of {}", self.scroll, total);
+            let width = badge.chars().count() as u16 + 2;
+            let x = area.x + area.width.saturating_sub(width);
+            let badge_area = Rect::new(x, area.y, width, 1);
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(Span::styled(
+                    format!(" {badge} "),
+                    Style::new().fg(self.theme.bg).bg(self.theme.accent),
+                )),
+                badge_area,
+            );
+        }
     }
 
     /// The home screen: the logo and the widgets.
     fn render_home(&mut self, frame: &mut Frame, area: Rect) {
-        // The logo takes the upper half, the widgets the lower one.
-        let logo_height = 9.min(area.height / 2);
-        let logo_area = Rect::new(area.x, area.y, area.width, logo_height);
-        logo::render(frame, logo_area, &self.theme);
+        // The widgets sit in a band at the bottom; the logo is centred in the space above them,
+        // so it is in the middle of the screen when there are no widgets.
+        let widget_height = if self.widget_outputs.is_empty() {
+            0
+        } else {
+            (MAX_WIDGET_ROWS as u16 + 2).min(area.height / 3)
+        };
+        let logo_area = Rect::new(
+            area.x,
+            area.y,
+            area.width,
+            area.height.saturating_sub(widget_height),
+        );
+        let secs = self.anim_secs();
+        logo::render(frame, logo_area, &self.theme, secs, self.reduce_motion);
 
         let widget_area = Rect::new(
             area.x,
-            area.y + logo_height,
+            area.y + area.height.saturating_sub(widget_height),
             area.width,
-            area.height.saturating_sub(logo_height),
+            widget_height,
         );
         self.render_widgets(frame, widget_area);
     }
@@ -1518,7 +2237,8 @@ impl App {
             _ => 3,
         };
         let column_width = (area.width / columns).max(20);
-        let row_height = (MAX_WIDGET_ROWS + 2) as u16;
+        // The row fits in the band; otherwise the first row would not be drawn at all.
+        let row_height = ((MAX_WIDGET_ROWS + 2) as u16).min(area.height);
 
         for (index, output) in self.widget_outputs.iter().enumerate() {
             let index = index as u16;
@@ -1547,6 +2267,49 @@ impl App {
             }
             frame.render_widget(ratatui::widgets::Paragraph::new(lines), rect);
         }
+    }
+
+    /// The form that adds a provider.
+    fn render_provider_form(&self, frame: &mut Frame, area: Rect, form: &ProviderForm) {
+        let width = area.width.min(64);
+        let height = (form.fields.len() as u16 + 4).min(area.height);
+        let rect = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        frame.render_widget(ratatui::widgets::Clear, rect);
+        let block = ratatui::widgets::Block::bordered()
+            .border_style(Style::new().fg(self.theme.accent))
+            .style(Style::new().bg(self.theme.bg))
+            .title(Span::styled(
+                " add a provider ",
+                Style::new().fg(self.theme.accent).bold(),
+            ));
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+
+        let mut lines: Vec<Line> = Vec::new();
+        for (index, (label, value)) in form.fields.iter().enumerate() {
+            let style = if index == form.current {
+                Style::new().fg(self.theme.cube_light)
+            } else {
+                Style::new().fg(self.theme.dim)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {label:<10}"), style),
+                Span::styled(value.clone(), style),
+            ]));
+        }
+        lines.push(Line::from(Span::styled(
+            "  Tab moves, Enter saves, Esc cancels",
+            Style::new().fg(self.theme.dim).italic(),
+        )));
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(lines),
+            Rect::new(inner.x, inner.y, inner.width, inner.height),
+        );
     }
 
     /// The launch options editor.
@@ -1626,6 +2389,7 @@ impl App {
             ("Ctrl+C", "clear input, twice to quit"),
             ("PgUp / PgDn", "scroll the transcript"),
             ("Alt+T", "show or hide reasoning"),
+            ("Tab", "take the completion of a command"),
         ];
         let lines: Vec<Line> = keys
             .iter()
@@ -1644,6 +2408,17 @@ impl App {
 }
 
 /// A one-line summary of a tool call.
+/// The arguments of a tool call as they are written, without the JSON punctuation.
+fn summarize_arguments(arguments: &str) -> String {
+    let text = arguments
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .replace("\"", "")
+        .replace(':', ": ");
+    text.trim().to_string()
+}
+
+/// Summarize the input of a tool call for the transcript.
 fn summarize_input(input: &serde_json::Value) -> String {
     let Some(object) = input.as_object() else {
         return input.to_string();
@@ -1696,6 +2471,7 @@ mod tests {
     #[test]
     fn enter_submits_the_message() {
         let mut app = App::new(Theme::default());
+        app.model_configured = true;
         for c in "hi".chars() {
             app.update(Message::Key(key(KeyCode::Char(c))));
         }
@@ -1708,6 +2484,22 @@ mod tests {
             })
         );
         assert_eq!(app.rows.len(), 1);
+    }
+
+    #[test]
+    fn a_message_without_a_model_is_not_sent() {
+        let mut app = App::new(Theme::default());
+        for c in "hello".chars() {
+            app.update(Message::Key(key(KeyCode::Char(c))));
+        }
+        assert_eq!(app.update(Message::Key(key(KeyCode::Enter))), None);
+        assert!(
+            app.rows
+                .iter()
+                .any(|row| matches!(row, Row::Error(text) if text.contains("no model selected")))
+        );
+        // The draft stays: it is sent once a model is chosen with `/model`.
+        assert_eq!(app.input.text(), "hello");
     }
 
     #[test]
@@ -1752,18 +2544,42 @@ mod tests {
     }
 
     #[test]
-    fn tab_cycles_the_permission_mode() {
+    fn shift_tab_cycles_the_permission_mode() {
         let mut app = App::new(Theme::default());
         assert_eq!(app.mode, PermissionMode::Ask);
-        app.update(Message::Key(key(KeyCode::Tab)));
+        let command = app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Yolo);
-        app.update(Message::Key(key(KeyCode::Tab)));
+        // The agent is told, so the mode applies to the turn that runs now.
+        assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
+        app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Read);
+    }
+
+    #[test]
+    fn the_mode_switches_whatever_the_sidebar_does() {
+        let mut app = App::new(Theme::default());
+        app.sidebar.open = true;
+        app.sidebar_focused = true;
+        let command = app.update(Message::Key(key(KeyCode::BackTab)));
+        assert_eq!(app.mode, PermissionMode::Yolo);
+        assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
+    }
+
+    #[test]
+    fn tab_moves_the_focus_into_the_sidebar() {
+        let mut app = App::new(Theme::default());
+        app.sidebar.open = true;
+        assert!(!app.sidebar_focused);
+        app.update(Message::Key(key(KeyCode::Tab)));
+        assert!(app.sidebar_focused);
+        // The mode did not move.
+        assert_eq!(app.mode, PermissionMode::Ask);
     }
 
     #[test]
     fn a_message_typed_while_working_is_queued() {
         let mut app = App::new(Theme::default());
+        app.model_configured = true;
         app.update(Message::Agent(AgentEvent::TurnStarted));
         for c in "hi".chars() {
             app.update(Message::Key(key(KeyCode::Char(c))));
@@ -1776,6 +2592,7 @@ mod tests {
     #[test]
     fn queued_messages_are_delivered_when_the_turn_finishes() {
         let mut app = App::new(Theme::default());
+        app.model_configured = true;
         app.update(Message::Agent(AgentEvent::TurnStarted));
         for c in "hi".chars() {
             app.update(Message::Key(key(KeyCode::Char(c))));
@@ -1806,6 +2623,22 @@ mod tests {
     }
 
     #[test]
+    fn a_path_completion_keeps_the_prose() {
+        let root = std::env::temp_dir().join(format!("seek-app-completion-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("src");
+        std::fs::write(root.join("src/main.rs"), "").expect("main");
+        let mut app = App::new(Theme::default());
+        app.cwd = root.to_string_lossy().to_string();
+        for c in "read src/ma".chars() {
+            app.update(Message::Key(key(KeyCode::Char(c))));
+        }
+        assert!(!app.completions().is_empty());
+        app.update(Message::Key(key(KeyCode::Tab)));
+        assert_eq!(app.input.text(), "read src/main.rs ");
+    }
+
+    #[test]
     fn slash_commands_run_instead_of_being_sent() {
         let mut app = App::new(Theme::default());
         for c in "/help".chars() {
@@ -1830,6 +2663,8 @@ mod tests {
     fn up_and_down_select_a_tool_row() {
         let mut app = App::new(Theme::default());
         app.rows.push(Row::Tool {
+            id: "t1".to_string(),
+            intent: None,
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),
@@ -1846,6 +2681,8 @@ mod tests {
     fn ctrl_o_expands_the_selected_tool_row() {
         let mut app = App::new(Theme::default());
         app.rows.push(Row::Tool {
+            id: "t1".to_string(),
+            intent: None,
             name: "bash".into(),
             command: "cargo test".into(),
             status: "ok".into(),
@@ -1874,6 +2711,47 @@ mod tests {
         app.input.insert_char('x');
         app.update(Message::Key(key(KeyCode::Up)));
         assert_eq!(app.input.text(), "1");
+    }
+
+    #[test]
+    fn the_provider_form_describes_a_provider() {
+        let mut form = ProviderForm::new();
+        // The name.
+        for c in "my provider".chars() {
+            form.fields[0].1.push(c);
+        }
+        // The base URL.
+        for c in "https://example.com/v1".chars() {
+            form.fields[2].1.push(c);
+        }
+        // The key environment variable.
+        for c in "MY_KEY".chars() {
+            form.fields[3].1.push(c);
+        }
+        // The models and the limits.
+        for c in "a,b".chars() {
+            form.fields[4].1.push(c);
+        }
+        for c in "128000".chars() {
+            form.fields[5].1.push(c);
+        }
+        for c in "50".chars() {
+            form.fields[6].1.push(c);
+        }
+
+        let config = form.to_config().expect("the form is complete");
+        assert_eq!(config.name.as_deref(), Some("my provider"));
+        assert_eq!(config.base_url.as_deref(), Some("https://example.com/v1"));
+        assert_eq!(config.env, vec!["MY_KEY".to_string()]);
+        assert_eq!(config.models.len(), 2);
+        assert_eq!(config.models["a"].context, Some(128_000));
+        assert_eq!(config.models["a"].rpm, Some(50));
+    }
+
+    #[test]
+    fn an_incomplete_provider_form_is_no_provider() {
+        let form = ProviderForm::new();
+        assert!(form.to_config().is_none());
     }
 
     #[test]

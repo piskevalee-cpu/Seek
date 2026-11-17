@@ -9,6 +9,8 @@
 
 use std::collections::BTreeMap;
 
+use std::error::Error;
+
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use seek_core::{Message, Role};
@@ -26,6 +28,8 @@ pub struct OpenAiProvider {
     max_tokens: u32,
     /// Extra fields merged into every request body, e.g. `reasoning_effort`.
     extra_body: Value,
+    /// The client side limits of the configuration (SPEC 6).
+    limiter: std::sync::Mutex<crate::ratelimit::Limiter>,
 }
 
 impl OpenAiProvider {
@@ -37,13 +41,45 @@ impl OpenAiProvider {
         max_tokens: u32,
     ) -> Self {
         OpenAiProvider {
-            client: reqwest::Client::new(),
+            client: crate::client::a_client(),
             base_url: base_url.into(),
             api_key,
             model: model.into(),
             max_tokens,
             extra_body: json!({}),
+            limiter: std::sync::Mutex::new(crate::ratelimit::Limiter::new(
+                crate::ratelimit::Limit::none(),
+            )),
         }
+    }
+
+    /// The models the endpoint knows (SPEC 6).
+    ///
+    /// The entries of `providers.toml` override the discovered ones (the rule opencode uses).
+    pub async fn list_models(&self) -> Vec<String> {
+        let url = format!("{}/models", self.base_url.trim_end_matches('/'));
+        let mut builder = self.client.get(&url);
+        if let Some(key) = &self.api_key {
+            builder = builder.header("authorization", format!("Bearer {key}"));
+        }
+        let Ok(response) = builder.send().await else {
+            return Vec::new();
+        };
+        let Ok(value) = response.json::<Value>().await else {
+            return Vec::new();
+        };
+        let Some(data) = value.get("data").and_then(Value::as_array) else {
+            return Vec::new();
+        };
+        data.iter()
+            .filter_map(|model| model.get("id").and_then(Value::as_str).map(str::to_string))
+            .collect()
+    }
+
+    /// The client side limits of the configuration (SPEC 6).
+    pub fn with_limit(mut self, limit: crate::ratelimit::Limit) -> Self {
+        self.limiter = std::sync::Mutex::new(crate::ratelimit::Limiter::new(limit));
+        self
     }
 
     /// Merge extra fields into the request body.
@@ -152,6 +188,19 @@ impl Provider for OpenAiProvider {
         let client = self.client.clone();
 
         async_stream::stream! {
+            // The client side limit is honored before the request goes out (SPEC 6).
+            let wait = {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.wait_time(0)
+            };
+            if !wait.is_zero() {
+                tokio::time::sleep(wait).await;
+            }
+            {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.record(0);
+            }
+
             let mut builder = client.post(&url).json(&body);
             if let Some(key) = key {
                 builder = builder.header("authorization", format!("Bearer {key}"));
@@ -159,7 +208,15 @@ impl Provider for OpenAiProvider {
             let response = match builder.send().await {
                 Ok(response) => response,
                 Err(error) => {
-                    yield Err(ProviderError::Request(error.to_string()));
+                    // The cause is in the source of the error: without it the message is
+                    // only "error sending request for url", which says nothing.
+                    let mut cause = error.source();
+                    let mut detail = String::new();
+                    while let Some(source) = cause {
+                        detail.push_str(&format!(": {source}"));
+                        cause = source.source();
+                    }
+                    yield Err(ProviderError::Request(format!("{error}{detail}")));
                     return;
                 }
             };
@@ -305,6 +362,14 @@ impl OpenAiDecoder {
                     {
                         state.arguments.push_str(arguments);
                     }
+                    // The call is shown while it is written: the arguments grow.
+                    if !state.name.is_empty() {
+                        out.push(ProviderEvent::ToolCallDelta {
+                            id: state.id.clone(),
+                            name: state.name.clone(),
+                            arguments: state.arguments.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -360,6 +425,52 @@ mod tests {
             .with_extra_body(json!({ "reasoning_effort": "medium" }));
         let body = provider.build_body(&ChatRequest::default());
         assert_eq!(body["reasoning_effort"], "medium");
+    }
+
+    #[test]
+    fn a_tool_call_is_shown_while_it_is_written() {
+        let mut decoder = OpenAiDecoder::new();
+        // The name and the first part of the arguments.
+        let event = SseEvent::data(
+            json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0, "id": "c1",
+                "function": { "name": "bash", "arguments": "{\"command\":\"ls" } }] } }] })
+            .to_string(),
+        );
+        let events = decoder.push(&event).unwrap();
+        let delta = events
+            .iter()
+            .find(|event| matches!(event, ProviderEvent::ToolCallDelta { .. }))
+            .expect("the call is shown");
+        match delta {
+            ProviderEvent::ToolCallDelta {
+                id,
+                name,
+                arguments,
+            } => {
+                assert_eq!(id, "c1");
+                assert_eq!(name, "bash");
+                assert!(arguments.contains("ls"), "{arguments}");
+            }
+            _ => unreachable!(),
+        }
+
+        // The rest of the arguments.
+        let event = SseEvent::data(
+            json!({ "choices": [{ "delta": { "tool_calls": [{ "index": 0,
+                "function": { "arguments": " -la\"}" } }] } }] })
+            .to_string(),
+        );
+        let events = decoder.push(&event).unwrap();
+        let delta = events
+            .iter()
+            .find(|event| matches!(event, ProviderEvent::ToolCallDelta { .. }))
+            .expect("the call is shown");
+        match delta {
+            ProviderEvent::ToolCallDelta { arguments, .. } => {
+                assert!(arguments.contains("ls -la"), "{arguments}");
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[test]

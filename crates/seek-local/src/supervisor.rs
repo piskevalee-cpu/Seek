@@ -131,6 +131,15 @@ impl Drop for RunningServer {
     }
 }
 
+impl Drop for Supervisor {
+    fn drop(&mut self) {
+        // The log of the server is kept when SEEK goes (SPEC 7.3).
+        if let Some(server) = &self.running {
+            self.write_log(&server.model_id);
+        }
+    }
+}
+
 /// The signal to send to a process group.
 const SIGTERM: i32 = 15;
 /// The signal to send to a process group.
@@ -267,10 +276,23 @@ impl Supervisor {
     /// Stop the running server.
     pub async fn stop(&mut self) {
         if let Some(mut server) = self.running.take() {
+            let model_id = server.model_id.clone();
             server.stop().await;
+            // The log of the server is kept in the state (SPEC 7.3).
+            self.write_log(&model_id);
         }
         self.props = None;
         self.remove_pids();
+    }
+
+    /// Write the log of the server to `state/logs/`.
+    pub fn write_log(&self, model_id: &str) {
+        let name = model_id.replace('/', "_");
+        let _ = self
+            .logs
+            .lock()
+            .expect("the log is not poisoned")
+            .write_to(&self.state_dir.join("logs").join(format!("{name}.log")));
     }
 
     /// Wait until the server answers the health check.

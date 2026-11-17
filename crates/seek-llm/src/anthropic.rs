@@ -27,6 +27,8 @@ pub struct AnthropicProvider {
     api_key: String,
     model: String,
     max_tokens: u32,
+    /// The client side limits of the configuration (SPEC 6).
+    limiter: std::sync::Mutex<crate::ratelimit::Limiter>,
 }
 
 impl AnthropicProvider {
@@ -38,12 +40,21 @@ impl AnthropicProvider {
         max_tokens: u32,
     ) -> Self {
         AnthropicProvider {
-            client: reqwest::Client::new(),
+            client: crate::client::a_client(),
             base_url: base_url.into(),
             api_key: api_key.into(),
             model: model.into(),
             max_tokens,
+            limiter: std::sync::Mutex::new(crate::ratelimit::Limiter::new(
+                crate::ratelimit::Limit::none(),
+            )),
         }
+    }
+
+    /// The client side limits of the configuration (SPEC 6).
+    pub fn with_limit(mut self, limit: crate::ratelimit::Limit) -> Self {
+        self.limiter = std::sync::Mutex::new(crate::ratelimit::Limiter::new(limit));
+        self
     }
 
     /// The URL of the messages endpoint.
@@ -210,6 +221,19 @@ impl Provider for AnthropicProvider {
         let client = self.client.clone();
 
         async_stream::stream! {
+            // The client side limit is honored before the request goes out (SPEC 6).
+            let wait = {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.wait_time(0)
+            };
+            if !wait.is_zero() {
+                tokio::time::sleep(wait).await;
+            }
+            {
+                let mut limiter = self.limiter.lock().expect("the limiter is not poisoned");
+                limiter.record(0);
+            }
+
             let response = match client
                 .post(&url)
                 .header("x-api-key", key)
@@ -364,10 +388,25 @@ impl AnthropicDecoder {
                             .and_then(|delta| delta.get("partial_json"))
                             .and_then(Value::as_str)
                             .unwrap_or_default();
-                        if let Some(BlockState::ToolUse { partial_json, .. }) =
-                            self.blocks.get_mut(&index)
+                        let mut delta_event = None;
+                        if let Some(BlockState::ToolUse {
+                            id,
+                            name,
+                            partial_json,
+                        }) = self.blocks.get_mut(&index)
                         {
                             partial_json.push_str(partial);
+                            if !name.is_empty() {
+                                delta_event = Some(ProviderEvent::ToolCallDelta {
+                                    id: id.clone(),
+                                    name: name.clone(),
+                                    arguments: partial_json.clone(),
+                                });
+                            }
+                        }
+                        // The call is shown while it is written.
+                        if let Some(event) = delta_event {
+                            out.push(event);
                         }
                     }
                     _ => {}
@@ -497,7 +536,24 @@ mod tests {
                 })
                 .to_string(),
             };
-            assert!(decoder.push(&delta).unwrap().is_empty());
+            // The call is shown while it is written: the arguments grow.
+            let events = decoder.push(&delta).unwrap();
+            let delta_event = events
+                .iter()
+                .find(|event| matches!(event, ProviderEvent::ToolCallDelta { .. }))
+                .expect("the call is shown");
+            match delta_event {
+                ProviderEvent::ToolCallDelta {
+                    id,
+                    name,
+                    arguments,
+                } => {
+                    assert_eq!(id, "toolu_1");
+                    assert_eq!(name, "read");
+                    assert!(arguments.contains("pa"), "{arguments}");
+                }
+                _ => unreachable!(),
+            }
         }
 
         let stop = SseEvent {

@@ -8,6 +8,32 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Changed
+- SEEK opens on the chat with `[no model selected]` in the footer and in the prompt border; the
+  model is chosen with `/model`. A message typed before that stays in the bar and gets a one-line
+  note instead of being sent (SPEC 10.1).
+- The README follows the Best-README-Template layout and shows only `assets/logo.png`, not the
+  green variant.
+
+### Added
+- OMP-style message completion in the prompt bar: `/` commands and skills, `@` file references
+  found anywhere below the project, and path completion for `src/`, `./`, `../`, `~/` and absolute
+  paths. Tab accepts, arrows move, Esc closes, and a path replaces only its token (SPEC 10.3).
+- The web search is on by default: `web_search` joins `read`, `write`, `edit` and `bash`, so an
+  agent can answer a question about the world without being handed a URL. `fetch` stays off
+  (SPEC 9.3).
+- The web search is a chain of providers ported from oh-my-pi: DuckDuckGo, Startpage, Mojeek,
+  Ecosia, Hacker News, SearXNG, the Public Web fan-out, and the keyed Brave, Tavily, Exa, Jina,
+  Kagi and Firecrawl APIs. The chain is `web_search.providers`; the first provider that answers
+  wins and the failures are named in a `Note:` line (SPEC 9.3).
+- The structured query parser: `site:`, `inurl:`, `intitle:`, `intext:`, `filetype:`,
+  `before:`/`after:`, `lang:`, quoted phrases, `OR` groups and `-exclusions`. Each engine gets
+  only the syntax it understands; the rest is enforced on the results, and a constraint that
+  would empty the answer is relaxed and reported.
+- `web_search.searxng_url` points at a SearXNG instance, and `web_search.key_env` names the
+  environment variable of a keyed provider. The keys stay in the environment or
+  `state/auth.json` (SPEC 5).
+
 ## [0.7.0] - 2026-11-11
 
 ### Added
@@ -52,6 +78,81 @@ workspace; each release ships a milestone (SPEC 15).
   editable design. The extraction handles transparent, scaled and anti-aliased assets.
 - The config points at the llama.cpp binary and at its subcommand; the old key is migrated.
 - The first run asks which model to use (SPEC 16.7).
+- The capping of the tool output lands on a character boundary and wraps the long lines instead
+  of cutting them; the first version could panic on a multi-byte character.
+- SEEK asks the local server for a context of 32768 tokens; the default of the model can be
+  several gigabytes of key and value cache.
+- The model that is chosen in a picker now reaches the agent; the command that carried the
+  toggles swallowed it.
+- The real context size of a local server reaches the metrics.
+- A local server that cannot be started is an error, not a scripted answer.
+- The conversation is written to a session and can be resumed: `/new`, `/resume`, and the
+  sessions in the sidebar (SPEC 11).
+- Esc stops the turn that is running (SPEC 9.1).
+- The reasoning level is remembered per model (SPEC 9.7).
+- The `fetch` tool can be turned on in `/tools`.
+- The client side limits of the configuration (`rpm` and `tpm`) are honored (SPEC 6).
+- The manual test checklist, `docs/TESTING.md`.
+- The logo draws only its lit pixels, is centred both ways and has a sheen sweeping across it.
+- The thinking and the loading animation are one line of dark cells with a wave of brightness.
+- The prompt of the user is a band with the arrow in front of it; the answer of the model is plain
+  text.
+- The log strip is one line.
+- The permission prompt is a selector: the chosen answer is highlighted and the keys are shown.
+- The transcript window is right, and long messages are wrapped, so the streaming no longer
+  disappears.
+- The helpers and the network tools are off by default.
+- The short forms of the launch options count, so `-c 8000` is the context size the user set.
+- The servers are stopped when SEEK is closed by a signal.
+- The turn no longer blocks the commands: the answer to a permission request and Esc arrive at
+  once, and a turn that is cancelled gives up.
+- The conversation goes on from turn to turn: the model sees what was said before.
+- The bash command runs in a blocking task, so the interface keeps answering while it runs.
+- The helpers have a timeout, a depth cap and a file cap: a search over a big tree comes back
+  with an answer instead of hanging the turn.
+- The row of a tool call is closed by its own id, so a late output does not leave it running.
+- The system prompt says what to do: do the work now, claim nothing that a tool did not show,
+  answer first, no preamble.
+- The colours are the tokyonight of the grok-build pager, and the green of SEEK stays for the
+  brand.
+- The transcript has a rail per block and a blank line between the blocks.
+- The prompt is a box with rounded corners, with the model name in the top border.
+- The footer is one line: the mode, the model, the place and the metrics.
+- The thinking line is eight cells and the streak wraps around.
+- The keys arrive at once: the reader of the terminal was blocking the event loop, so Esc did
+  nothing and the message after it was never taken.
+- The cancel stops the turn that is running, and not the next one.
+- Shift+Tab switches the permission mode, whatever the sidebar does.
+- The permission mode is read at every tool call: changing it while the agent works applies at
+  once, to the turn that runs now.
+- The file tools follow grok-build: the read numbers the lines, the edit replaces every
+  occurrence when asked, and says the line the change landed on.
+- The web search is the one of oh-my-pi (DuckDuckGo, no key). It is off by default.
+- The system prompt is slimmer and teaches the tools: it is 701 of the 1,500 tokens.
+- The first run asks for the name of the user, `/settings` asks again, and the model addresses
+  the user by it.
+- There is no green in the interface any more, and the `LOCAL` tag is only in the model picker.
+- The thinking line sits behind the message, in the column of the text.
+- The message bar holds the text and nothing else: the status is in the bottom border, so the
+  box keeps its shape while the agent works and the cursor is the only thing that moves.
+- The commands complete as they are typed: a dropdown of the slash commands and the skills, the
+  arrows move the selection, Tab and Enter take it.
+- The chat scrolls: the wheel and the page keys, the window anchored to the content so the
+  message being read stays put, and the place in the transcript shown in the corner.
+- The guards of the model, from oh-my-pi: a model that thinks and never acts is interrupted and
+  told to act, and a model that repeats the same call is told to stop.
+- Every tool call carries an intent: two to six words that name what the call does.
+- The read numbers every line, and the edit takes the line the read showed: the model does not
+  copy the text it read.
+- The mode of the message is the mode of the session again: the shared mode had overridden it,
+  and every tool asked for a permission, even in YOLO.
+- The form that adds a provider, with the kind, the base URL, the key environment variable, the
+  models, the context and the rate limits (SPEC 10.3).
+- The providers are detected from the environment when there is no `providers.toml`, so a bare
+  install works (SPEC 6).
+- The keys can live in `state/auth.json`, readable by their owner only (SPEC 5).
+- The models an endpoint knows are discovered and shown in the picker; the entries of
+  `providers.toml` override them (SPEC 6).
 
 [Unreleased]: https://github.com/piskevalee-cpu/Seek/compare/v0.7.0...HEAD
 [0.7.0]: https://github.com/piskevalee-cpu/Seek/compare/v0.0.0...v0.7.0

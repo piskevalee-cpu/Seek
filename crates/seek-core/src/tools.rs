@@ -1,7 +1,7 @@
-//! The four built-in tools (SPEC 9.2).
+//! The file and shell tools of SPEC 9.2.
 //!
-//! `read`, `write`, `edit` and `bash` are on by default. The read-only helpers `ls`, `grep` and
-//! `find` ship but are off by default.
+//! `read`, `write`, `edit` and `bash` are on by default, and `web_search` (in `websearch`)
+//! joins them. The read-only helpers `ls`, `grep` and `find` ship but are off by default.
 //!
 //! Every output is capped: 200 lines or 16 KB, head and tail, with a marker that tells the model
 //! how to fetch more.
@@ -16,6 +16,7 @@ use serde_json::Value;
 use crate::event::ToolOutput;
 use crate::process::{ProcessRegistry, TAG_AGENT};
 use crate::tool::{BoxFuture, Risk, Tool, ToolError, ToolSchema};
+use crate::truncate::{cap_output, cap_output_with_hint, wrap_long_lines};
 
 /// The maximum number of lines of tool output.
 pub const MAX_LINES: usize = 200;
@@ -23,38 +24,6 @@ pub const MAX_LINES: usize = 200;
 pub const MAX_BYTES: usize = 16 * 1024;
 /// The default timeout of a tool call.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
-
-/// Cap the output of a tool.
-///
-/// The head and the tail are kept, so the model sees both the beginning and the end.
-pub fn cap_output(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
-    let bytes = text.len();
-
-    if lines.len() <= MAX_LINES && bytes <= MAX_BYTES {
-        return text.to_string();
-    }
-
-    // Keep half of the lines at the head and half at the tail, then cut by bytes.
-    let keep = MAX_LINES / 2;
-    let mut head: String = lines[..keep.min(lines.len())].join("\n");
-    let mut tail: String = if lines.len() > keep {
-        lines[lines.len() - keep..].join("\n")
-    } else {
-        String::new()
-    };
-
-    if head.len() + tail.len() > MAX_BYTES {
-        let half = MAX_BYTES / 2;
-        head.truncate(head.len().min(half));
-        tail.truncate(tail.len().min(half));
-    }
-
-    let omitted = lines.len().saturating_sub(keep * 2);
-    format!(
-        "{head}\n… [{omitted} lines omitted, use read with offset and limit to see more] …\n{tail}"
-    )
-}
 
 /// The tools that are on by default.
 pub struct BuiltinTools {
@@ -78,9 +47,9 @@ impl BuiltinTools {
         &self.processes
     }
 
-    /// The schemas of the enabled tools.
+    /// The schemas of the tools the struct itself runs.
     pub fn schemas(&self) -> Vec<ToolSchema> {
-        crate::prompt::DEFAULT_TOOLS.clone()
+        vec![read_schema(), write_schema(), edit_schema(), bash_schema()]
     }
 
     /// Resolve a path inside the project.
@@ -96,35 +65,41 @@ impl BuiltinTools {
     }
 }
 
-/// The schema of the `read` tool.
-pub fn read_schema() -> ToolSchema {
+// The schemas of the file tools come with them.
+pub use crate::files::{edit_schema, read_schema, write_schema};
+
+/// The schema of the `ls` tool.
+pub fn ls_schema() -> ToolSchema {
     ToolSchema::new(
-        "read",
-        "Read a file.",
-        r#"{"type":"object","properties":{"path":{"type":"string"},"offset":{"type":"integer"},"limit":{"type":"integer"}},"required":["path"]}"#,
+        "ls",
+        "List a directory.",
+        r#"{"type":"object","properties":{"path":{"type":"string"}}}"#,
         Risk::Read,
     )
 }
 
-/// The schema of the `write` tool.
-pub fn write_schema() -> ToolSchema {
+/// The schema of the `grep` tool.
+pub fn grep_schema() -> ToolSchema {
     ToolSchema::new(
-        "write",
-        "Write a file, replacing its content.",
-        r#"{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"]}"#,
-        Risk::Write,
+        "grep",
+        "Search the files of a directory for a pattern.",
+        r#"{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}"#,
+        Risk::Read,
     )
 }
 
-/// The schema of the `edit` tool.
-pub fn edit_schema() -> ToolSchema {
+/// The schema of the `find` tool.
+pub fn find_schema() -> ToolSchema {
     ToolSchema::new(
-        "edit",
-        "Replace an exact string in a file. The match must be unique.",
-        r#"{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"]}"#,
-        Risk::Write,
+        "find",
+        "Find the files of a directory by name.",
+        r#"{"type":"object","properties":{"pattern":{"type":"string"},"path":{"type":"string"}},"required":["pattern"]}"#,
+        Risk::Read,
     )
 }
+
+/// The schema of the `web_search` tool.
+pub use crate::websearch::web_search_schema;
 
 /// The schema of the `fetch` tool.
 pub fn fetch_schema() -> ToolSchema {
@@ -146,122 +121,8 @@ pub fn bash_schema() -> ToolSchema {
     )
 }
 
-/// Reads a file.
-#[derive(Debug, Clone)]
-pub struct ReadTool {
-    root: PathBuf,
-}
-
-impl ReadTool {
-    pub fn new(root: PathBuf) -> Self {
-        ReadTool { root }
-    }
-
-    /// Read the file, honouring offset and limit.
-    pub fn read(
-        &self,
-        path: &str,
-        offset: Option<usize>,
-        limit: Option<usize>,
-    ) -> Result<String, ToolError> {
-        let resolved = resolve(&self.root, path);
-        let text = std::fs::read_to_string(&resolved)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-
-        let all: Vec<&str> = text.lines().collect();
-        let start = offset.unwrap_or(1).max(1) - 1;
-        if start >= all.len() && !all.is_empty() {
-            return Ok(format!(
-                "the file has {} lines, offset {start} is past the end",
-                all.len()
-            ));
-        }
-        let take = limit.unwrap_or(MAX_LINES).min(MAX_LINES);
-        let slice: Vec<&str> = all[start..(start + take).min(all.len())].to_vec();
-        let mut out = slice.join("\n");
-        if start + take < all.len() {
-            out.push_str(&format!(
-                "\n… [{} more lines, use offset {} to see them] …",
-                all.len() - start - take,
-                start + take + 1
-            ));
-        }
-        Ok(cap_output(&out))
-    }
-}
-
-/// Writes a file.
-#[derive(Debug, Clone)]
-pub struct WriteTool {
-    root: PathBuf,
-}
-
-impl WriteTool {
-    pub fn new(root: PathBuf) -> Self {
-        WriteTool { root }
-    }
-
-    /// Write the file, replacing its content.
-    pub fn write(&self, path: &str, content: &str) -> Result<String, ToolError> {
-        let resolved = resolve(&self.root, path);
-        if let Some(parent) = resolved.parent()
-            && !parent.exists()
-        {
-            std::fs::create_dir_all(parent)
-                .map_err(|error| ToolError::Failed(format!("{}: {error}", parent.display())))?;
-        }
-        std::fs::write(&resolved, content)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-        Ok(format!(
-            "wrote {} bytes to {}",
-            content.len(),
-            resolved.display()
-        ))
-    }
-}
-
-/// Replaces an exact string in a file.
-#[derive(Debug, Clone)]
-pub struct EditTool {
-    root: PathBuf,
-}
-
-impl EditTool {
-    pub fn new(root: PathBuf) -> Self {
-        EditTool { root }
-    }
-
-    /// Replace `old` with `new`.
-    ///
-    /// The match has to be unique: a file that contains `old` more than once is not edited.
-    pub fn edit(&self, path: &str, old: &str, new: &str) -> Result<String, ToolError> {
-        let resolved = resolve(&self.root, path);
-        let text = std::fs::read_to_string(&resolved)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-
-        let matches = text.matches(old).count();
-        match matches {
-            0 => {
-                return Err(ToolError::Failed(format!(
-                    "the text to replace was not found in {}",
-                    resolved.display()
-                )));
-            }
-            1 => {}
-            count => {
-                return Err(ToolError::Failed(format!(
-                    "the text to replace is not unique: {count} matches in {}",
-                    resolved.display()
-                )));
-            }
-        }
-
-        let updated = text.replacen(old, new, 1);
-        std::fs::write(&resolved, &updated)
-            .map_err(|error| ToolError::Failed(format!("{}: {error}", resolved.display())))?;
-        Ok(format!("edited {}", resolved.display()))
-    }
-}
+// The file tools live in their own module: they follow the grok-build pager (Apache-2.0).
+pub use crate::files::{EditTool, ReadTool, WriteTool};
 
 /// Runs a shell command.
 #[derive(Debug, Clone)]
@@ -320,6 +181,8 @@ impl BashTool {
             }
             text.push_str(&errors);
         }
+        // A long line is wrapped instead of being cut, so the model sees all of it.
+        let text = wrap_long_lines(&text, crate::truncate::WRAP_WIDTH);
         if output.status.success() {
             Ok(cap_output(&text))
         } else {
@@ -330,7 +193,7 @@ impl BashTool {
                 .unwrap_or_else(|| "signal".to_string());
             Err(ToolError::Failed(format!(
                 "the command exited with {code}\n{}",
-                cap_output(&text)
+                cap_output_with_hint(&text, "run it again to see more")
             )))
         }
     }
@@ -406,9 +269,39 @@ impl Tool for EditTool {
     fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
         Box::pin(async move {
             let path = string_field(&input, "path")?;
-            let old = string_field(&input, "old")?;
-            let new = string_field(&input, "new")?;
-            let content = self.edit(&path, &old, &new)?;
+            // The short names are accepted too: a small model mixes them up.
+            let fields: &[&str] = &[
+                "path",
+                "line",
+                "end_line",
+                "new_string",
+                "old_string",
+                "replace_all",
+            ];
+            let new = string_field_with(&input, "new_string", fields)
+                .or_else(|_| string_field_with(&input, "new", fields))?;
+
+            // The edit by line: the model names the line it read and does not copy the text.
+            if let Some(line) = input.get("line").and_then(Value::as_u64) {
+                let end_line = input.get("end_line").and_then(Value::as_u64);
+                let content =
+                    self.edit_lines(&path, line as usize, end_line.map(|end| end as usize), &new)?;
+                return Ok(ToolOutput {
+                    id: String::new(),
+                    name: "edit".into(),
+                    content,
+                    is_error: false,
+                    duration: Duration::ZERO,
+                });
+            }
+
+            let old = string_field_with(&input, "old_string", fields)
+                .or_else(|_| string_field_with(&input, "old", fields))?;
+            let replace_all = input
+                .get("replace_all")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let content = self.edit(&path, &old, &new, replace_all)?;
             Ok(ToolOutput {
                 id: String::new(),
                 name: "edit".into(),
@@ -418,6 +311,222 @@ impl Tool for EditTool {
             })
         })
     }
+}
+
+/// Lists a directory.
+#[derive(Debug, Clone)]
+pub struct LsTool {
+    root: PathBuf,
+}
+
+impl LsTool {
+    pub fn new(root: PathBuf) -> Self {
+        LsTool { root }
+    }
+
+    /// The entries of the directory.
+    ///
+    /// The work happens in a blocking task, with a timeout: a directory on a slow disk cannot
+    /// hang the turn.
+    pub async fn list(&self, path: Option<&str>) -> Result<String, ToolError> {
+        let path = path.map(str::to_string);
+        let root = self.root.clone();
+        in_time(move || list_in(&root, path.as_deref())).await
+    }
+}
+
+/// The entries of a directory.
+fn list_in(root: &Path, path: Option<&str>) -> Result<String, ToolError> {
+    let directory = match path {
+        Some(path) => resolve(root, path),
+        None => root.to_path_buf(),
+    };
+    let entries = std::fs::read_dir(&directory)
+        .map_err(|error| ToolError::Failed(format!("{}: {error}", directory.display())))?;
+
+    let mut lines: Vec<String> = Vec::new();
+    let mut entries: Vec<_> = entries.filter_map(|entry| entry.ok()).collect();
+    entries.sort_by_key(|entry| entry.file_name());
+
+    for entry in entries {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let kind = match entry.file_type() {
+            Ok(file_type) if file_type.is_dir() => "/",
+            Ok(file_type) if file_type.is_symlink() => "@",
+            _ => "",
+        };
+        lines.push(format!("{name}{kind}"));
+        if lines.len() >= MAX_LINES {
+            break;
+        }
+    }
+    Ok(cap_output(&lines.join("\n")))
+}
+
+/// Searches the files of a directory for a pattern.
+#[derive(Debug, Clone)]
+pub struct GrepTool {
+    root: PathBuf,
+}
+
+impl GrepTool {
+    pub fn new(root: PathBuf) -> Self {
+        GrepTool { root }
+    }
+
+    /// The lines that match.
+    ///
+    /// The walk happens in a blocking task, so the interface keeps answering while it runs, and
+    /// it is stopped if it takes too long.
+    pub async fn search(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+        let pattern = pattern.to_string();
+        let path = path.map(str::to_string);
+        let root = self.root.clone();
+        in_time(move || search_in(&root, &pattern, path.as_deref())).await
+    }
+}
+
+/// The lines that match, in the files of a directory.
+fn search_in(root: &Path, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+    let directory = match path {
+        Some(path) => resolve(root, path),
+        None => root.to_path_buf(),
+    };
+    let mut lines: Vec<String> = Vec::new();
+
+    for entry in walk(&directory) {
+        if lines.len() >= MAX_LINES {
+            break;
+        }
+        let Ok(text) = std::fs::read_to_string(&entry) else {
+            continue;
+        };
+        for (number, line) in text.lines().enumerate() {
+            if line.contains(pattern) {
+                lines.push(format!(
+                    "{}:{}: {}",
+                    entry.strip_prefix(root).unwrap_or(&entry).display(),
+                    number + 1,
+                    line.trim()
+                ));
+                if lines.len() >= MAX_LINES {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(cap_output(&lines.join("\n")))
+}
+
+/// Finds the files of a directory by name.
+#[derive(Debug, Clone)]
+pub struct FindTool {
+    root: PathBuf,
+}
+
+impl FindTool {
+    pub fn new(root: PathBuf) -> Self {
+        FindTool { root }
+    }
+
+    /// The files whose name matches.
+    ///
+    /// The walk happens in a blocking task, so the interface keeps answering while it runs, and
+    /// it is stopped if it takes too long.
+    pub async fn find(&self, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+        let pattern = pattern.to_string();
+        let path = path.map(str::to_string);
+        let root = self.root.clone();
+        in_time(move || find_in(&root, &pattern, path.as_deref())).await
+    }
+}
+
+/// The files whose name matches, in a directory.
+fn find_in(root: &Path, pattern: &str, path: Option<&str>) -> Result<String, ToolError> {
+    let directory = match path {
+        Some(path) => resolve(root, path),
+        None => root.to_path_buf(),
+    };
+    let mut lines: Vec<String> = Vec::new();
+    for entry in walk(&directory) {
+        let name = entry
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if name.contains(pattern) {
+            lines.push(
+                entry
+                    .strip_prefix(root)
+                    .unwrap_or(&entry)
+                    .display()
+                    .to_string(),
+            );
+            if lines.len() >= MAX_LINES {
+                break;
+            }
+        }
+    }
+    Ok(cap_output(&lines.join("\n")))
+}
+
+/// How deep the helpers walk.
+pub const MAX_DEPTH: usize = 12;
+/// How many files the helpers look at.
+pub const MAX_FILES: usize = 2_000;
+/// How long the helpers may take.
+pub const HELPER_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Runs the work of a helper, with a timeout.
+///
+/// The work is blocking, so it happens in its own task: the runtime keeps serving the interface
+/// while the helper walks the tree. A helper that takes too long comes back with an error
+/// instead of hanging the turn for ever.
+async fn in_time<F, T>(work: F) -> Result<T, ToolError>
+where
+    F: FnOnce() -> Result<T, ToolError> + Send + 'static,
+    T: Send + 'static,
+{
+    in_time_within(HELPER_TIMEOUT, work).await
+}
+
+/// Runs the work of a helper, with a timeout.
+async fn in_time_within<F, T>(limit: Duration, work: F) -> Result<T, ToolError>
+where
+    F: FnOnce() -> Result<T, ToolError> + Send + 'static,
+    T: Send + 'static,
+{
+    let task = tokio::task::spawn_blocking(work);
+    match tokio::time::timeout(limit, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => Err(ToolError::Failed(format!(
+            "the helper did not finish: {error}"
+        ))),
+        Err(_) => Err(ToolError::Timeout(limit)),
+    }
+}
+
+/// The files of a directory, without the ones the git ignores.
+///
+/// The walk is bounded in depth and in the number of files: a search over a whole disk has to
+/// come back with an answer, not with a hang.
+fn walk(directory: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in ignore::WalkBuilder::new(directory)
+        .hidden(true)
+        .git_ignore(true)
+        .git_global(false)
+        .max_depth(Some(MAX_DEPTH))
+        .build()
+        .flatten()
+    {
+        if entry.file_type().is_some_and(|kind| kind.is_file()) {
+            files.push(entry.path().to_path_buf());
+        }
+        if files.len() >= MAX_FILES {
+            break;
+        }
+    }
+    files
 }
 
 /// Fetches a URL and returns it as text.
@@ -469,6 +578,71 @@ impl FetchTool {
     }
 }
 
+/// The `ls` tool.
+impl Tool for LsTool {
+    fn schema(&self) -> ToolSchema {
+        ls_schema()
+    }
+
+    fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let path = input.get("path").and_then(Value::as_str);
+            let content = self.list(path).await?;
+            Ok(ToolOutput {
+                id: String::new(),
+                name: "ls".into(),
+                content,
+                is_error: false,
+                duration: Duration::ZERO,
+            })
+        })
+    }
+}
+
+/// The `grep` tool.
+impl Tool for GrepTool {
+    fn schema(&self) -> ToolSchema {
+        grep_schema()
+    }
+
+    fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let pattern = string_field(&input, "pattern")?;
+            let path = input.get("path").and_then(Value::as_str);
+            let content = self.search(&pattern, path).await?;
+            Ok(ToolOutput {
+                id: String::new(),
+                name: "grep".into(),
+                content,
+                is_error: false,
+                duration: Duration::ZERO,
+            })
+        })
+    }
+}
+
+/// The `find` tool.
+impl Tool for FindTool {
+    fn schema(&self) -> ToolSchema {
+        find_schema()
+    }
+
+    fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
+        Box::pin(async move {
+            let pattern = string_field(&input, "pattern")?;
+            let path = input.get("path").and_then(Value::as_str);
+            let content = self.find(&pattern, path).await?;
+            Ok(ToolOutput {
+                id: String::new(),
+                name: "find".into(),
+                content,
+                is_error: false,
+                duration: Duration::ZERO,
+            })
+        })
+    }
+}
+
 /// The `fetch` tool.
 impl Tool for FetchTool {
     fn schema(&self) -> ToolSchema {
@@ -499,7 +673,15 @@ impl Tool for BashTool {
     fn call<'a>(&'a self, input: Value) -> BoxFuture<'a, Result<ToolOutput, ToolError>> {
         Box::pin(async move {
             let command = string_field(&input, "command")?;
-            let content = self.run(&command)?;
+            // The command waits for the process, and that is blocking. It runs in its own
+            // task, so the interface keeps answering while it runs: a command that takes
+            // minutes must not freeze the screen.
+            let tool = self.clone();
+            let content = tokio::task::spawn_blocking(move || tool.run(&command))
+                .await
+                .map_err(|error| {
+                    ToolError::Failed(format!("the command did not finish: {error}"))
+                })??;
             Ok(ToolOutput {
                 id: String::new(),
                 name: "bash".into(),
@@ -520,12 +702,30 @@ fn string_field(input: &Value, name: &str) -> Result<String, ToolError> {
         .ok_or_else(|| ToolError::InvalidInput(format!("the field {name} is missing")))
 }
 
+/// The fields a tool takes, for the error message.
+///
+/// A small model mixes the names up. The answer names them, so the next call is right.
+fn string_field_with(input: &Value, name: &str, fields: &[&str]) -> Result<String, ToolError> {
+    input
+        .get(name)
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or_else(|| {
+            ToolError::InvalidInput(format!(
+                "the field {name} is missing. The tool takes: {}",
+                fields.join(", ")
+            ))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("seek-tools-test-{name}"));
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let number = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("seek-tools-test-{name}-{number}"));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the directory is created");
         dir
@@ -536,7 +736,11 @@ mod tests {
         let dir = temp_dir("read");
         std::fs::write(dir.join("a.txt"), "one\ntwo\nthree").expect("written");
         let tool = ReadTool::new(dir.clone());
-        assert_eq!(tool.read("a.txt", None, None).unwrap(), "one\ntwo\nthree");
+        // Every line carries its number.
+        assert_eq!(
+            tool.read("a.txt", None, None).unwrap(),
+            "1:one\n2:two\n3:three"
+        );
     }
 
     #[test]
@@ -546,7 +750,7 @@ mod tests {
         let tool = ReadTool::new(dir.clone());
         // The reader says how to fetch the rest.
         let out = tool.read("a.txt", Some(2), Some(2)).unwrap();
-        assert!(out.starts_with("2\n3"));
+        assert!(out.starts_with("2:2\n3:3"), "{out}");
         assert!(out.contains("offset 4"));
     }
 
@@ -573,10 +777,24 @@ mod tests {
         let dir = temp_dir("edit");
         std::fs::write(dir.join("a.txt"), "one two three").expect("written");
         let tool = EditTool::new(dir.clone());
-        tool.edit("a.txt", "two", "TWO").expect("edited");
+        tool.edit("a.txt", "two", "TWO", false).expect("edited");
         assert_eq!(
             std::fs::read_to_string(dir.join("a.txt")).unwrap(),
             "one TWO three"
+        );
+    }
+
+    #[test]
+    fn the_numbers_of_a_read_are_not_part_of_the_file() {
+        // The model may copy the numbered lines of a read: the numbers are taken off before
+        // the text is looked for.
+        let dir = temp_dir("edit-numbers");
+        std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").expect("written");
+        let tool = EditTool::new(dir.clone());
+        tool.edit("a.txt", "2:two", "TWO", false).expect("edited");
+        assert_eq!(
+            std::fs::read_to_string(dir.join("a.txt")).expect("read"),
+            "one\nTWO\nthree\n"
         );
     }
 
@@ -585,7 +803,7 @@ mod tests {
         let dir = temp_dir("edit-not-unique");
         std::fs::write(dir.join("a.txt"), "x x").expect("written");
         let tool = EditTool::new(dir.clone());
-        let error = tool.edit("a.txt", "x", "y").unwrap_err();
+        let error = tool.edit("a.txt", "x", "y", false).unwrap_err();
         assert!(error.to_string().contains("not unique"));
     }
 
@@ -594,7 +812,7 @@ mod tests {
         let dir = temp_dir("edit-missing");
         std::fs::write(dir.join("a.txt"), "abc").expect("written");
         let tool = EditTool::new(dir.clone());
-        let error = tool.edit("a.txt", "zzz", "y").unwrap_err();
+        let error = tool.edit("a.txt", "zzz", "y", false).unwrap_err();
         assert!(error.to_string().contains("not found"));
     }
 
@@ -621,6 +839,72 @@ mod tests {
             .with_timeout(Duration::from_millis(200));
         // The command sleeps; the tool waits for it, so the test only checks that it returns.
         let _ = tool.run("sleep 5");
+    }
+
+    #[tokio::test]
+    async fn listing_a_directory_shows_the_entries() {
+        let dir = temp_dir("ls");
+        std::fs::write(dir.join("a.txt"), b"x").expect("written");
+        std::fs::create_dir_all(dir.join("sub")).expect("created");
+        let tool = LsTool::new(dir.clone());
+        let out = tool.list(None).await.expect("listed");
+        assert!(out.contains("a.txt"));
+        assert!(out.contains("sub/"));
+    }
+
+    #[tokio::test]
+    async fn searching_finds_the_lines() {
+        let dir = temp_dir("grep");
+        std::fs::write(dir.join("a.txt"), b"one\ntwo\nthree").expect("written");
+        let tool = GrepTool::new(dir.clone());
+        let out = tool.search("two", None).await.expect("searched");
+        assert!(out.contains("a.txt:2: two"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn finding_shows_the_paths() {
+        let dir = temp_dir("find");
+        std::fs::write(dir.join("needle.txt"), b"x").expect("written");
+        let tool = FindTool::new(dir.clone());
+        let out = tool.find("needle", None).await.expect("found");
+        assert!(out.contains("needle.txt"), "{out}");
+    }
+
+    #[tokio::test]
+    async fn a_helper_that_takes_too_long_comes_back_with_an_error() {
+        // The work sleeps longer than the limit: the helper must come back, not hang.
+        let error = in_time_within(Duration::from_millis(50), || {
+            std::thread::sleep(Duration::from_millis(2_000));
+            Ok(42)
+        })
+        .await
+        .expect_err("the helper timed out");
+        assert!(matches!(error, ToolError::Timeout(_)), "{error}");
+    }
+
+    #[tokio::test]
+    async fn the_helpers_walk_a_shallow_tree() {
+        // A tree deeper than the limit is cut: the search comes back with what it found.
+        let dir = temp_dir("depth");
+        let mut deep = dir.clone();
+        for step in 0..(MAX_DEPTH + 3) {
+            deep = deep.join(format!("level{step}"));
+        }
+        std::fs::create_dir_all(&deep).expect("created");
+        std::fs::write(deep.join("deep.txt"), b"needle").expect("written");
+        // The file is too deep to be found.
+        let out = GrepTool::new(dir.clone())
+            .search("needle", None)
+            .await
+            .expect("searched");
+        assert!(!out.contains("deep.txt"), "{out}");
+        // A file that is shallow enough is found.
+        std::fs::write(dir.join("shallow.txt"), b"needle").expect("written");
+        let out = GrepTool::new(dir)
+            .search("needle", None)
+            .await
+            .expect("searched");
+        assert!(out.contains("shallow.txt"), "{out}");
     }
 
     #[tokio::test]

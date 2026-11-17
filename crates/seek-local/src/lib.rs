@@ -8,12 +8,14 @@ pub mod logs;
 pub mod model;
 pub mod options;
 pub mod port;
+pub mod server_lock;
 pub mod supervisor;
 
 pub use logs::{LogBuffer, LogLine};
 pub use model::{LocalModel, Sidecar};
 pub use options::LaunchOptions;
 pub use port::{find_free_port, port_for};
+pub use server_lock::ServerLock;
 pub use supervisor::{LocalError, ServerProps, Supervisor};
 
 /// The folder where local models live, relative to the SEEK home.

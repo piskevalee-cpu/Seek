@@ -40,7 +40,7 @@ async fn main() -> Result<()> {
 
     let (command_tx, command_rx) = mpsc::channel::<Command>(16);
     let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(256);
-    let (widget_tx, widget_rx) = mpsc::channel::<seek_core::WidgetOutput>(16);
+    let (widget_tx, widget_rx) = mpsc::channel::<seek_tui::app::UiMessage>(16);
     let (permission_tx, mut permission_rx) = PermissionRequests::new();
 
     // The permission requests of the agent are forwarded to the UI.
@@ -71,11 +71,48 @@ async fn main() -> Result<()> {
     tokio::spawn(seek::agent_loop(
         command_rx,
         event_tx,
-        widget_tx,
+        widget_tx.clone(),
         providers.clone(),
         permission_tx.clone(),
         Arc::clone(&runtime),
     ));
+
+    // The models the endpoints know are fetched once at the start (SPEC 6).
+    {
+        let providers = providers.clone();
+        let widget_tx = widget_tx.clone();
+        tokio::spawn(async move {
+            let models = seek::discover_models(&providers).await;
+            if !models.is_empty() {
+                let _ = widget_tx
+                    .send(seek_tui::app::UiMessage::Models(models))
+                    .await;
+            }
+        });
+    }
+
+    // A signal stops the servers before SEEK leaves: the destructors do not run when the
+    // process is killed, and a local server would stay behind (SPEC 7.3).
+    {
+        let runtime = Arc::clone(&runtime);
+        tokio::spawn(async move {
+            use tokio::signal::unix::{SignalKind, signal};
+            let (Ok(mut terminate), Ok(mut interrupt), Ok(mut hangup)) = (
+                signal(SignalKind::terminate()),
+                signal(SignalKind::interrupt()),
+                signal(SignalKind::hangup()),
+            ) else {
+                return;
+            };
+            tokio::select! {
+                _ = terminate.recv() => {}
+                _ = interrupt.recv() => {}
+                _ = hangup.recv() => {}
+            }
+            runtime.stop_servers().await;
+            std::process::exit(0);
+        });
+    }
 
     let mut app = App::new(Theme::for_terminal());
     app.cwd = std::env::current_dir()
@@ -88,6 +125,8 @@ async fn main() -> Result<()> {
     app.local_models = runtime.local_models.clone();
     app.logs = Some(logs);
     app.skills = runtime.skills.clone();
+    // The name of the user: the first run asks for it (SPEC 9.5).
+    app.user_name = Some(runtime.user.lock().await.name.clone());
     app.toggles = runtime.toggles.clone();
     app.external_tools = runtime.external_tools.clone();
     app.widgets = runtime.widgets.clone();

@@ -8,11 +8,20 @@
 
 /// The slash commands the prompt bar offers.
 pub const SLASH_COMMANDS: &[(&str, &str)] = &[
+    ("/compact", "Summarize the older turns"),
     ("/help", "Show the key reference"),
+    ("/mode", "Set the permission mode"),
     ("/model", "Pick a model"),
+    ("/new", "Start a new session"),
     ("/provider", "Add or edit providers"),
     ("/quit", "Exit SEEK"),
+    ("/resume", "Open the sessions"),
+    ("/settings", "Your name and settings"),
+    ("/skills", "Toggle the skills"),
+    ("/think", "Set the reasoning level"),
     ("/thoughts", "Show or hide reasoning text"),
+    ("/tools", "Toggle the tools"),
+    ("/truncate", "Drop the oldest turns"),
 ];
 
 /// A multi-line text input.
@@ -59,9 +68,36 @@ impl Input {
         self.lines.get(self.row).map(String::as_str).unwrap_or("")
     }
 
+    /// Replace the line the cursor is on.
+    ///
+    /// The completion takes the whole line: the command and its argument.
+    pub fn replace_current_line(&mut self, text: &str) {
+        if self.row >= self.lines.len() {
+            return;
+        }
+        self.lines[self.row] = text.to_string();
+        self.column = text.chars().count();
+    }
+
     /// The cursor position as (row, column in characters).
     pub fn cursor(&self) -> (usize, usize) {
         (self.row, self.column)
+    }
+
+    /// Replace the characters `[start, end)` of the line the cursor is on.
+    ///
+    /// A completion replaces only its token, so the prose around it stays.
+    pub fn replace_current_span(&mut self, start: usize, end: usize, text: &str) {
+        if self.row >= self.lines.len() {
+            return;
+        }
+        let line = &mut self.lines[self.row];
+        let end = end.min(char_len(line));
+        let start = start.min(end);
+        let start_byte = byte_index(line, start);
+        let end_byte = byte_index(line, end);
+        line.replace_range(start_byte..end_byte, text);
+        self.column = start + text.chars().count();
     }
 
     /// The number of lines.
@@ -319,11 +355,25 @@ mod tests {
     fn suggestions_only_appear_for_a_slash() {
         let mut input = Input::new();
         assert!(input.suggestions().is_empty());
-        for c in "/th".chars() {
+        for c in "/thoughts".chars() {
             input.insert_char(c);
         }
         assert_eq!(input.suggestions(), vec!["/thoughts"]);
+        assert_eq!(input.slash_command(), Some("/thoughts"));
+
+        // A prefix that is not a command yet is not one.
+        let mut input = Input::new();
+        for c in "/th".chars() {
+            input.insert_char(c);
+        }
         assert_eq!(input.slash_command(), None);
+
+        // A shorter prefix offers every command that starts with it.
+        let mut input = Input::new();
+        for c in "/th".chars() {
+            input.insert_char(c);
+        }
+        assert_eq!(input.suggestions(), vec!["/think", "/thoughts"]);
     }
 
     #[test]

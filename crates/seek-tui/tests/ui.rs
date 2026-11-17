@@ -83,9 +83,121 @@ fn the_chat_layout_shows_the_message_the_footer_and_the_prompt() {
 
     assert!(lines.iter().any(|line| line.contains("hello")));
     assert!(lines.iter().any(|line| line.contains("hi there")));
-    // The footer chip and the prompt marker.
+    // The footer chip and the box of the prompt.
     assert!(lines.iter().any(|line| line.contains("ASK")));
-    assert!(lines.iter().any(|line| line.contains(">")));
+    assert!(
+        lines.iter().any(|line| line.contains("\u{256D}")),
+        "the prompt has a box: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("\u{2570}")),
+        "the prompt has a box: {lines:?}"
+    );
+}
+
+#[test]
+fn the_first_run_asks_for_the_name() {
+    let mut app = app();
+    app.update(Message::Start);
+    // The name is asked for: the model addresses the user by it.
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("your name"), "{screen}");
+}
+
+#[test]
+fn the_name_is_taken_and_kept() {
+    let mut app = app();
+    app.update(Message::Start);
+    for c in "Ada".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(
+        command,
+        Some(seek_tui::app::Command::SetUserName("Ada".into()))
+    );
+    assert_eq!(app.user_name.as_deref(), Some("Ada"));
+}
+
+#[test]
+fn the_settings_command_asks_for_the_name_again() {
+    let mut app = app();
+    app.user_name = Some("Ada".into());
+    for c in "/settings".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("your name"), "{screen}");
+}
+
+#[test]
+fn the_commands_complete_while_they_are_typed() {
+    let mut app = app();
+    for c in "/th".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    // The dropdown shows the commands that fit.
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("/think"), "{screen}");
+    assert!(screen.contains("/thoughts"), "{screen}");
+
+    // The arrows move the selection, and the picked one is marked.
+    app.update(Message::Key(key(KeyCode::Down)));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("\u{276F}"), "{screen}");
+}
+
+#[test]
+fn a_completion_is_taken_with_the_tab() {
+    let mut app = app();
+    for c in "/th".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Down)));
+    app.update(Message::Key(key(KeyCode::Tab)));
+    // The command is in the bar.
+    assert_eq!(app.input.text(), "/thoughts");
+}
+
+#[test]
+fn the_wheel_scrolls_the_transcript() {
+    let mut app = app();
+    for number in 1..=40 {
+        app.rows
+            .push(Row::Assistant(format!("the message {number}")));
+    }
+    // The bottom at first.
+    render(&mut app, 100, 30);
+    assert_eq!(app.scroll, 0);
+
+    // The wheel scrolls up, and the place is shown.
+    app.update(Message::Scroll(3));
+    render(&mut app, 100, 30);
+    assert!(app.scroll > 0, "the transcript is scrolled up");
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("\u{2191}"), "the place is shown: {screen}");
+
+    // And back down to the bottom.
+    for _ in 0..40 {
+        app.update(Message::Scroll(-3));
+    }
+    render(&mut app, 100, 30);
+    assert_eq!(app.scroll, 0, "the transcript is at the bottom");
+}
+
+#[test]
+fn a_page_key_scrolls_a_page() {
+    let mut app = app();
+    for number in 1..=80 {
+        app.rows
+            .push(Row::Assistant(format!("the message {number}")));
+    }
+    render(&mut app, 100, 30);
+    app.update(Message::Key(key(KeyCode::PageUp)));
+    render(&mut app, 100, 30);
+    // A page is the height of the window, not one line.
+    assert!(app.scroll >= 15, "a whole page: {}", app.scroll);
 }
 
 #[test]
@@ -127,11 +239,12 @@ fn the_model_is_shown_in_the_footer() {
 }
 
 #[test]
-fn the_local_tag_only_shows_for_local_models() {
+fn the_local_tag_is_only_in_the_model_picker() {
+    // The chat names the model; the tag is only in the picker (SPEC 10.2).
     let mut app = app();
     app.model.local = true;
     let screen = render(&mut app, 100, 30);
-    assert!(screen.contains("LOCAL"));
+    assert!(!screen.contains("LOCAL"), "{screen}");
 }
 
 #[test]
@@ -159,6 +272,8 @@ fn a_queued_message_is_tagged() {
 fn a_tool_row_shows_the_command_and_the_status() {
     let mut app = app();
     app.rows.push(Row::Tool {
+        id: "t1".to_string(),
+        intent: None,
         name: "bash".into(),
         command: "cargo test".into(),
         status: "ok".into(),
@@ -364,8 +479,12 @@ fn telling_seek_what_to_do_opens_a_text_input() {
 }
 
 /// A local model for the tests.
+///
+/// Every call gets its own folder: the tests run in parallel and would race over one.
 fn a_local_model() -> seek_local::LocalModel {
-    let dir = std::env::temp_dir().join("seek-ui-local-test");
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let number = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("seek-ui-local-test-{number}"));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("created");
     std::fs::write(dir.join("m.gguf"), b"x").expect("written");
@@ -408,28 +527,27 @@ fn the_right_arrow_opens_the_launch_options() {
 }
 
 #[test]
-fn the_first_run_asks_which_model_to_use() {
+fn the_first_run_shows_the_chat_with_no_model_selected() {
     let mut app = app();
     app.local_models = vec![a_local_model()];
     app.update(Message::Start);
 
     let screen = render(&mut app, 100, 30);
-    assert!(screen.contains("models"), "the picker is open");
-    assert!(screen.contains("LOCAL"), "the local model is in it");
+    assert!(screen.contains("[no model selected]"), "{screen}");
+    assert!(!screen.contains("LOCAL"), "the picker is not in the way");
 }
 
 #[test]
-fn the_first_run_asks_nothing_when_a_model_is_configured() {
+fn a_model_is_chosen_with_the_model_command() {
     let mut app = app();
     app.local_models = vec![a_local_model()];
-    app.select_local_model("local/m");
-    app.model_configured = true;
-    app.update(Message::Start);
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
 
     let screen = render(&mut app, 100, 30);
-    // The picker is closed; the footer still shows the LOCAL tag of the model.
-    assert!(!screen.contains("models"), "the picker stays closed");
-    assert!(screen.contains("LOCAL"), "the footer shows the tag");
+    assert!(screen.contains("LOCAL"), "the picker is open now");
 }
 
 #[test]
@@ -598,6 +716,7 @@ fn space_toggles_a_skill() {
 #[test]
 fn a_skill_is_run_with_its_body() {
     let mut app = app();
+    app.model_configured = true;
     app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
 
     for c in "/init write it".chars() {
@@ -616,6 +735,7 @@ fn a_skill_is_run_with_its_body() {
 #[test]
 fn a_disabled_skill_is_not_run() {
     let mut app = app();
+    app.model_configured = true;
     app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
     app.toggles.set_skill("init", false);
 
@@ -700,4 +820,204 @@ fn the_rate_limit_only_shows_when_it_is_reported() {
     )));
     let screen = render(&mut app, 100, 30);
     assert!(screen.contains("49/50"));
+}
+
+#[test]
+fn the_mode_picker_sets_the_permission_mode() {
+    let mut app = app();
+    for c in "/mode".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("ASK"));
+
+    // Choose "read": the first one.
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.mode, seek_tui::PermissionMode::Read);
+}
+
+#[test]
+fn the_think_command_toggles_the_reasoning_level() {
+    let mut app = app();
+    app.select_model("claude-sonnet-4-5");
+    assert_eq!(app.reasoning.as_deref(), Some("medium"));
+
+    for c in "/think".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.reasoning.as_deref(), Some("off"));
+
+    // And back on.
+    for c in "/think".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.reasoning.as_deref(), Some("medium"));
+}
+
+#[test]
+fn the_think_command_takes_a_level() {
+    let mut app = app();
+    app.select_model("claude-sonnet-4-5");
+    for c in "/think high".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(app.reasoning.as_deref(), Some("high"));
+}
+
+#[test]
+fn a_new_session_clears_the_transcript() {
+    let mut app = app();
+    app.rows.push(Row::User("hello".into()));
+    for c in "/new".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert!(app.rows.is_empty());
+}
+
+#[test]
+fn resume_opens_the_sidebar() {
+    let mut app = app();
+    assert!(!app.sidebar.open);
+    for c in "/resume".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    assert!(app.sidebar.open);
+}
+
+#[test]
+fn esc_stops_the_turn_that_is_running() {
+    let mut app = app();
+    app.update(Message::Agent(AgentEvent::TurnStarted));
+    let command = app.update(Message::Key(key(KeyCode::Esc)));
+    match command {
+        Some(seek_tui::Command::Cancel) => {}
+        other => panic!("expected a cancel, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_new_session_asks_for_one() {
+    let mut app = app();
+    app.rows.push(Row::User("hello".into()));
+    for c in "/new".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    assert!(matches!(command, Some(seek_tui::Command::NewSession)));
+    assert!(app.rows.is_empty());
+}
+
+#[test]
+fn the_sidebar_lists_the_sessions() {
+    let mut app = app();
+    app.sidebar.open = true;
+    app.sessions = vec![seek_core::SessionInfo {
+        id: "one".into(),
+        title: "the first question".into(),
+        created: "2026-11-11T12:00:00Z".into(),
+    }];
+
+    let screen = render(&mut app, 120, 30);
+    assert!(screen.contains("the first question"));
+    assert!(screen.contains("Sessions"));
+}
+
+#[test]
+fn the_reasoning_level_is_remembered_for_the_model() {
+    let mut app = app();
+    app.select_model("claude-sonnet-4-5");
+    for c in "/think high".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    assert_eq!(
+        app.toggles.reasoning("claude-sonnet-4-5").as_deref(),
+        Some("high")
+    );
+
+    // Another model has its own level.
+    app.select_model("gpt-5.4");
+    assert_ne!(app.reasoning.as_deref(), Some("high"));
+}
+
+#[test]
+fn the_tools_picker_has_the_fetch_tool() {
+    let mut app = app();
+    for c in "/tools".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("fetch"));
+    assert!(screen.contains("network"));
+}
+
+#[test]
+fn the_provider_form_opens_and_saves() {
+    let mut app = app();
+    for c in "/provider".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    // The last entry of the picker adds a provider.
+    app.update(Message::Key(key(KeyCode::Down)));
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("add a provider"));
+    assert!(screen.contains("base url"));
+}
+
+#[test]
+fn a_tool_row_is_closed_by_its_own_id() {
+    let mut app = app();
+    // Two calls, and the output of the first one arrives after the second one started.
+    app.rows.push(Row::Tool {
+        id: "one".into(),
+        intent: None,
+        name: "bash".into(),
+        command: "ls".into(),
+        status: "running".into(),
+        duration: None,
+        detail: None,
+        expanded: false,
+    });
+    app.rows.push(Row::Tool {
+        id: "two".into(),
+        intent: None,
+        name: "bash".into(),
+        command: "pwd".into(),
+        status: "running".into(),
+        duration: None,
+        detail: None,
+        expanded: false,
+    });
+
+    app.update(Message::Agent(AgentEvent::ToolOutput(
+        seek_core::ToolOutput {
+            id: "one".into(),
+            name: "bash".into(),
+            content: "the first one".into(),
+            is_error: false,
+            duration: std::time::Duration::from_millis(10),
+        },
+    )));
+
+    // The first row is closed; the second one is still running.
+    let status = |index: usize| match &app.rows[index] {
+        Row::Tool { status, .. } => status.clone(),
+        other => panic!("expected a tool row, got {other:?}"),
+    };
+    assert_eq!(status(0), "ok");
+    assert_eq!(status(1), "running");
 }

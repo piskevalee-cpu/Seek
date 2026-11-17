@@ -121,7 +121,7 @@ Seek-/
 
 ### 4.2 Data flow
 
-The UI follows The Elm Architecture: Model, Message, Update, View. One `tokio::select!` loop reads the crossterm `EventStream`, a 100 ms tick and mpsc receivers. Messages: `Key`, `Resize`, `Tick`, `Agent(AgentEvent)`, `Local(LocalEvent)`, `Vitals(Sample)`, `Widget(WidgetOutput)`. Update is pure (no I/O); side effects are commands sent to core and local tasks. Redraw only when state changed or an animation is active. Ignore key events that are not `KeyEventKind::Press`. Restore the terminal on panic (`ratatui::init()` installs a hook).
+The UI follows The Elm Architecture: Model, Message, Update, View. One `tokio::select!` loop reads the keys, a 100 ms tick and mpsc receivers. The keys are read by a thread of their own and reach the loop through a channel: the reader of the terminal blocks, and a blocked reader inside the loop freezes the interface. Messages: `Key`, `Resize`, `Tick`, `Agent(AgentEvent)`, `Local(LocalEvent)`, `Vitals(Sample)`, `Widget(WidgetOutput)`. Update is pure (no I/O); side effects are commands sent to core and local tasks. Redraw only when state changed or an animation is active. Ignore key events that are not `KeyEventKind::Press`. Restore the terminal on panic (`ratatui::init()` installs a hook).
 
 ### 4.3 Canonical message model
 
@@ -218,11 +218,19 @@ In `/model`, pressing right-arrow on a local model opens its options as free tex
 
 ### 9.1 Loop
 
-Stream a completion, collect tool calls, and for each: permission check, execute, append a `ToolResult`; repeat until a response has no tool calls. Guards: max iterations per turn (default 100), a cancellation token on Esc, per-tool timeouts, and errors returned to the model as `is_error` results instead of crashes. **Queued messages:** the user can type while the agent works. Messages go to a FIFO queue, show in the transcript as pending, and are delivered as one user message when the turn finishes. **\[DECISION\]** End-of-turn delivery only in v1. **Agent processes:** the `bash` tool runs each command in its own process group and registers it (PID, command, start time). Foreground commands leave the registry on exit; detached or background ones stay until they end or the user kills them.
+Stream a completion, collect tool calls, and for each: permission check, execute, append a `ToolResult`; repeat until a response has no tool calls. Guards: max iterations per turn (default 100), a cancellation token on Esc, per-tool timeouts, and errors returned to the model as `is_error` results instead of crashes.
+
+**The guards of the model.** A small model has two bad habits, and both look like work:
+- **It thinks and never acts.** The reasoning goes on and on and no tool is called. When the reasoning repeats itself, the turn is interrupted: the reasoning is dropped and a message with a `<system-interrupt>` tag is put in the history, telling the model to act. Three shapes count as a repetition, with the numbers of the oh-my-pi harness (MIT): a block of text that comes back four times over 180 characters (or three times over 1,024), four paragraphs in a row that are alike (a trigram overlap of 0.8), and eight paragraphs in a row that recycle the wording without naming anything new. The guard fires at most twice per turn, and a visible answer latches it off.
+- **It repeats itself.** The same tool with the same arguments five times in a row is a loop. A `<system-interrupt>` tells the model to use different arguments, choose another tool, or yield.
+
+The tag is a user message: the system prompt tells the model that a message with the tag comes from SEEK itself. **Queued messages:** the user can type while the agent works. Messages go to a FIFO queue, show in the transcript as pending, and are delivered as one user message when the turn finishes. **\[DECISION\]** End-of-turn delivery only in v1. **Agent processes:** the `bash` tool runs each command in its own process group and registers it (PID, command, start time). Foreground commands leave the registry on exit; detached or background ones stay until they end or the user kills them.
 
 ### 9.2 Token-efficient tool calling
 
-- Default tools: `read`, `write`, `edit`, `bash`. Read-only helpers `ls`, `grep`, `find` ship but are off by default (pi's approach).
+- Default tools: `read`, `write`, `edit`, `bash`, and `web_search`. Read-only helpers `ls`, `grep`, `find` and the `fetch` network tool ship but are off by default (pi's approach). `web_search` is on because an agent has to be able to answer a question about the world without being handed a URL.
+- The file tools follow the grok-build pager (Apache-2.0) and the oh-my-pi harness (MIT): `read` numbers **every** line (`12:the line`), so the model can point at any of them; `write` says whether it created or overwrote; `edit` takes the line the read showed and the text that replaces it (`line`, and `end_line` for a range), and falls back to an exact text (`old_string`, unique, or every occurrence with `replace_all`). The edit says the line the change landed on and returns the difference. An empty text to replace creates the file. The numbers of a read are not part of the file: they are taken off the text the model copied.
+- **Every tool call carries an intent** (`i`): two to six words, present participle, naming what the call does. It makes the model say what it is about to do, and it is shown in the transcript.
 - Terse descriptions, no examples inside schemas, and only enabled tools are sent.
 - `edit` is an exact-match replace with a unique-match check, never a whole-file rewrite; `read` takes offset and limit.
 - Cap every tool output (default 200 lines or 16 KB, head and tail) with a marker telling the model how to fetch more.
@@ -240,7 +248,7 @@ Stream a completion, collect tool calls, and for each: permission check, execute
                   non-zero exit = error
 ```
 
-`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
+`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool, and it is off by default. The `web_search` tool follows it, is **on** by default, and is a chain of providers, ported from the oh-my-pi harness (MIT): the query is parsed into its terms and its constraints, each engine is given only the syntax it understands, and the first provider that answers wins while the failures are named in a `Note:` line. The chain is `web_search.providers` in `config.toml`; the default is `duckduckgo`, `mojeek`, `startpage`, `ecosia`. The key-free providers are the scrapers `duckduckgo`, `startpage`, `mojeek`, `ecosia` and `hackernews`, the `public` fan-out over them, and the `searxng` instance named by `web_search.searxng_url`. The keyed APIs are `brave` (`BRAVE_API_KEY`), `tavily`, `exa`, `jina`, `kagi` and `firecrawl`; their keys are read from the environment or from `state/auth.json` (SPEC 5), never from `config.toml`. A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
 
 ### 9.4 Permissions
 
@@ -250,17 +258,22 @@ Stream a completion, collect tool calls, and for each: permission check, execute
 | `ask` | allow | ask | ask | ask |
 | `yolo` | allow | allow | allow | allow |
 
-- Cycle with Shift+Tab or set with `/mode`. The mode is displayed in the footer chip only.
+- Cycle with Shift+Tab or set with `/mode`. Shift+Tab works whatever the sidebar does. The mode is displayed in the footer chip only.
+- **The mode is read at every tool call.** Changing it while the agent works applies to the turn that runs now: the next call of that turn follows the new mode.
 - **Interactive ask:** the prompt bar turns into a selector with three choices: **Yes**, **No**, **Tell SEEK what to do**. The third opens a text input in the same bar; the text goes back to the model as the tool result (`denied by user: <text>`) and the agent continues from it.
 - Paths outside the project root are always asked in `ask` mode.
 
 ### 9.5 Skills
 
+The name of the user is asked for on the first run, in the prompt bar, and `/settings` asks it
+again. It is kept in `state/user.toml` (`schema = 1`) and goes into the prompt: the model
+addresses the user by it.
+
 Follow the Agent Skills format. A skill is a folder with `SKILL.md`: YAML frontmatter (`name` up to 64 chars, lowercase letters, numbers and hyphens, matching the folder; `description` up to 1,024 chars saying what it does and when to use it; optional `license`, `compatibility`, `metadata`, `allowed-tools`) followed by Markdown instructions; optional `scripts/`, `references/`, `assets/`. Progressive disclosure: only `name`, `description` and path of enabled skills go in the prompt (about 100 tokens each); the model loads the body with `read`. The user runs a skill with `/<skill-name> <prompt>`, which inserts the body into that turn. `/skills` toggles each skill. `/init` ships as a built-in skill (like opencode's) that inspects the repo and writes `AGENTS.md`; SEEK loads `AGENTS.md` from the project root into the prompt when present.
 
 ### 9.6 Toggles
 
-`state/toggles.toml` stores enabled or disabled for tools and skills. Defaults: the four built-in tools on, helpers off, all installed skills on.
+`state/toggles.toml` stores enabled or disabled for tools and skills. Defaults: the four file and shell tools and the web search on, the helpers and `fetch` off, all installed skills on.
 
 ### 9.7 Reasoning: thinking toggle and effort
 
@@ -314,7 +327,7 @@ reasoning_effort = 'medium'
 
 ### 10.1 Screens and regions
 
-Two states, one layout. Home (no messages yet) and Chat share the same regions; Home swaps the transcript for the logo and widgets.
+Two states, one layout. Home (no messages yet) and Chat share the same regions; Home swaps the transcript for the logo and widgets. The chat is shown on the first frame with no model selected; the picker is opened by `/model`, never on startup.
 
 ```
 SIDEBAR OFF                              SIDEBAR ON (Ctrl+B)
@@ -358,19 +371,22 @@ Minimum size 80x24; below that show one 'terminal too small' message. Sidebar wi
 | Key reference | `/help` overlay | No always-on hint bar |
 | Reasoning level (off, low, medium, ...) | Footer, chip next to the model name | Changed with /think and Ctrl+T; hidden when the model has no levels |
 | Reasoning text visibility | Transcript (full text or one collapsed row) | Changed with /thoughts and Alt+T; no chip |
+| Session metrics | Footer line, or the bottom of the sidebar when it is open | Never both |
 
 Lifetime usage across sessions is the `usage` widget on Home; METRICS is the current session. They are different scopes, not a duplicate.
 
 ### 10.3 Components
 
-- **Transcript.** User and assistant messages are dark cube boxes: a filled dark surface, a one-cell accent on the left edge (gray for user, green for assistant) and a role label on the first line. Reasoning is plain dim text with a thin vertical bar at the left and no box; when hidden (9.7) it collapses to one row with the same bar and the word reasoning. Tool rows are one line (`> bash  cargo test  ok 1.2s`); Ctrl+O expands the selected row. Pending (queued) messages render dimmed with a `queued` tag. Auto-scroll sticks to the bottom unless the user scrolled up.
-- **Spinner, thinking.** A 3x3 grid of cubes numbered 123 / 456 / 789, left to right, top to bottom. Lit order is 1 2 3 6 9 8 7 4 5 (a clockwise spiral ending in the center), at most three cubes lit at once, one step per tick (about 110 ms). At frame f the lit cubes are `path[f mod 9]`, `path[(f-1) mod 9]` and `path[(f-2) mod 9]`. Each cube is two terminal columns of full blocks; dark cubes use `cube_dark`, lit cubes use `cube_light`.
-- **Spinner, loading** (model start, health wait): a row of five cubes alternating dark and light, shifting one position per tick. A `reduce_motion` option replaces both with static text.
+- **Transcript.** Every block has a one-column rail on the left, coloured by the kind of the block (blue for the user, magenta for the model, grey for the reasoning and the tools), and a blank line sits between the blocks. The prompt of the user is a band across the width with the arrow `❯` in front of it. The answer of the model is plain text, without a band and without a border. Reasoning is plain dim text behind its rail; when hidden (9.7) it collapses to one row with the same rail and the word reasoning. Tool rows are one line (`bash  cargo test  ok 1.2s`); Ctrl+O expands the selected row. Pending (queued) messages render dimmed with a `queued` tag. Auto-scroll sticks to the bottom unless the user scrolled up.
+- **Spinner, thinking.** A line of eight cells that are dark, with a streak of brightness going through them, one step per tick (about 110 ms). The streak travels along the line and wraps around: a new one starts at the left when the old one reaches the right. The cells are full blocks and the dark ones are the background of the terminal. The line sits in the column of the message text, behind the rail, with a blank line between it and the message.
+- **Spinner, loading** (model start, health wait): the same line. A `reduce_motion` option replaces both with static text.
 - **Context bar.** Ten cubes, each 10% of the window, filling left to right. The cube currently filling uses partial blocks so it grows gradually. Right after it: used / total tokens (for example `12.4k / 32k`) and the percentage. Gray and green normally, amber from 80%, red from 95%. Prefix `~` while the figure is an estimate.
-- **Metrics block.** Rows in this order: context bar with counts; tps and think time; rate limit (only if reported); CPU, RAM, GPU, VRAM. In the one-line form under the prompt bar it drops elements from the right when narrow; in the sidebar form each row has its own line.
-- **Log strip.** The last three lines of server and model events, dim. It hides after 10 s of silence and reappears on new events.
-- **Prompt bar.** Multi-line input. Enter sends; Shift+Enter or Alt+Enter inserts a newline; Up and Down walk history on a single-line draft. Typing `/` opens one inline suggestion list above the bar, holding slash commands and skills together. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
-- **Footer.** A mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name with a `LOCAL` tag when local, then the reasoning chip (for example think: high; hidden when the model has no levels), then the working directory and git branch right-aligned.
+- **Metrics block.** Rows in this order: context bar with counts; tps and think time; rate limit (only if reported); CPU, RAM, GPU, VRAM. In the sidebar form each row has its own line; in the footer it drops elements from the right when the line is narrow.
+- **Log strip.** The newest line of the server and model events, dim. It hides after 10 s of silence and reappears on new events.
+- **Prompt bar.** A box with rounded corners: the name of the model in the top border, the keys and the status in the bottom one. The first frame is the chat with `[no model selected]` in both places: the model is chosen with `/model`, and a message typed before that stays in the bar with a one-line note instead of being sent.
+- **Scrolling.** The wheel scrolls the transcript, three lines at a time, and PageUp/PageDown scroll a page. The window is anchored to the content and not to the bottom, so the message that is being read stays where it is while the model writes. The place in the transcript is shown in the corner while the user is not at the bottom. The area of the input holds the text and nothing else, so the cursor is the only thing that moves in it, and the box keeps its shape while the agent works.
+- **Completion.** The composer completes what is typed, following the oh-my-pi composer (MIT): `/` completes the slash commands and the skills, `@` searches the files of the project (including hidden ones and paths below the first folder), and a path token that starts with `.`, `./`, `../`, `~/`, `/` or holds a `/` completes the entries of that directory. A command replaces the whole line; a path replaces only its token, keeping the prose around it and quoting a path with a space. A file is inserted with a trailing space; a directory keeps the token open so the list moves inside it. The arrows move the selection, Tab takes it, Enter takes a path without sending but takes and runs a command, Esc closes the list until the text changes. Multi-line input. Enter sends; Shift+Enter or Alt+Enter inserts a newline; Up and Down walk history on a single-line draft. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
+- **Footer.** One line: a mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name, then the reasoning chip (for example think: high; hidden when the model has no levels), then the working directory (shortened: the home is a `~`) and the git branch, and the metrics of the session. The metrics are in the footer when the sidebar is closed and at the bottom of the sidebar when it is open — never both (10.2). The `LOCAL` tag is only in the model picker: the chat names the model, and that is enough.
 - **Sidebar.** Sections in order: Sessions (title and relative time, current project first, Enter resumes), Processes (PID, tag, command, uptime; `x` kills the selected one), then Metrics pinned to the bottom. Tab moves focus into the sidebar when it is open.
 - **Pickers.** One reusable centered overlay with a filterable list. `/model`: grouped by provider, local models flagged `LOCAL`, right-arrow opens the launch-options editor, left-arrow returns. `/tools` and `/skills`: checklists where Space toggles and changes apply and persist immediately. `/provider`: a list plus an add form (kind, base URL, key env var or key, models, context, rate limits).
 
@@ -425,6 +441,7 @@ Asset: `assets/logo.png`. The supplied version has a green background for contra
 - The symbol is a 3 x 3 square with a one-pixel arm in each of the four directions (a plus-shaped star in a 5 x 5 box), plus four detached single-pixel sparkles around it. It is exactly as tall as the letters, so they share a baseline.
 - The 3 x 3 core echoes the 3 x 3 thinking spinner, which gives the brand a consistent visual family.
 - Terminal rendering: extract the grid from the PNG once with a script, commit it as a constant bitmap in `seek-tui`, and draw each pixel as two columns of full blocks (50 x 9 cells), or with half-blocks (25 x 5) on short terminals. Below 56 columns show the word SEEK as plain text. Never scale the PNG at runtime.
+- Only the lit pixels are drawn: the background of the logo is the background of the terminal, not a block of colour. A sheen sweeps across the mark, from the bottom left to the top right, and the logo rests with `reduce_motion`.
 
 ## 13. Install script
 

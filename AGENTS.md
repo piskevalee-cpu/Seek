@@ -52,6 +52,13 @@ This machine has 15 GB of RAM and **no swap**. A full parallel build of this dep
 a running local server can exhaust it and take the shell down with it. Build with `cargo build -j 2`
 or `cargo test -j 2` when a server is running, and keep the context of local servers small.
 
+## The manual test checklist
+
+`docs/TESTING.md` is the checklist for going through the TUI by hand: every screen, every key,
+every command, with what to expect. Walk it after a change that touches the UI, the tools or the
+agent loop — the layout, the keyboard and the flow of a conversation are not covered by the unit
+tests, and a broken picker or a lost keypress only shows up when a person uses it.
+
 ## Spec precedence (spec §0)
 
 - When sections conflict, **the UI ownership table (10.2) and the contracts list (2.4) win**.
@@ -107,14 +114,49 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
   lives in `seek-llm`.
 - Ignore key events that are not `KeyEventKind::Press`. Redraw only when the state changed or an
   animation is running.
+- SEEK opens on the chat with `[no model selected]`; no model picker on startup. `/model` opens
+  it, and a message typed before a choice stays in the bar with a note instead of being sent.
+  The first run still asks for the user's name.
+- The prompt bar completes the message (`seek-tui::completion`): `/` commands and skills, `@`
+  references searched below the project, and path tokens. A completion replaces only its token;
+  Tab accepts, arrows move, Esc closes until the next edit, and Enter does not send a path.
+  The same computed list feeds the keys and the view (D-017).
 - The logo is drawn from a 25x9 cell bitmap: full blocks (50x9 cells) when there is room, half
   blocks (25x5) on short terminals, and the word SEEK below 56 columns.
-- The thinking spinner is a 3x3 cube grid lit in the order 1 2 3 6 9 8 7 4 5, three cubes at a
-  time. The loading spinner is a row of five cubes. `reduce_motion` (also `--reduce-motion`)
-  replaces both with static text.
+- The thinking and the loading animation are one line of eight dark cells with a streak of
+  brightness going through them (`seek-tui::shimmer`). The streak wraps around: a new one starts
+  at the left when the old one reaches the right. The logo draws only its lit pixels and has the
+  same kind of sheen. `reduce_motion` (also `--reduce-motion`) rests both.
+- The turn runs in a task of its own: the command loop keeps taking the commands of the user, so
+  the answer to a permission request and Esc arrive while the model works. A turn that is
+  cancelled gives up at the permission request and at the tool.
+- The permission mode is read at every tool call: it is shared between the interface and the
+  agent, so it applies to the turn that runs now.
+- The llama.cpp server closes the connection after every answer. The clients of the providers
+  open a connection for every request (`seek-llm::client::a_client`); a client that reuses one
+  gets "connection closed before message completed" on the next request.
+- The file tools live in `seek-core::files` and follow the grok-build pager: the read numbers
+  the lines, the edit says the line the change landed on.
+- The name of the user is in `state/user.toml`; the first run asks for it and `/settings` asks
+  again.
+- The transcript is anchored to the content when the user scrolls up (`scroll_top` in the app),
+  not to the bottom: the message being read stays where it is while the model writes.
+- The tests that start a llama server take the lock of `seek_local::ServerLock` first: they are
+  heavy, and the tests of the workspace run in parallel processes.
+- The keys come from a thread of their own (`crates/seek-tui/src/run.rs`). The reader of the
+  terminal blocks: read inside the event loop, it freezes the interface, and the keys arrive
+  late or not at all.
+- The pattern of a `tokio::select!` branch matters: `Some(Ok(event)) = events.next()` disables
+  the branch for ever when the stream hands over an error.
+- The colours are the tokyonight of the grok-build pager (`crates/seek-tui/src/theme.rs`); the
+  green of SEEK is the brand colour of the logo and of the `LOCAL` tag.
 - The config points at the llama.cpp binary and at the subcommand that starts the server:
   `llama_path` and `llama_subcommand` (D-001). The old `llama_server_path` is migrated on the
   first write.
+- The keys of the user live in `state/auth.json` (mode 0600) or in the environment; never in
+  `config.toml` or `providers.toml` (SPEC 5).
+- The sessions are append-only JSONL in `state/sessions/`; the title is the first user message and
+  is derived, so the file only ever grows (SPEC 11).
 - The provider interface (`Provider`, `ChatRequest`, `ProviderEvent`) lives in **seek-core**, not
   seek-llm, because the agent loop in seek-core uses it. seek-llm re-exports it and implements it
   for the two wire protocols.
@@ -126,6 +168,8 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
 - The permission matrix lives in `seek-core::permission`: reading is **always** allowed, writing
   and running are denied in `read` mode and asked in `ask` mode. A path outside the project root
   is always asked in `ask` mode.
+- The local server is asked for a context of 32768 tokens (D-009): the default of a model can
+  be a key and value cache of several gigabytes.
 - The context accounting is in `seek-core::context`: the window, the used tokens (the usage of
   the last response is the ground truth), the estimate and the turn statistics.
 - The METRICS block has exactly one home: the bottom of the sidebar when it is open, the line
@@ -147,9 +191,13 @@ or `cargo test -j 2` when a server is running, and keep the context of local ser
   `rpm` and `tpm` of the configuration. The state shows in the METRICS block only when the
   provider reports one.
 - `install.sh` is idempotent: it never overwrites a file of the user.
-- The four tools are in `seek-core::tools`. `edit` refuses a text that is not unique; `read`
+- The four tools are in `seek-core::tools` and the web search in `seek-core::websearch`. `edit`
+  refuses a text that is not unique; `read`
   caps its output and says how to fetch the rest; `bash` runs in its own process group and
   registers the process in the sidebar.
+- The capping of the tool output is in `seek-core::truncate`: the cut lands on a character
+  boundary and a long line is wrapped, not cut. Both were taken from the grok-build sources
+  (`docs/DECISIONS.md` D-008).
 - The local server lives in `seek-local`: `model` scans `~/seek/models`, `port` derives the port
   from the model id, `options` strips the options SEEK owns and adds the implicit ones, and
   `supervisor` starts `llama serve`, waits for the health check, reads `/props` and stops the
@@ -286,12 +334,12 @@ Run one package with `cargo test -p seek-core`, one test with `cargo test -p see
 
 ## Known gaps (deliberate, per the milestone order)
 
-- The reasoning level is kept in memory; it is stored per model in `state/toggles.toml` from v0.6.
 - The `fetch` tool is implemented but not in the default tool set: it is a network tool, so it
-  needs the `ask` mode (SPEC 9.4).
+  needs the `ask` mode (SPEC 9.4). It can be turned on in `/tools`.
 - There is no license yet (D-005). The crates cannot be published until there is one.
 - A background `bash` command leaves the process registry when the shell exits, even though the
   child keeps running.
+- The contracts are not frozen yet: that is v1.0.0, and the review is still to come.
 
 ## Open questions for the owner (spec §16) — don't invent answers
 
