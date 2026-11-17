@@ -1,20 +1,20 @@
 <a id="readme-top"></a>
 
 <!-- PROJECT SHIELDS -->
-[![Contributors][contributors-shield]][contributors-url]
-[![Forks][forks-shield]][forks-url]
-[![Stargazers][stars-shield]][stars-url]
-[![Issues][issues-shield]][issues-url]
-[![CI][ci-shield]][ci-url]
+<div align="center">
+  <a href="https://github.com/piskevalee-cpu/Seek/graphs/contributors"><img src="https://img.shields.io/github/contributors/piskevalee-cpu/Seek.svg?style=for-the-badge" alt="Contributors" /></a>
+  <a href="https://github.com/piskevalee-cpu/Seek/network/members"><img src="https://img.shields.io/github/forks/piskevalee-cpu/Seek.svg?style=for-the-badge" alt="Forks" /></a>
+  <a href="https://github.com/piskevalee-cpu/Seek/stargazers"><img src="https://img.shields.io/github/stars/piskevalee-cpu/Seek.svg?style=for-the-badge" alt="Stargazers" /></a>
+  <a href="https://github.com/piskevalee-cpu/Seek/issues"><img src="https://img.shields.io/github/issues/piskevalee-cpu/Seek.svg?style=for-the-badge" alt="Issues" /></a>
+  <a href="https://github.com/piskevalee-cpu/Seek/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/piskevalee-cpu/Seek/ci.yml?branch=develop&style=for-the-badge" alt="CI" /></a>
+</div>
 
 <!-- PROJECT LOGO -->
 <br />
 <div align="center">
   <a href="https://github.com/piskevalee-cpu/Seek">
-    <img src="assets/logo.png" alt="SEEK logo" width="120" height="120">
+    <img src="assets/logo.png" alt="SEEK logo" width="240" height="240">
   </a>
-
-  <h3 align="center">SEEK</h3>
 
   <p align="center">
     A thin, local-first coding-agent harness for the terminal.
@@ -256,14 +256,3 @@ Questions and bugs: [GitHub Issues](https://github.com/piskevalee-cpu/Seek/issue
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
-<!-- MARKDOWN LINKS & IMAGES -->
-[contributors-shield]: https://img.shields.io/github/contributors/piskevalee-cpu/Seek.svg?style=for-the-badge
-[contributors-url]: https://github.com/piskevalee-cpu/Seek/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/piskevalee-cpu/Seek.svg?style=for-the-badge
-[forks-url]: https://github.com/piskevalee-cpu/Seek/network/members
-[stars-shield]: https://img.shields.io/github/stars/piskevalee-cpu/Seek.svg?style=for-the-badge
-[stars-url]: https://github.com/piskevalee-cpu/Seek/stargazers
-[issues-shield]: https://img.shields.io/github/issues/piskevalee-cpu/Seek.svg?style=for-the-badge
-[issues-url]: https://github.com/piskevalee-cpu/Seek/issues
-[ci-shield]: https://img.shields.io/github/actions/workflow/status/piskevalee-cpu/Seek/ci.yml?branch=develop&style=for-the-badge
-[ci-url]: https://github.com/piskevalee-cpu/Seek/actions/workflows/ci.yml
