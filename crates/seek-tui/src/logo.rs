@@ -18,7 +18,7 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
 use crate::logo_bitmap::{LOGO, LOGO_COLS, LOGO_ROWS};
-use crate::shimmer::{blend, shine_opacity};
+use crate::shimmer::{blend, shine_opacity, twinkle};
 use crate::theme::Theme;
 
 /// Below this width the logo is replaced by the word SEEK.
@@ -80,8 +80,12 @@ pub fn logo_lines(theme: &Theme, half_blocks: bool, secs: f32) -> Vec<Line<'stat
                 for (column, character) in line.chars().enumerate() {
                     let cell = level(character);
                     // The sweep runs along the diagonal, from the bottom left to the top right.
+                    // A per-pixel twinkle rides on top of it, the way the landing page's logo
+                    // sparkles cell by cell.
                     let diag = (column as f32 + (rows - 1.0 - row as f32)) / (cols + rows);
-                    let opacity = shine_opacity(diag, secs);
+                    let index = row * LOGO_COLS + column;
+                    let opacity =
+                        shine_opacity(diag, secs) + twinkle(index, LOGO_ROWS * LOGO_COLS, secs);
                     if let Some(color) = pixel_color(cell, theme, opacity) {
                         spans.push(Span::styled("██", Style::new().fg(color)));
                     } else {
@@ -114,7 +118,8 @@ pub fn logo_lines(theme: &Theme, half_blocks: bool, secs: f32) -> Vec<Line<'stat
             let upper = level(*upper_character);
             let lower = level(lower_row.get(column).copied().unwrap_or(' '));
             let diag = (column as f32 + (rows - 1.0 - top as f32)) / (cols + rows);
-            let opacity = shine_opacity(diag, secs);
+            let index = top * LOGO_COLS + column;
+            let opacity = shine_opacity(diag, secs) + twinkle(index, LOGO_ROWS * LOGO_COLS, secs);
 
             let (glyph, cell) = match (upper, lower) {
                 (Level::Dark, Level::Dark) => continue,

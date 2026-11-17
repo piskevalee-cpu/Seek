@@ -27,6 +27,7 @@ turn.
   replaces an exact text and has to match one place.
 - Batch the independent calls in one turn: every turn costs seconds.
 - `web_search` finds pages by query, for facts the files do not hold. Search instead of guessing.
+- A pinned path was named by the user with `@`; inspect it with `read` when it matters.
 - Prefer the paths of the working directory. Never open a file you have not been told about or
   found with a search.
 - Read the small files whole, the big ones in parts. Never read the same thing twice.

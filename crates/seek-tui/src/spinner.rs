@@ -10,7 +10,7 @@
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
-use crate::shimmer::{blend, wave_brightness};
+use crate::shimmer::{blend, twinkle, wave_brightness};
 use crate::theme::Theme;
 
 /// How many cells the line has.
@@ -52,7 +52,12 @@ impl Spinner {
             Style::new().fg(theme.accent_thinking),
         ));
         for index in 0..CELLS {
-            let brightness = wave_brightness(self.frame, index, CELLS, SPEED);
+            // The travelling streak is joined by the same per-cell twinkle the logo uses, so the
+            // thinking line and the mark at the start of the session shimmer alike.
+            let secs = self.frame as f32 * STEP_MS as f32 / 1000.0;
+            let brightness = (wave_brightness(self.frame, index, CELLS, SPEED)
+                + twinkle(index as usize, CELLS as usize, secs))
+            .min(1.0);
             // The cells are dark, and the wave lifts them up to the lit colour.
             let color = blend(theme.bg, theme.cube_light, brightness);
             spans.push(Span::styled("█", Style::new().fg(color)));
@@ -102,7 +107,10 @@ mod tests {
         let theme = Theme::default();
         // The streak starts at the left, so the cell in the middle is dark.
         let line = Spinner::new().shimmer_line(&theme);
-        let color = line.spans[CELLS as usize / 2].style.fg.expect("a colour");
+        let color = line.spans[CELLS as usize / 2 + 1]
+            .style
+            .fg
+            .expect("a colour");
         assert_eq!(color, theme.bg);
     }
 

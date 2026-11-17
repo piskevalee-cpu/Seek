@@ -163,6 +163,22 @@ fn a_completion_is_taken_with_the_tab() {
 }
 
 #[test]
+fn the_prompt_shows_the_pinned_paths() {
+    let root = std::env::temp_dir().join(format!("seek-ui-pins-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("the folder is created");
+    std::fs::write(root.join("notes.txt"), "hello").expect("the file is written");
+    let mut app = app();
+    app.cwd = root.to_string_lossy().to_string();
+    for c in "read @notes.txt please".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("pinned"), "{screen}");
+    assert!(screen.contains("@notes.txt"), "{screen}");
+}
+
+#[test]
 fn the_wheel_scrolls_the_transcript() {
     let mut app = app();
     for number in 1..=40 {

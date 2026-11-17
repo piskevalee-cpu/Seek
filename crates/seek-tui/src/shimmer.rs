@@ -30,6 +30,18 @@ pub fn wave_brightness(tick: u64, index: u16, width: u16, speed: f32) -> f32 {
     (1.0 - distance / HALF_WIDTH).powf(2.0)
 }
 
+/// A small per-pixel sparkle, the terminal counterpart of the website's `px-twinkle`.
+///
+/// Every index has its own phase, so a row of cells does not light up all at once. The phase is a
+/// cosine so index zero of an even-sized row is bright and the middle one rests at time zero.
+pub fn twinkle(index: usize, total: usize, secs: f32) -> f32 {
+    const PERIOD: f32 = 0.75;
+    const AMPLITUDE: f32 = 0.16;
+    let phase = index as f32 / total.max(1) as f32 * std::f32::consts::TAU;
+    let wave = 0.5 + 0.5 * (std::f32::consts::TAU * secs / PERIOD + phase).cos();
+    AMPLITUDE * wave
+}
+
 /// The opacity of the shine at a diagonal position, at a point in time.
 ///
 /// `diag` is the normalized position on the diagonal: 0 is the bottom left, 1 is the top right.
@@ -83,6 +95,18 @@ pub fn blend(base: Color, highlight: Color, opacity: f32) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_twinkle_gives_each_pixel_its_own_phase() {
+        for index in 0..8 {
+            for secs in [0.0, 0.1, 0.4, 1.0] {
+                let value = twinkle(index, 8, secs);
+                assert!((0.0..=0.16).contains(&value), "{value}");
+            }
+        }
+        assert_ne!(twinkle(0, 8, 0.0), twinkle(4, 8, 0.0));
+        assert_ne!(twinkle(2, 8, 0.0), twinkle(2, 8, 0.2));
+    }
 
     #[test]
     fn the_wave_stays_between_zero_and_one() {

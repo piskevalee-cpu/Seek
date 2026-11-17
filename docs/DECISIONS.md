@@ -424,3 +424,32 @@ sidebar rectangle is computed from the side, and the bar follows the opposite si
 
 **Status:** accepted. The specification, the manual checklist and the changelog were updated
 (§10).
+
+## D-019 — `@` pins paths, and the logo twinkles like the landing page
+
+**Date:** 2026-11-18 · **Affects:** SPEC 9.2, 9.5, 10.3, 12
+
+The owner asked for the OMP behaviour where `@` in a message points the agent at a file or a
+directory, but with far fewer tokens than OMP spends. The landing page's centred logo also has a
+per-pixel shine; the same effect should be visible in the terminal at startup and in the thinking
+animation.
+
+**Pins.** OMP's `utils/file-mentions.ts` resolves `@path` mentions and injects the whole file
+content into a `FileMentionMessage`, capped at 5 MB of text. SEEK resolves the same mentions
+exactly (relative to the project root, `~` and absolute paths allowed), rejects ones that do not
+exist, deduplicates them and caps them at eight. The turn context gets only a one-line description
+per pin — path, size, and up to twelve names for a directory — with no content. The model reads a
+pin with `read` when it needs it, and the permission matrix is untouched: a read is always
+allowed; a write or a command still follows the mode. This keeps the context in the tens of tokens
+instead of thousands and leaves the default prompt prefix unchanged (the budget is now 889 / 1,500
+tokens). The draft shows a compact `pinned` chip row above the completions; the message itself is
+the home of the pins (SPEC 10.2).
+
+**Logo and thinking.** The landing page draws each logo pixel with a diagonal `px-shine` delay and
+a short `px-twinkle` on its own index. The TUI already had the diagonal sweep; it now adds a
+cosine twinkle with a per-cell phase (0.75 s period, 0.16 amplitude) in `shimmer::twinkle`. The
+startup logo uses it for every lit pixel, and the eight-cell thinking line uses the same twinkle
+over its travelling streak. `reduce_motion` still holds both still. This is colour only: the logo
+keeps the terminal background behind its unlit pixels, and there is no new green in the theme.
+
+**Status:** accepted. The specification, the manual checklist and the changelog were updated.
