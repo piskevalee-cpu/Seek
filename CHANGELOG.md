@@ -8,6 +8,11 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Fixed
+- The thinking guard no longer panics on non-ASCII reasoning: cycle checks now index characters,
+  and a paragraph cut at the cap lands on a character boundary. Tool output capping was already
+  safe; this was the guard inspecting the model's own text (SPEC 9.1).
+
 ### Changed
 - The README header centres the shields, drops the `SEEK` wordmark in favour of a larger logo,
   and has a Next Steps section (provider support, universal skills and tools, widgets). It points
