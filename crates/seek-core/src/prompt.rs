@@ -26,8 +26,7 @@ turn.
 - `edit` takes the line the read showed you and the text that replaces it. The text form
   replaces an exact text and has to match one place.
 - Batch the independent calls in one turn: every turn costs seconds.
-- `web_search` finds pages by query, for facts the files do not hold. `fetch` reads one page
-  once a result looks right.
+- `web_search` finds pages by query, for facts the files do not hold. Search instead of guessing.
 - Prefer the paths of the working directory. Never open a file you have not been told about or
   found with a search.
 - Read the small files whole, the big ones in parts. Never read the same thing twice.
