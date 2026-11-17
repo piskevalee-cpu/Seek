@@ -16,8 +16,9 @@ use seek_llm::catalog::{ModelInfo, bundled_models};
 use seek_local::model::{LocalModel, sidecar_path};
 use seek_local::options::LaunchOptions;
 
+use crate::completion::{self, Completion, Kind};
 use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
-use crate::input::{Input, SLASH_COMMANDS};
+use crate::input::Input;
 use crate::logo;
 use crate::metrics::Metrics;
 use crate::picker::{Picker, PickerItem};
@@ -273,6 +274,9 @@ pub enum Overlay {
     },
 }
 
+/// The text of the model chip before the user chooses a model with `/model`.
+pub const NO_MODEL: &str = "[no model selected]";
+
 /// The application state.
 #[derive(Debug)]
 pub struct App {
@@ -347,12 +351,12 @@ pub struct App {
     widgets_ran: bool,
     /// When the application started, for the shimmer.
     started: std::time::Instant,
-    /// Whether the model picker has been opened for the first run.
-    asked_for_model: bool,
-    /// The name of the user. It is asked for on the first run.
+    /// The text of the model chip when no model was chosen yet.
     pub user_name: Option<String>,
-    /// The suggestion that is picked in the dropdown of the commands.
+    /// The suggestion that is picked in the dropdown of the completions.
     suggestion: usize,
+    /// Whether Esc closed the dropdown. Typing opens it again.
+    completion_dismissed: bool,
     /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
     /// from the current model.
     pub model_configured: bool,
@@ -380,8 +384,8 @@ impl App {
             theme,
             mode: PermissionMode::Ask,
             model: ModelChip {
-                provider: "fake".into(),
-                model: "fake/demo".into(),
+                provider: String::new(),
+                model: NO_MODEL.to_string(),
                 local: false,
             },
             rows: Vec::new(),
@@ -425,9 +429,9 @@ impl App {
             toggles: seek_core::Toggles::default(),
             turn_started: None,
             think_started: None,
-            asked_for_model: false,
             user_name: None,
             suggestion: 0,
+            completion_dismissed: false,
             model_configured: false,
             llama_subcommand: None,
             sessions: Vec::new(),
@@ -452,10 +456,8 @@ impl App {
         self.dirty = true;
         let command = match message {
             Message::Start => {
-                if !self.model_configured && !self.local_models.is_empty() {
-                    self.asked_for_model = true;
-                    self.overlay = Some(Overlay::Picker(self.model_picker()));
-                }
+                // The chat opens at once. The model is chosen with `/model`; no picker is put in
+                // the way of the first turn, and the footer says `[no model selected]`.
                 // The first run asks for the name: the model addresses the user by it.
                 if self.user_name.as_deref().unwrap_or("").is_empty() {
                     self.prompt_mode = PromptMode::Name;
@@ -548,9 +550,10 @@ impl App {
             return self.on_permission_key(key);
         }
 
-        // The dropdown of the commands takes the keyboard while it is open.
-        if !self.suggestions().is_empty()
-            && let Some(command) = self.on_suggestion_key(key)
+        // The dropdown of the completions takes the keyboard while it is open.
+        let completions = self.completions();
+        if !completions.is_empty()
+            && let Some(command) = self.on_suggestion_key(key, &completions)
         {
             return command;
         }
@@ -602,10 +605,12 @@ impl App {
             }
             KeyCode::Backspace => {
                 self.input.backspace();
+                self.completion_dismissed = false;
                 None
             }
             KeyCode::Delete => {
                 self.input.delete();
+                self.completion_dismissed = false;
                 None
             }
             KeyCode::Left => {
@@ -668,6 +673,7 @@ impl App {
             KeyCode::Char(c) => {
                 self.last_ctrl_c = 0;
                 self.input.insert_char(c);
+                self.completion_dismissed = false;
                 None
             }
             _ => None,
@@ -712,73 +718,74 @@ impl App {
         }
     }
 
-    /// The commands that can be completed right now.
+    /// The completions that can be accepted right now.
     ///
-    /// The slash commands and the skills: the same list the dropdown shows.
-    pub fn suggestions(&self) -> Vec<String> {
-        let line = self.input.current_line();
-        if !line.starts_with('/') || line.contains(' ') {
+    /// The slash commands and the skills at the start of the line, an `@` file reference and a
+    /// path in the message. Esc closes the list until the text changes again.
+    pub fn completions(&self) -> Vec<Completion> {
+        if self.completion_dismissed {
             return Vec::new();
         }
-        let mut out: Vec<String> = SLASH_COMMANDS
-            .iter()
-            .map(|(command, _)| (*command).to_string())
-            .filter(|command| command.starts_with(line))
-            .collect();
-        for skill in &self.skills {
-            let command = format!("/{}", skill.name);
-            if command.starts_with(line) && !out.contains(&command) {
-                out.push(command);
-            }
-        }
-        out
+        completion::completions(&self.input, &self.skills, std::path::Path::new(&self.cwd))
     }
 
-    /// Handle a key while the dropdown of the commands is open.
+    /// Handle a key while a completion is open.
     ///
-    /// The arrows move the selection, Tab and Enter take it, Esc closes the list.
-    fn on_suggestion_key(&mut self, key: KeyEvent) -> Option<Option<Command>> {
-        let suggestions = self.suggestions();
+    /// The arrows move the selection, Tab and Enter take it, Esc closes the list. Enter takes a
+    /// path without sending the message; a command is taken and run, as before.
+    fn on_suggestion_key(
+        &mut self,
+        key: KeyEvent,
+        items: &[Completion],
+    ) -> Option<Option<Command>> {
         match key.code {
             KeyCode::Up => {
                 self.suggestion = if self.suggestion == 0 {
-                    suggestions.len().saturating_sub(1)
+                    items.len().saturating_sub(1)
                 } else {
                     self.suggestion - 1
                 };
                 Some(None)
             }
             KeyCode::Down => {
-                self.suggestion = (self.suggestion + 1) % suggestions.len().max(1);
+                self.suggestion = (self.suggestion + 1) % items.len().max(1);
                 Some(None)
             }
             KeyCode::Esc => {
-                // The list goes away; the text stays.
+                // The list goes away; the text stays. Typing brings it back.
                 self.suggestion = 0;
+                self.completion_dismissed = true;
                 Some(None)
             }
-            KeyCode::Tab => {
-                let chosen = suggestions.get(self.suggestion).cloned();
-                if let Some(chosen) = chosen {
-                    self.input.replace_current_line(&chosen);
-                }
-                self.suggestion = 0;
-                Some(None)
-            }
-            KeyCode::Enter => {
-                let chosen = suggestions.get(self.suggestion).cloned();
-                if let Some(chosen) = chosen {
-                    self.input.replace_current_line(&chosen);
+            KeyCode::Tab | KeyCode::Enter => {
+                let Some(chosen) = items.get(self.suggestion).cloned() else {
                     self.suggestion = 0;
-                    // The command is run, not sent.
+                    return Some(None);
+                };
+                let runs_command = key.code == KeyCode::Enter && chosen.kind == Kind::Command;
+                self.accept_completion(&chosen);
+                self.suggestion = 0;
+                if runs_command {
                     return Some(self.submit());
                 }
-                self.suggestion = 0;
                 Some(None)
             }
             // The other keys are the ordinary ones: the text is typed.
             _ => None,
         }
+    }
+
+    /// Put a completion in place of the token under the cursor.
+    fn accept_completion(&mut self, item: &Completion) {
+        if item.kind == Kind::Command {
+            self.input.replace_current_line(&item.value);
+        } else if let Some(completion::Context::Path { start, .. }) =
+            completion::context(&self.input)
+        {
+            let (_, column) = self.input.cursor();
+            self.input.replace_current_span(start, column, &item.value);
+        }
+        self.completion_dismissed = false;
     }
 
     /// The first line of the window of the transcript.
@@ -1596,7 +1603,6 @@ impl App {
         if text.is_empty() {
             return None;
         }
-        self.input = Input::new();
 
         // `/think <level>` sets the level of the model.
         if let Some(level) = text.strip_prefix("/think ") {
@@ -1607,13 +1613,29 @@ impl App {
                         "reasoning is not configurable for this model".to_string(),
                     ));
                 }
+                self.input = Input::new();
+                self.completion_dismissed = false;
                 return None;
             }
         }
 
         if let Some(command) = self.slash_command(&text) {
+            self.input = Input::new();
+            self.completion_dismissed = false;
             return self.run_slash_command(command);
         }
+
+        // A message needs a model. Slash commands still work: `/model` is how one is chosen.
+        // The draft stays so it can be sent as soon as a model is picked.
+        if !self.model_configured {
+            self.rows.push(Row::Error(
+                "no model selected: choose one with /model".to_string(),
+            ));
+            self.scroll_to_bottom();
+            return None;
+        }
+        self.input = Input::new();
+        self.completion_dismissed = false;
 
         // A skill is run with `/<skill-name> <prompt>`; its body goes into the turn (SPEC 9.5).
         let text = match self.match_skill(&text) {
@@ -2011,8 +2033,8 @@ impl App {
             );
         }
 
-        let suggestions =
-            prompt_bar::suggestion_lines(&self.input, &self.theme, &self.skills, self.suggestion);
+        let completions = self.completions();
+        let suggestions = prompt_bar::suggestion_lines(&completions, &self.theme, self.suggestion);
         // The box has a top border and a bottom border.
         // The box has a top border and a bottom border. The status is in the bottom
         // border, so the input keeps its height while the agent works.
@@ -2449,6 +2471,7 @@ mod tests {
     #[test]
     fn enter_submits_the_message() {
         let mut app = App::new(Theme::default());
+        app.model_configured = true;
         for c in "hi".chars() {
             app.update(Message::Key(key(KeyCode::Char(c))));
         }
@@ -2461,6 +2484,22 @@ mod tests {
             })
         );
         assert_eq!(app.rows.len(), 1);
+    }
+
+    #[test]
+    fn a_message_without_a_model_is_not_sent() {
+        let mut app = App::new(Theme::default());
+        for c in "hello".chars() {
+            app.update(Message::Key(key(KeyCode::Char(c))));
+        }
+        assert_eq!(app.update(Message::Key(key(KeyCode::Enter))), None);
+        assert!(
+            app.rows
+                .iter()
+                .any(|row| matches!(row, Row::Error(text) if text.contains("no model selected")))
+        );
+        // The draft stays: it is sent once a model is chosen with `/model`.
+        assert_eq!(app.input.text(), "hello");
     }
 
     #[test]
@@ -2540,6 +2579,7 @@ mod tests {
     #[test]
     fn a_message_typed_while_working_is_queued() {
         let mut app = App::new(Theme::default());
+        app.model_configured = true;
         app.update(Message::Agent(AgentEvent::TurnStarted));
         for c in "hi".chars() {
             app.update(Message::Key(key(KeyCode::Char(c))));
@@ -2552,6 +2592,7 @@ mod tests {
     #[test]
     fn queued_messages_are_delivered_when_the_turn_finishes() {
         let mut app = App::new(Theme::default());
+        app.model_configured = true;
         app.update(Message::Agent(AgentEvent::TurnStarted));
         for c in "hi".chars() {
             app.update(Message::Key(key(KeyCode::Char(c))));
@@ -2579,6 +2620,22 @@ mod tests {
         assert_eq!(app.rows.len(), 2);
         assert_eq!(app.rows[0], Row::Reasoning("think".into()));
         assert_eq!(app.rows[1], Row::Assistant("answer".into()));
+    }
+
+    #[test]
+    fn a_path_completion_keeps_the_prose() {
+        let root = std::env::temp_dir().join(format!("seek-app-completion-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("src");
+        std::fs::write(root.join("src/main.rs"), "").expect("main");
+        let mut app = App::new(Theme::default());
+        app.cwd = root.to_string_lossy().to_string();
+        for c in "read src/ma".chars() {
+            app.update(Message::Key(key(KeyCode::Char(c))));
+        }
+        assert!(!app.completions().is_empty());
+        app.update(Message::Key(key(KeyCode::Tab)));
+        assert_eq!(app.input.text(), "read src/main.rs ");
     }
 
     #[test]

@@ -527,27 +527,27 @@ fn the_right_arrow_opens_the_launch_options() {
 }
 
 #[test]
-fn the_first_run_asks_which_model_to_use() {
+fn the_first_run_shows_the_chat_with_no_model_selected() {
     let mut app = app();
     app.local_models = vec![a_local_model()];
     app.update(Message::Start);
 
     let screen = render(&mut app, 100, 30);
-    assert!(screen.contains("models"), "the picker is open");
-    assert!(screen.contains("LOCAL"), "the local model is in it");
+    assert!(screen.contains("[no model selected]"), "{screen}");
+    assert!(!screen.contains("LOCAL"), "the picker is not in the way");
 }
 
 #[test]
-fn the_first_run_asks_nothing_when_a_model_is_configured() {
+fn a_model_is_chosen_with_the_model_command() {
     let mut app = app();
     app.local_models = vec![a_local_model()];
-    app.select_local_model("local/m");
-    app.model_configured = true;
-    app.update(Message::Start);
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
 
     let screen = render(&mut app, 100, 30);
-    // The picker is closed.
-    assert!(!screen.contains("models"), "the picker stays closed");
+    assert!(screen.contains("LOCAL"), "the picker is open now");
 }
 
 #[test]
@@ -716,6 +716,7 @@ fn space_toggles_a_skill() {
 #[test]
 fn a_skill_is_run_with_its_body() {
     let mut app = app();
+    app.model_configured = true;
     app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
 
     for c in "/init write it".chars() {
@@ -734,6 +735,7 @@ fn a_skill_is_run_with_its_body() {
 #[test]
 fn a_disabled_skill_is_not_run() {
     let mut app = app();
+    app.model_configured = true;
     app.skills = vec![a_skill("init", "Write an AGENTS.md.")];
     app.toggles.set_skill("init", false);
 

@@ -5,6 +5,7 @@
 //! commands.
 
 pub mod app;
+pub mod completion;
 pub mod footer;
 pub mod input;
 pub mod logo;

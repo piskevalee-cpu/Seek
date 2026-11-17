@@ -363,3 +363,30 @@ session that searches a lot.
 
 **Status:** accepted. The specification and the prompt budget test were updated with it (§9.2,
 §9.3).
+
+## D-017 — The composer completes the message, and the chat starts with no model
+
+**Date:** 2026-11-17 · **Affects:** SPEC 10.1, 10.3, 10.4
+
+The oh-my-pi composer completes what is typed: slash commands, `@` file references and paths. It
+also opens straight into the chat. The owner asked for both: no model picker on launch, a
+`[no model selected]` chip instead, `/model` to choose, and OMP's message completion.
+
+**Completion.** A new `seek-tui::completion` module looks at the token under the cursor. At the
+start of the line it offers the slash commands and the skills; an `@` at a token boundary searches
+the project below the working directory with a subsequence match on the relative path, including
+hidden files but never `.git`; a token that looks like a path lists one directory. A completion
+replaces only its token, so prose around a path is kept, and a path with a space is quoted. A file
+is inserted with a trailing space, a directory with a trailing `/` so the list moves inside it.
+Tab accepts, arrows move, Esc closes until the next edit, and Enter accepts a path without
+sending but takes and runs a command. The walk is capped (depth 8, 4,000 entries, 50 results) so
+it cannot stall the event loop (SPEC 4.2). The list is computed from the state, not stored: the
+same function feeds the keys and the view.
+
+**Startup.** `App::new` now names no model, and `Message::Start` no longer opens a picker. The
+footer and the top border of the prompt both say `[no model selected]`. A message typed before a
+model is chosen is not sent: the transcript asks for `/model` and the draft stays in the bar.
+Slash commands still work, including `/model` itself. The first run still asks for the user's name
+(SPEC 9.5). The fake demo provider is no longer reached by a normal message without a model.
+
+**Status:** accepted. The specification and the manual checklist were updated with it (§10).

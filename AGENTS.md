@@ -114,6 +114,13 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   lives in `seek-llm`.
 - Ignore key events that are not `KeyEventKind::Press`. Redraw only when the state changed or an
   animation is running.
+- SEEK opens on the chat with `[no model selected]`; no model picker on startup. `/model` opens
+  it, and a message typed before a choice stays in the bar with a note instead of being sent.
+  The first run still asks for the user's name.
+- The prompt bar completes the message (`seek-tui::completion`): `/` commands and skills, `@`
+  references searched below the project, and path tokens. A completion replaces only its token;
+  Tab accepts, arrows move, Esc closes until the next edit, and Enter does not send a path.
+  The same computed list feeds the keys and the view (D-017).
 - The logo is drawn from a 25x9 cell bitmap: full blocks (50x9 cells) when there is room, half
   blocks (25x5) on short terminals, and the word SEEK below 56 columns.
 - The thinking and the loading animation are one line of eight dark cells with a streak of

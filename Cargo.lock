@@ -2392,6 +2392,7 @@ dependencies = [
  "anyhow",
  "crossterm",
  "futures",
+ "ignore",
  "nvml-wrapper",
  "ratatui",
  "seek-core",

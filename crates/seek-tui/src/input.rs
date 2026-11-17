@@ -84,6 +84,22 @@ impl Input {
         (self.row, self.column)
     }
 
+    /// Replace the characters `[start, end)` of the line the cursor is on.
+    ///
+    /// A completion replaces only its token, so the prose around it stays.
+    pub fn replace_current_span(&mut self, start: usize, end: usize, text: &str) {
+        if self.row >= self.lines.len() {
+            return;
+        }
+        let line = &mut self.lines[self.row];
+        let end = end.min(char_len(line));
+        let start = start.min(end);
+        let start_byte = byte_index(line, start);
+        let end_byte = byte_index(line, end);
+        line.replace_range(start_byte..end_byte, text);
+        self.column = start + text.chars().count();
+    }
+
     /// The number of lines.
     pub fn len(&self) -> usize {
         self.lines.len()

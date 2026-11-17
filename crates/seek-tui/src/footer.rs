@@ -62,11 +62,15 @@ pub fn footer_line(footer: &Footer, theme: &Theme, width: u16) -> Line<'static> 
 
     spans.push(Span::styled(
         format!(" {} ", footer.model.model),
-        Style::new().fg(theme.text),
+        Style::new().fg(if footer.model.provider.is_empty() {
+            theme.dim
+        } else {
+            theme.text
+        }),
     ));
     // The provider is named when the model is not local. The LOCAL tag is only in the model
     // picker: the chat says which model it is, and that is enough (SPEC 10.2).
-    if !footer.model.local {
+    if !footer.model.local && !footer.model.provider.is_empty() {
         spans.push(Span::styled(
             format!(" {}", footer.model.provider),
             Style::new().fg(theme.dim),

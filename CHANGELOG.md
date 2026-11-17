@@ -8,7 +8,17 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Changed
+- SEEK opens on the chat with `[no model selected]` in the footer and in the prompt border; the
+  model is chosen with `/model`. A message typed before that stays in the bar and gets a one-line
+  note instead of being sent (SPEC 10.1).
+- The README follows the Best-README-Template layout and shows only `assets/logo.png`, not the
+  green variant.
+
 ### Added
+- OMP-style message completion in the prompt bar: `/` commands and skills, `@` file references
+  found anywhere below the project, and path completion for `src/`, `./`, `../`, `~/` and absolute
+  paths. Tab accepts, arrows move, Esc closes, and a path replaces only its token (SPEC 10.3).
 - The web search is on by default: `web_search` joins `read`, `write`, `edit` and `bash`, so an
   agent can answer a question about the world without being handed a URL. `fetch` stays off
   (SPEC 9.3).

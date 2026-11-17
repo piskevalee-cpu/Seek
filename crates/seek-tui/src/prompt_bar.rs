@@ -11,7 +11,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use crate::app::{PERMISSION_CHOICES, PromptMode};
-use crate::input::{Input, SLASH_COMMANDS};
+use crate::input::Input;
 use crate::theme::Theme;
 
 /// The corners of the box.
@@ -66,46 +66,30 @@ fn input_texts(input: &Input) -> Vec<String> {
     lines
 }
 
-/// The dropdown of the commands, shown above the bar.
+/// The dropdown above the bar: the completions for what is typed.
 ///
-/// The layout is the one of the grok-build pager (Apache-2.0): a column of the commands, a
-/// column of the descriptions, and the picked one highlighted.
+/// The layout is the one of the grok-build pager (Apache-2.0): a column of the names, a column
+/// of the descriptions, and the picked one highlighted.
 pub fn suggestion_lines(
-    input: &Input,
+    items: &[crate::completion::Completion],
     theme: &Theme,
-    skills: &[seek_core::Skill],
     selected: usize,
 ) -> Vec<Line<'static>> {
-    let line = input.current_line();
-    if !line.starts_with('/') || line.contains(' ') {
-        return Vec::new();
-    }
-    let mut commands: Vec<(String, String)> = SLASH_COMMANDS
-        .iter()
-        .filter(|(command, _)| command.starts_with(line))
-        .map(|(command, description)| ((*command).to_string(), (*description).to_string()))
-        .collect();
-    for skill in skills {
-        let command = format!("/{}", skill.name);
-        if command.starts_with(line) && !commands.iter().any(|(known, _)| *known == command) {
-            commands.push((command.clone(), skill.description.clone()));
-        }
-    }
-    if commands.is_empty() {
+    if items.is_empty() {
         return Vec::new();
     }
 
-    // The column of the commands is as wide as the longest one.
-    let width = commands
+    // The column of the names is as wide as the longest one.
+    let width = items
         .iter()
-        .map(|(command, _)| command.chars().count())
+        .map(|item| item.label.chars().count())
         .max()
         .unwrap_or(0);
 
-    commands
+    items
         .iter()
         .enumerate()
-        .map(|(index, (command, description))| {
+        .map(|(index, item)| {
             let picked = index == selected;
             let marker = if picked { "\u{276F} " } else { "  " };
             let mut name = Style::new().fg(if picked {
@@ -118,13 +102,13 @@ pub fn suggestion_lines(
             }
             let mut spans = vec![
                 Span::styled(marker.to_string(), name),
-                Span::styled(command.clone(), name),
+                Span::styled(item.label.clone(), name),
             ];
             // The description is in its own column.
-            let pad = width - command.chars().count() + 2;
+            let pad = width - item.label.chars().count() + 2;
             spans.push(Span::styled(" ".repeat(pad), Style::new()));
             spans.push(Span::styled(
-                description.clone(),
+                item.detail.clone(),
                 Style::new().fg(theme.dim),
             ));
             Line::from(spans)
@@ -305,7 +289,8 @@ mod tests {
         for c in "/h".chars() {
             input.insert_char(c);
         }
-        let lines = suggestion_lines(&input, &theme, &[], 0);
+        let items = crate::completion::completions(&input, &[], std::path::Path::new("."));
+        let lines = suggestion_lines(&items, &theme, 0);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].to_string().contains("/help"));
     }
