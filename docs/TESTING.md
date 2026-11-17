@@ -107,6 +107,16 @@ Every key of the specification, one by one.
 - [ ] **Bash.** "Run `cargo --version`." — the row shows the command and the output.
 - [ ] **The processes.** With a command running, Ctrl+B shows it in the sidebar under "Processes", with its pid and how long it has been running. Press `x` on it to kill it.
 
+## The web search
+
+- [ ] **Turn it on.** `/tools` lists `web_search` unchecked; turn it on and close the picker.
+- [ ] **A search.** In `ASK` mode, "Search the web for the Rust book." — the permission is asked for a network tool, and the answer lists numbered sources with their address.
+- [ ] **The operators.** "Search for `site:rust-lang.org async`." — the results stay on `rust-lang.org`; a constraint the engine could not honour is reported in a `Note:` line instead of an empty answer.
+- [ ] **The fallback.** Put `providers = ['mojeek', 'duckduckgo']` under `[web_search]` in `~/seek/config.toml` — a Mojeek failure is named in a `Note:` line and the answer comes from DuckDuckGo.
+- [ ] **The public fan-out.** Set `providers = ['public']` — the results merge the engines that answer, with the pages found by more than one engine first.
+- [ ] **A keyed provider.** With `BRAVE_API_KEY` in the environment, set `providers = ['brave']` — the results come from Brave. Without the key the chain says that no provider is configured.
+- [ ] **SearXNG.** Set `searxng_url = 'https://<your-instance>'` and `providers = ['searxng']` — the instance answers its JSON API.
+
 ## The models
 
 - [ ] **The picker.** `/model` lists the models of the configured providers, grouped by provider, and the local ones with a `LOCAL` tag.

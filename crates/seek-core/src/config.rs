@@ -256,6 +256,31 @@ fn restrict_to_the_owner(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The settings of the web search (SPEC 9.4).
+///
+/// The chain names the providers in the order they are tried. A provider that
+/// needs a key names the environment variable the key is in; the key itself
+/// never goes into this file (SPEC 5).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebSearchConfig {
+    /// The providers of the chain, in order. Empty means the default chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<String>>,
+    /// The address of a SearXNG instance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub searxng_url: Option<String>,
+    /// The environment variable the key of a provider is in, by provider id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub key_env: BTreeMap<String, String>,
+}
+
+impl WebSearchConfig {
+    /// Whether the section is empty, so it can be left out of the file.
+    pub fn is_empty(&self) -> bool {
+        self.providers.is_none() && self.searxng_url.is_none() && self.key_env.is_empty()
+    }
+}
+
 /// The contents of `config.toml`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
@@ -290,6 +315,9 @@ pub struct Config {
     /// Whether the animations are replaced by static text.
     #[serde(default)]
     pub reduce_motion: Option<bool>,
+    /// The settings of the web search.
+    #[serde(default, skip_serializing_if = "WebSearchConfig::is_empty")]
+    pub web_search: WebSearchConfig,
 }
 
 impl Default for Config {
@@ -304,6 +332,7 @@ impl Default for Config {
             llama_server_path: None,
             show_reasoning: None,
             reduce_motion: None,
+            web_search: WebSearchConfig::default(),
         }
     }
 }
@@ -490,6 +519,35 @@ tpm = 100000
         let (path, subcommand) = config.llama_command();
         assert_eq!(path, "/usr/bin/llama");
         assert_eq!(subcommand.as_deref(), Some("serve"));
+    }
+
+    #[test]
+    fn the_web_search_section_is_read() {
+        let config = Config::parse(
+            "schema = 1\n[web_search]\nproviders = ['duckduckgo', 'brave']\n\
+             searxng_url = 'https://searx.example.org'\n\
+             [web_search.key_env]\nbrave = 'MY_BRAVE_KEY'\n",
+        )
+        .expect("parses");
+        assert_eq!(
+            config.web_search.providers.as_deref(),
+            Some(&["duckduckgo".to_string(), "brave".to_string()][..])
+        );
+        assert_eq!(
+            config.web_search.searxng_url.as_deref(),
+            Some("https://searx.example.org")
+        );
+        assert_eq!(
+            config.web_search.key_env.get("brave").map(String::as_str),
+            Some("MY_BRAVE_KEY")
+        );
+    }
+
+    #[test]
+    fn an_empty_web_search_section_is_not_written() {
+        let config = Config::parse("schema = 1\n").expect("parses");
+        let text = toml::to_string_pretty(&config).expect("serializes");
+        assert!(!text.contains("web_search"), "{text}");
     }
 
     #[test]

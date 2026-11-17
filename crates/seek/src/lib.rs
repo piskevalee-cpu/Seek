@@ -580,10 +580,15 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
             .toggles
             .tool_enabled("fetch")
             .then(seek_core::tools::FetchTool::new),
-        web_search: runtime
-            .toggles
-            .tool_enabled("web_search")
-            .then(seek_core::websearch::WebSearchTool::new),
+        web_search: runtime.toggles.tool_enabled("web_search").then(|| {
+            let config = load_config(&runtime.home);
+            let auth = seek_core::Auth::read(&runtime.home.join("state").join("auth.json"))
+                .unwrap_or_default();
+            seek_core::websearch::WebSearchTool::new(
+                seek_core::websearch::Settings::from_config(&config.web_search),
+                &auth,
+            )
+        }),
     };
     let external_tools: Vec<_> = runtime
         .external_tools

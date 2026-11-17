@@ -294,3 +294,50 @@ The other two things came from there as well: every tool call carries an intent 
 read numbers every line so the edit can be made by line.
 
 **Status:** accepted. The specification was updated with it (§9.1).
+
+## D-015 — The web search is a chain of providers
+
+**Date:** 2026-11-17 · **Affects:** SPEC 9.3, 9.4, 5
+
+The first `web_search` was the DuckDuckGo HTML page. That is one engine, and a blocked page
+leaves the tool with nothing. The tool is now the search stack of oh-my-pi (MIT): a structured
+query parser, one provider per engine, and a chain that walks them in order.
+
+The **query parser** takes the operators apart before anything goes to the network. `site:`,
+`inurl:`/`url:`, `intitle:`, `intext:`/`inbody:`/`inanchor:`, `filetype:`, `before:`/`until:`,
+`after:`/`since:`, `lang:`, the quoted phrases, the `OR` groups and the `-exclusions` become
+fields of the query. Each engine gets the formatter for its own syntax: the engines that parse
+the classic operator set get the whole query, the scrapers get the operators that match nothing
+across a rendered page demoted to plain keywords (a path-carrying `site:` and every `inurl:`,
+except the negated forms), and the APIs that have a parameter for a constraint get it there
+(`freshness`, `tbs`, `include_domains`, `start_date`). The remaining constraints are enforced on
+the results that come back. A constraint that would empty the answer is relaxed, and the model is
+told: `Note: no result matched ...; the constraint was relaxed`. An empty answer is worse than an
+approximate one.
+
+The **chain** is `web_search.providers`, and the first provider that answers a non-empty search
+wins. The default is `duckduckgo`, `mojeek`, `startpage`, `ecosia`: DuckDuckGo answers from a
+shared address, the other three are there for the day it does not. The failures are named in a
+`Note:` line, so the model knows whose results it is reading. The thirteen ids are `duckduckgo`,
+`startpage`, `mojeek`, `ecosia`, `hackernews`, `searxng`, `public`, `brave`, `tavily`, `exa`,
+`jina`, `kagi` and `firecrawl`.
+
+The **keys** follow SPEC 5: the environment variable is the name of the entry in
+`state/auth.json`, the configuration may point at another variable (`web_search.key_env`), and a
+key never goes into `config.toml` or `providers.toml`. The names are `BRAVE_API_KEY`,
+`TAVILY_API_KEY`, `EXA_API_KEY`, `JINA_API_KEY`, `KAGI_API_KEY` and `FIRECRAWL_API_KEY`; a
+SearXNG instance may ask for `SEARXNG_TOKEN` or `SEARXNG_BASIC_USERNAME`/`SEARXNG_BASIC_PASSWORD`.
+The environment wins over the auth file, so a key can be overridden for one run.
+
+The **Public Web** aggregate fans out over the credential-free engines at once and merges what
+comes back: the same address found by two engines ranks above an address found by one, the best
+rank breaks the tie, and engine order breaks the rest. It is explicit-only in the sense that the
+default chain does not name it; a chain that does chose the fan-out. Its soft deadline is five
+seconds and its hard deadline thirty, so one slow engine cannot hold the turn.
+
+Two observations from the live check (2026-11-17): DuckDuckGo answers from this machine;
+Mojeek and Ecosia answer their bot wall to a shared address; Startpage now serves an Anubis
+proof-of-work challenge. Each provider recognises its wall and names it instead of returning an
+empty page. A keyed provider is the reliable path when the scrapers are throttled.
+
+**Status:** accepted. The specification was updated with it (§9.3).

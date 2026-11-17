@@ -248,7 +248,7 @@ The tag is a user message: the system prompt tells the model that a message with
                   non-zero exit = error
 ```
 
-`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. A `web_search` tool follows it: DuckDuckGo's HTML search, which needs no key, the way the oh-my-pi harness does it (MIT). A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
+`risk` is one of `read`, `write`, `exec`, `network`. Built-in tools implement the same Rust trait and appear in `/tools` next to external ones. A `fetch` tool (HTTP GET to text) is the first network tool. The `web_search` tool follows it and is a chain of providers, ported from the oh-my-pi harness (MIT): the query is parsed into its terms and its constraints, each engine is given only the syntax it understands, and the first provider that answers wins while the failures are named in a `Note:` line. The chain is `web_search.providers` in `config.toml`; the default is `duckduckgo`, `mojeek`, `startpage`, `ecosia`. The key-free providers are the scrapers `duckduckgo`, `startpage`, `mojeek`, `ecosia` and `hackernews`, the `public` fan-out over them, and the `searxng` instance named by `web_search.searxng_url`. The keyed APIs are `brave` (`BRAVE_API_KEY`), `tavily`, `exa`, `jina`, `kagi` and `firecrawl`; their keys are read from the environment or from `state/auth.json` (SPEC 5), never from `config.toml`. A browser tool is a later milestone; the owner chooses between the grok-code and pi approaches.
 
 ### 9.4 Permissions
 

@@ -8,6 +8,19 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Added
+- The web search is a chain of providers ported from oh-my-pi: DuckDuckGo, Startpage, Mojeek,
+  Ecosia, Hacker News, SearXNG, the Public Web fan-out, and the keyed Brave, Tavily, Exa, Jina,
+  Kagi and Firecrawl APIs. The chain is `web_search.providers`; the first provider that answers
+  wins and the failures are named in a `Note:` line (SPEC 9.3).
+- The structured query parser: `site:`, `inurl:`, `intitle:`, `intext:`, `filetype:`,
+  `before:`/`after:`, `lang:`, quoted phrases, `OR` groups and `-exclusions`. Each engine gets
+  only the syntax it understands; the rest is enforced on the results, and a constraint that
+  would empty the answer is relaxed and reported.
+- `web_search.searxng_url` points at a SearXNG instance, and `web_search.key_env` names the
+  environment variable of a keyed provider. The keys stay in the environment or
+  `state/auth.json` (SPEC 5).
+
 ## [0.7.0] - 2026-11-11
 
 ### Added
