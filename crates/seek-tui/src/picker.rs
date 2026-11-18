@@ -77,6 +77,8 @@ pub struct Picker {
     pub selected: usize,
     /// A hint shown under the list.
     pub hint: Option<String>,
+    /// A model-style picker is anchored above the prompt bar instead of centered.
+    pub bottom: bool,
 }
 
 impl Picker {
@@ -87,7 +89,14 @@ impl Picker {
             items,
             selected: 0,
             hint: None,
+            bottom: false,
         }
+    }
+
+    /// Anchor the picker above the prompt bar, like the `@` completion list.
+    pub fn bottom_anchored(mut self) -> Self {
+        self.bottom = true;
+        self
     }
 
     /// The items that pass the filter.
@@ -181,10 +190,18 @@ impl Picker {
         );
 
         let width = area.width.saturating_sub(4).clamp(8, 72).min(area.width);
-        let height = area.height.saturating_sub(4).max(5).min(area.height);
+        let height = if self.bottom {
+            area.height.saturating_sub(4).clamp(5, 18).min(area.height)
+        } else {
+            area.height.saturating_sub(4).max(5).min(area.height)
+        };
         let rect = Rect::new(
             area.x + (area.width - width) / 2,
-            area.y + (area.height - height) / 2,
+            if self.bottom {
+                area.y + area.height - height
+            } else {
+                area.y + (area.height - height) / 2
+            },
             width,
             height,
         );
