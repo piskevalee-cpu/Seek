@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.10] - 2026-11-18
+
+The thinking indicator lives with the vitals.
+
 ### Fixed
 - The thinking animation is labelled and sits next to the RAM in the footer, moving into the
   sidebar's metrics when the sidebar is open; it no longer takes a row in the chat.
