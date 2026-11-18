@@ -278,7 +278,7 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
     let hint = if state.busy {
         "Esc stops"
     } else {
-        "Enter sends \u{00b7} Shift+Enter newline"
+        "Enter sends"
     };
     box_lines.push(bottom_border(width, hint, &status, theme));
 

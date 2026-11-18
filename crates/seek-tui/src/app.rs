@@ -597,10 +597,6 @@ impl App {
 
         match key.code {
             KeyCode::Enter => {
-                if key.modifiers.contains(KeyModifiers::SHIFT) {
-                    self.input.insert_newline();
-                    return None;
-                }
                 if self.sidebar_focused {
                     // Enter resumes the selected session (SPEC 10.3).
                     if let Some(session) = self.sessions.get(self.session_selected) {
@@ -1402,6 +1398,7 @@ impl App {
     /// The picker for `/model`: the models of the configured providers, then the bundled catalog.
     fn model_picker(&self) -> Picker {
         let mut items: Vec<PickerItem> = Vec::new();
+        let current = self.current.as_ref().map(|model| model.id.as_str());
         for (id, provider) in &self.providers.provider {
             // The models the endpoint knows come first; the entries of the configuration
             // override them (SPEC 6).
@@ -1410,11 +1407,13 @@ impl App {
                     if provider.models.contains_key(model_id) {
                         continue;
                     }
-                    items.push(
-                        PickerItem::new(model_id.clone(), format!("model:{model_id}"))
-                            .with_group(provider.display_name(id))
-                            .with_detail("found on the endpoint"),
-                    );
+                    let mut item = PickerItem::new(model_id.clone(), format!("model:{model_id}"))
+                        .with_group(provider.display_name(id))
+                        .with_detail("found on the endpoint");
+                    if Some(model_id.as_str()) == current {
+                        item = item.with_tag("CURRENT");
+                    }
+                    items.push(item);
                 }
             }
             for (model_id, model) in &provider.models {
@@ -1426,11 +1425,13 @@ impl App {
                     Some(context) => format!("{context} context"),
                     None => String::new(),
                 };
-                items.push(
-                    PickerItem::new(name, format!("model:{model_id}"))
-                        .with_group(provider.display_name(id))
-                        .with_detail(detail),
-                );
+                let mut item = PickerItem::new(name, format!("model:{model_id}"))
+                    .with_group(provider.display_name(id))
+                    .with_detail(detail);
+                if Some(model_id.as_str()) == current {
+                    item = item.with_tag("CURRENT");
+                }
+                items.push(item);
             }
         }
         for local in &self.local_models {
@@ -1443,14 +1444,18 @@ impl App {
         }
         if items.is_empty() {
             for model in &self.catalog {
-                items.push(
-                    PickerItem::new(model.name.clone(), format!("model:{}", model.id))
-                        .with_group("catalog")
-                        .with_detail(format!("{} context", model.context)),
-                );
+                let mut item = PickerItem::new(model.name.clone(), format!("model:{}", model.id))
+                    .with_group("catalog")
+                    .with_detail(format!("{} context", model.context));
+                if Some(model.id.as_str()) == current {
+                    item = item.with_tag("CURRENT");
+                }
+                items.push(item);
             }
         }
-        Picker::new("models", items).tap_hint("Enter to choose, Esc to close")
+        Picker::new("models", items)
+            .bottom_anchored()
+            .tap_hint("↑↓ models · type to search · Enter use · Esc close")
     }
 
     /// The picker for `/mode`: the three permission modes.
@@ -2261,7 +2266,20 @@ impl App {
 
         match &self.overlay {
             Some(Overlay::Help) => self.render_help(frame, area),
-            Some(Overlay::Picker(picker)) => picker.render(frame, area, &self.theme),
+            Some(Overlay::Picker(picker)) => {
+                // A bottom-anchored picker lives above the prompt, so the box stays visible.
+                let picker_area = if picker.bottom {
+                    Rect::new(
+                        area.x,
+                        area.y,
+                        area.width,
+                        area.height.saturating_sub(prompt_height + 1),
+                    )
+                } else {
+                    area
+                };
+                picker.render(frame, picker_area, &self.theme);
+            }
             Some(Overlay::Options {
                 name,
                 prefix,
@@ -2547,7 +2565,6 @@ impl App {
 
         let keys = [
             ("Enter", "send"),
-            ("Shift+Enter", "newline"),
             ("Esc", "interrupt / close"),
             ("Shift+Tab", "cycle permission mode"),
             ("Ctrl+B", "toggle sidebar"),
@@ -2669,15 +2686,21 @@ mod tests {
     }
 
     #[test]
-    fn shift_enter_inserts_a_newline() {
+    fn shift_enter_sends_like_enter() {
         let mut app = App::new(Theme::default());
+        app.model_configured = true;
         app.update(Message::Key(key(KeyCode::Char('a'))));
-        app.update(Message::Key(KeyEvent::new(
+        let command = app.update(Message::Key(KeyEvent::new(
             KeyCode::Enter,
             KeyModifiers::SHIFT,
         )));
-        app.update(Message::Key(key(KeyCode::Char('b'))));
-        assert_eq!(app.input.text(), "a\nb");
+        assert_eq!(
+            command,
+            Some(Command::Submit {
+                text: "a".into(),
+                mode: PermissionMode::Ask,
+            })
+        );
     }
 
     #[test]

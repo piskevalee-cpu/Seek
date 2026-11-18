@@ -481,6 +481,10 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
         screen.contains("models"),
         "the menu has its title: {screen}"
     );
+    assert!(
+        screen.matches('╭').count() >= 2,
+        "the menu and the prompt box are both visible: {screen}"
+    );
 
     let small = render(&mut app, 90, 24);
     assert!(small.contains('╭'), "the menu still fits: {small}");

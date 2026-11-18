@@ -3,8 +3,8 @@
 //! Hand-written on purpose: `tui-textarea` depends on ratatui 0.29 and cannot be used with
 //! ratatui 0.30 (see `docs/DECISIONS.md`).
 //!
-//! Enter sends, Shift+Enter inserts a newline, Up and Down walk the history on a single-line
-//! draft. Long lines wrap to the width of the box, so the end of a prompt stays visible.
+//! Enter sends, Up and Down walk the history on a single-line draft, and a pasted multi-line
+//! draft stays multi-line. Long lines wrap to the width of the box, so the end of a prompt stays visible.
 
 use unicode_width::UnicodeWidthChar;
 

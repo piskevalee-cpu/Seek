@@ -17,6 +17,9 @@ Prompt-bar and overlay polish, plus an editable system prompt.
   compiled default is the fallback and still governs the prompt-budget test (D-023).
 
 ### Fixed
+- The `/model` selector is now a bottom-anchored, searchable dropdown above the prompt, like the `@` completion and OMP's compact picker; the current model is marked `CURRENT`.
+- Shift+Enter no longer claims to insert a newline: terminals did not deliver it reliably, so
+  Enter always sends and the hint/help say so.
 - The prompt bar draws a single cursor (the terminal's native one is hidden), wraps long lines so
   the end of a prompt stays visible, and grows up to the space available before scrolling inside
   the box. Shift+Enter is now the only newline key; the hint says so (SPEC 10.3).

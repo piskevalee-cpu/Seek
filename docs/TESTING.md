@@ -53,7 +53,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 
 - [ ] **Type.** Every character appears, and the cursor is a block behind the last one.
 - [ ] **Send.** Press Enter — the message appears in the transcript as a `USER` box.
-- [ ] **A newline.** Shift+Enter (or Alt+Enter) inserts a line instead of sending.
+- [ ] **A newline.** Paste a multi-line draft — the box grows to show every line; there is no newline key.
 - [ ] **The history.** Press Up — the last message you sent comes back. Press Down — it goes away again.
 - [ ] **The suggestions.** Type `/` — a list of the slash commands appears above the bar. Type `/mod` — the list narrows to `/model` and `/mode`.
 - [ ] **A backspace.** It deletes one character, not one byte: a character with an accent is gone in one press.
@@ -94,7 +94,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 Every key of the specification, one by one.
 
 - [ ] **Enter** — sends the message.
-- [ ] **Shift+Enter** — inserts a newline.
+- [ ] **Enter** — sends the message, including with Shift held.
 - [ ] **Esc** — closes an overlay. With a turn running, it stops the turn.
 - [ ] **Shift+Tab** — cycles the mode: `READ`, `ASK`, `YOLO`. The chip in the footer changes colour with it.
 - [ ] **Ctrl+B** — opens and closes the sidebar.
