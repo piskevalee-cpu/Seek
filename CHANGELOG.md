@@ -28,6 +28,8 @@ A visual pass: the prompt bar names the working directory instead of repeating t
 startup logo has a dark body with a stronger sweep.
 
 ### Changed
+- The prompt bar shows the full working directory, and `@` pins now carry the absolute path of the
+  pinned file or directory; the completion list also shows that location.
 - The prompt bar's top border shows the shortened working directory instead of repeating the
   model name; the footer keeps the model and the branch. The working directory has one home
   (SPEC 10.2).

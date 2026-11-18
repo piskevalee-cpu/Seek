@@ -337,8 +337,8 @@ fn the_prompt_bar_shows_the_working_directory_not_the_model_twice() {
     let lines = render_lines(&mut app, 100, 30);
     let screen = lines.join("\n");
     assert!(
-        screen.contains("project"),
-        "the short cwd is the caption: {screen}"
+        screen.contains("/tmp/seek-caption-test/project"),
+        "the full cwd is the caption: {screen}"
     );
     assert_eq!(
         screen.matches("LFM3-1.7B").count(),

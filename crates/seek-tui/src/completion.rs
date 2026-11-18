@@ -209,7 +209,8 @@ fn path_completions(prefix: &str, cwd: &Path, at: bool, quoted: bool) -> Vec<Com
         .take(MAX_ITEMS)
         .map(|(is_dir, name)| {
             let display = format!("{dir_part}{name}");
-            completion_value(&display, is_dir, at, quoted)
+            let location = directory.join(name).to_string_lossy().to_string();
+            completion_value(&display, is_dir, at, quoted, &location)
         })
         .collect()
 }
@@ -269,7 +270,11 @@ fn project_matches(base: &str, cwd: &Path, at: bool, quoted: bool) -> Vec<Comple
             continue;
         };
         let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
-        matches.push((score, completion_value(&display, is_dir, at, quoted)));
+        let location = cwd.join(&display).to_string_lossy().to_string();
+        matches.push((
+            score,
+            completion_value(&display, is_dir, at, quoted, &location),
+        ));
     }
 
     // The tightest match first, then the directories before the files, then the name.
@@ -320,7 +325,13 @@ fn fuzzy_score(query: &str, display: &str) -> Option<u32> {
 }
 
 /// The text a completion puts in place of the token.
-fn completion_value(display: &str, is_dir: bool, at: bool, quoted: bool) -> Completion {
+fn completion_value(
+    display: &str,
+    is_dir: bool,
+    at: bool,
+    quoted: bool,
+    location: &str,
+) -> Completion {
     let mut text = display.to_string();
     if is_dir {
         text.push('/');
@@ -336,7 +347,7 @@ fn completion_value(display: &str, is_dir: bool, at: bool, quoted: bool) -> Comp
     Completion {
         value,
         label: text,
-        detail: if is_dir { "dir" } else { "file" }.to_string(),
+        detail: location.to_string(),
         kind: if is_dir { Kind::Directory } else { Kind::File },
     }
 }
@@ -414,6 +425,7 @@ mod tests {
         assert_eq!(items.len(), 1, "{items:?}");
         assert_eq!(items[0].value, "src/main.rs ");
         assert_eq!(items[0].kind, Kind::File);
+        assert_eq!(items[0].detail, root.join("src/main.rs").to_string_lossy());
     }
 
     #[test]

@@ -17,7 +17,7 @@ use seek_local::model::{LocalModel, sidecar_path};
 use seek_local::options::LaunchOptions;
 
 use crate::completion::{self, Completion, Kind};
-use crate::footer::{Footer, ModelChip, PermissionMode, footer_line, short_path};
+use crate::footer::{Footer, ModelChip, PermissionMode, caption_path, footer_line};
 use crate::input::Input;
 use crate::logo;
 use crate::metrics::Metrics;
@@ -2236,7 +2236,7 @@ impl App {
                 mode: self.prompt_mode.clone(),
                 // The working directory is the caption; the model has its one home in the footer
                 // (SPEC 10.2).
-                caption: short_path(&self.cwd),
+                caption: caption_path(&self.cwd, main_area.width.saturating_sub(4) as usize),
             },
         );
 
