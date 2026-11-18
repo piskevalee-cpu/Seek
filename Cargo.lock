@@ -2324,7 +2324,7 @@ dependencies = [
 
 [[package]]
 name = "seek"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "anyhow",
  "clap",
@@ -2339,7 +2339,7 @@ dependencies = [
 
 [[package]]
 name = "seek-core"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "futures",
  "ignore",
@@ -2357,7 +2357,7 @@ dependencies = [
 
 [[package]]
 name = "seek-llm"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "async-stream",
  "futures",
@@ -2371,7 +2371,7 @@ dependencies = [
 
 [[package]]
 name = "seek-local"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "futures",
  "nix 0.31.3",
@@ -2387,7 +2387,7 @@ dependencies = [
 
 [[package]]
 name = "seek-tui"
-version = "0.7.6"
+version = "0.7.7"
 dependencies = [
  "anyhow",
  "crossterm",

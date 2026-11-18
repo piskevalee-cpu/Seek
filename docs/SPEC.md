@@ -466,7 +466,7 @@ Asset: `assets/logo.png`. The supplied version has a green background for contra
 
 ## 13. Install script
 
-`install.sh` must be idempotent and never overwrite user files. It opens with the 25 x 9 logo in the terminal palette: a short diagonal sweep on an interactive terminal, the resting frame when output is piped, `NO_COLOR` or `CI` is set (D-021). It: (1) creates `~/seek/{skills,tools,models,widgets}`; (2) copies the built-in `init` skill and the `git` and `usage` widgets only if absent; (3) installs the `seek` binary to `~/.local/bin`, downloading the GitHub Release for the platform or running `cargo install --path crates/seek` with `--from-source`; (4) checks for `llama-server` and `git` and prints how to fix what is missing; (5) prints the next step. An optional `seek doctor` command repeats these checks.
+`install.sh` resolves the repository from its own path and works from any working directory. If the script is copied or piped without the repository beside it, it stops with a clear clone instruction. It must be idempotent and never overwrite user files. It opens with the 25 x 9 logo in the terminal palette: a short diagonal sweep on an interactive terminal, the resting frame when output is piped, `NO_COLOR` or `CI` is set (D-021). It: (1) creates `~/seek/{skills,tools,models,widgets}`; (2) copies the built-in `init` skill and the `git` and `usage` widgets only if absent; (3) installs the `seek` binary to `~/.local/bin`, downloading the GitHub Release for the platform or running `cargo install --path crates/seek` with `--from-source`; (4) checks for `llama-server` and `git` and prints how to fix what is missing; (5) prints the next step. An optional `seek doctor` command repeats these checks.
 
 ## 14. Testing
 
