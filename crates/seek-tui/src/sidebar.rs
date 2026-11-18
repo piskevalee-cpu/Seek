@@ -121,10 +121,10 @@ pub fn render(
     // The metrics are pinned to the bottom of the sidebar.
     let mut metric_lines = metrics.sidebar_lines(theme);
     if sidebar.thinking {
-        let mut spans = vec![Span::styled(
-            " thinking ",
-            Style::new().fg(theme.dim).italic(),
-        )];
+        let mut spans = vec![
+            Span::styled(" thinking ", Style::new().fg(theme.dim).italic()),
+            Span::styled("  ", Style::new()),
+        ];
         spans.extend(cells_line_at(sidebar.frame, theme));
         metric_lines.push(Line::from(spans));
     }

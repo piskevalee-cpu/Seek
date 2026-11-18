@@ -8,6 +8,13 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.11] - 2026-11-18
+
+A small spacing correction in the footer.
+
+### Fixed
+- The `thinking` label is now spaced apart from its animation cells in the footer and sidebar.
+
 ## [0.7.10] - 2026-11-18
 
 The thinking indicator lives with the vitals.
