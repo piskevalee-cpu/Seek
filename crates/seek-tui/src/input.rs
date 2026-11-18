@@ -12,6 +12,7 @@ use unicode_width::UnicodeWidthChar;
 pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/compact", "Summarize the older turns"),
     ("/help", "Show the key reference"),
+    ("/history", "Browse past sessions"),
     ("/mode", "Set the permission mode"),
     ("/model", "Pick a model"),
     ("/new", "Start a new session"),

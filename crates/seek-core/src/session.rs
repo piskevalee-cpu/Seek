@@ -28,6 +28,28 @@ pub struct SessionHeader {
     pub title: String,
 }
 
+/// The file that remembers the session of the last run.
+pub const LAST_SESSION_FILE: &str = "last_session.toml";
+
+/// Remember the id of the session to resume with `--continue`.
+pub fn remember(dir: &Path, id: &str) -> std::io::Result<()> {
+    fs::create_dir_all(dir)?;
+    fs::write(
+        dir.join(LAST_SESSION_FILE),
+        format!("schema = 1\nid = '{id}'\n"),
+    )
+}
+
+/// Read the remembered session id.
+pub fn last(dir: &Path) -> Option<String> {
+    let text = fs::read_to_string(dir.join(LAST_SESSION_FILE)).ok()?;
+    let id = text
+        .lines()
+        .find_map(|line| line.strip_prefix("id = '")?.strip_suffix('\''))?
+        .to_string();
+    (!id.is_empty()).then_some(id)
+}
+
 /// A session in the list of the sidebar.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionInfo {

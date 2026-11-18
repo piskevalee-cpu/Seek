@@ -8,6 +8,20 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-11-18
+
+Pins the model can locate, a quieter composer and a one-command installer.
+
+### Fixed
+- `@` mentions are expanded to absolute paths in the message the model reads, so it no longer
+  guesses where a pinned file lives.
+- The thinking animation moved out of the transcript into its own line above the prompt, and the
+  clipped "working..." status in the prompt border was removed.
+- `/history` lists past sessions in the app and resumes one; `--continue` remembers the last
+  session in `state/sessions/last_session.toml` and falls back to the newest session.
+- A standalone `install.sh` now clones the repository and re-runs itself, so a piped one-command
+  install works.
+
 ## [0.7.8] - 2026-11-18
 
 Rebuilt pickers and resumable chat history.

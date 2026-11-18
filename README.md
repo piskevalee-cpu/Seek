@@ -67,10 +67,10 @@ local llama.cpp server, an Anthropic model, or anything that speaks the OpenAI c
 first screen is the chat, with `[no model selected]`; choose one with `/model` when you are ready.
 
 ```
-╭ [no model selected] ──────────────────────────────────────────────────────────────────────────╮
+╭ /home/valerio/project ────────────────────────────────────────────────────────────────────────╮
 │ add a test for the parser                                                                     │
-╰───────────────────────────────────────────────────────────────── Enter sends · Alt+Enter newline ╯
- ASK  [no model selected]  user/project develop ~0 / 0 0%0.0 t/s cpu -  ram -
+╰───────────────────────────────────────────────────────────────── Enter sends ╯
+ ASK  [no model selected]  develop  2.7k / 32.0k 8% cpu 9% ram 5.7G/15.3G
 ```
 
 Here is why it exists:
@@ -110,6 +110,14 @@ Here is why it exists:
   `~/LLMs/`; building llama.cpp from source also needs cmake and a C/C++ compiler.
 
 ### Installation
+
+One command (the script clones the repository for you):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/piskevalee-cpu/Seek/main/install.sh | sh
+```
+
+Or from a clone:
 
 1. Clone the repository.
    ```sh
