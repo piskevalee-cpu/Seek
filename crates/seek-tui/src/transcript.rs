@@ -5,7 +5,8 @@
 //! the reasoning and the tools), and a blank line between the blocks so they breathe.
 //!
 //! The message of the user is a band across the width with the arrow in front of it. The answer
-//! of the model is plain text. Reasoning is plain dim text with a thin vertical bar at the left;
+//! The answer of the model is styled Markdown (bold, italic, code, headings, bullets, quotes).
+//! Reasoning is plain dim text with a thin vertical bar at the left;
 //! when reasoning is hidden it collapses to a single row with the same bar. Tool rows are one
 //! line and can be expanded. Queued messages render dimmed with a `queued` tag.
 
@@ -13,7 +14,7 @@ use std::time::Duration;
 
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::theme::Theme;
 
@@ -185,16 +186,153 @@ fn user_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
     lines
 }
 
-/// The answer of the model: plain text, without a band and without a border.
+/// The answer of the model: plain text with a small, intentional subset of Markdown — bold,
+/// italic, inline code, headings, bullets and block quotes. No band, no border.
 fn assistant_lines(text: &str, theme: &Theme, width: usize) -> Vec<Line<'static>> {
     let inner = width.saturating_sub(RAIL.len()).max(20);
-    wrap(text, inner)
-        .into_iter()
-        .map(|line| {
-            Line::from(vec![
-                Span::styled(RAIL, Style::new().fg(theme.accent_assistant)),
-                Span::styled(line, Style::new().fg(theme.text)),
-            ])
+    let mut lines = Vec::new();
+    for source in text.lines() {
+        let (prefix, content, quoted) = markdown_block(source);
+        let styled = markdown_inline(content, theme, quoted);
+        let rows = wrap_styled(&styled, inner);
+        if rows.is_empty() {
+            lines.push(Line::from(vec![Span::styled(
+                RAIL,
+                Style::new().fg(theme.accent_assistant),
+            )]));
+            continue;
+        }
+        for (index, row) in rows.into_iter().enumerate() {
+            let mut spans = vec![Span::styled(RAIL, Style::new().fg(theme.accent_assistant))];
+            if index == 0 && !prefix.is_empty() {
+                spans.push(Span::styled(prefix, Style::new().fg(theme.accent).bold()));
+            } else if index > 0 && !prefix.is_empty() {
+                spans.push(Span::styled(
+                    " ".repeat(prefix.chars().count()),
+                    Style::new(),
+                ));
+            }
+            spans.extend(row);
+            lines.push(Line::from(spans));
+        }
+    }
+    if lines.is_empty() {
+        lines.push(Line::from(vec![Span::styled(
+            RAIL,
+            Style::new().fg(theme.accent_assistant),
+        )]));
+    }
+    lines
+}
+
+/// The block prefix and style of one Markdown source line.
+fn markdown_block(source: &str) -> (&'static str, &str, bool) {
+    let trimmed = source.trim_start();
+    if let Some(rest) = trimmed.strip_prefix("> ") {
+        ("│ ", rest, true)
+    } else if let Some(rest) = trimmed.strip_prefix('>') {
+        ("│ ", rest, true)
+    } else if let Some(rest) = trimmed.strip_prefix("### ") {
+        ("### ", rest, false)
+    } else if let Some(rest) = trimmed.strip_prefix("## ") {
+        ("## ", rest, false)
+    } else if let Some(rest) = trimmed.strip_prefix("# ") {
+        ("# ", rest, false)
+    } else if let Some(rest) = trimmed.strip_prefix("- ") {
+        ("• ", rest, false)
+    } else if let Some(rest) = trimmed.strip_prefix("* ") {
+        ("• ", rest, false)
+    } else {
+        ("", source, false)
+    }
+}
+
+/// Inline Markdown: `**bold**`, `*italic*`, `_italic_` and `` `code` ``.
+fn markdown_inline(text: &str, theme: &Theme, quoted: bool) -> Vec<(char, Style)> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = Vec::new();
+    let mut index = 0usize;
+    let mut bold = false;
+    let mut italic = quoted;
+    let mut code = false;
+    while index < chars.len() {
+        if index + 1 < chars.len() && chars[index] == '*' && chars[index + 1] == '*' {
+            bold = !bold;
+            index += 2;
+            continue;
+        }
+        match chars[index] {
+            '`' => {
+                code = !code;
+                index += 1;
+                continue;
+            }
+            '*' | '_' => {
+                italic = !italic;
+                index += 1;
+                continue;
+            }
+            ch => {
+                let mut style = Style::new().fg(if code {
+                    theme.accent
+                } else if quoted {
+                    theme.text_dim
+                } else {
+                    theme.text
+                });
+                if bold {
+                    style = style.bold();
+                }
+                if italic || quoted {
+                    style = style.italic();
+                }
+                if code {
+                    style = style.bg(theme.surface);
+                }
+                out.push((ch, style));
+                index += 1;
+            }
+        }
+    }
+    out
+}
+
+/// Wrap a styled run by display width, keeping each character's style.
+fn wrap_styled(styled: &[(char, Style)], width: usize) -> Vec<Vec<Span<'static>>> {
+    let mut rows: Vec<Vec<(char, Style)>> = Vec::new();
+    let mut row: Vec<(char, Style)> = Vec::new();
+    let mut used = 0usize;
+    for &(ch, style) in styled {
+        let size = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + size > width && !row.is_empty() {
+            rows.push(std::mem::take(&mut row));
+            used = 0;
+        }
+        row.push((ch, style));
+        used += size;
+    }
+    if !row.is_empty() {
+        rows.push(row);
+    }
+    rows.into_iter()
+        .map(|row| {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            let mut text = String::new();
+            let mut current: Option<Style> = None;
+            for (ch, style) in row {
+                if current != Some(style) && !text.is_empty() {
+                    spans.push(Span::styled(
+                        std::mem::take(&mut text),
+                        current.unwrap_or_default(),
+                    ));
+                }
+                current = Some(style);
+                text.push(ch);
+            }
+            if !text.is_empty() {
+                spans.push(Span::styled(text, current.unwrap_or_default()));
+            }
+            spans
         })
         .collect()
 }
@@ -416,6 +554,38 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert!(lines[0].1.to_string().contains("cargo test"));
         assert!(lines[0].1.to_string().contains("1.2s"));
+    }
+
+    #[test]
+    fn markdown_is_styled_in_the_answer() {
+        use ratatui::style::Modifier;
+        let theme = Theme::default();
+        let text = "**bold** and `code`\n> quoted";
+        let lines = transcript_lines(&[Row::Assistant(text.into())], &theme, true, 60);
+        let spans: Vec<&Span<'static>> = lines
+            .iter()
+            .flat_map(|(_, line)| line.spans.iter())
+            .collect();
+        assert!(
+            spans.iter().any(|span| span.content.contains("bold")
+                && span.style.add_modifier.contains(Modifier::BOLD)),
+            "bold is rendered bold: {spans:?}"
+        );
+        assert!(
+            spans
+                .iter()
+                .any(|span| span.content.contains("code") && span.style.bg == Some(theme.surface)),
+            "inline code has a surface: {spans:?}"
+        );
+        assert!(
+            spans.iter().any(|span| span.content.trim() == "│"),
+            "the quote has a rail: {spans:?}"
+        );
+        assert!(
+            spans.iter().any(|span| span.content.contains("quoted")
+                && span.style.add_modifier.contains(Modifier::ITALIC)),
+            "the quote is italic: {spans:?}"
+        );
     }
 
     #[test]
