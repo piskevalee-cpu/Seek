@@ -350,7 +350,7 @@ SIDEBAR OFF                              SIDEBAR ON (Ctrl+B)
 | LOG STRIP (0-3 lines)              |   | ctx bar   | LOG STRIP              |
 | PROMPT BAR                         |   | tps, time | PROMPT BAR             |
 | METRICS (one line)                 |   | vitals    | FOOTER                 |
-| FOOTER: mode | model | cwd, branch |   +-----------+------------------------+
+| FOOTER: mode | model | branch |   +-----------+------------------------+
 +------------------------------------+
 ```
 
@@ -367,7 +367,8 @@ Minimum size 80x24; below that show one 'terminal too small' message. Sidebar wi
 | Context bar, tokens used/total, tps, think time, rate limits, vitals | METRICS block | Sidebar bottom when open, else the line under the prompt bar. Never both |
 | Permission mode | Footer, left chip |  |
 | Active model, provider, LOCAL flag | Footer, middle |  |
-| Working directory and git branch | Footer, right |  |
+| Working directory | Prompt bar, top border | Short path, with `~` for the home |
+| Git branch | Footer, right |  |
 | Server and model lifecycle events | Log strip | Process-level events only |
 | Reasoning text | Transcript, thinking style |  |
 | Tool calls and results | Transcript, tool rows | Collapsed by default |
@@ -394,11 +395,11 @@ Lifetime usage across sessions is the `usage` widget on Home; METRICS is the cur
 - **Context bar.** Ten cubes, each 10% of the window, filling left to right. The cube currently filling uses partial blocks so it grows gradually. Right after it: used / total tokens (for example `12.4k / 32k`) and the percentage. Gray and green normally, amber from 80%, red from 95%. Prefix `~` while the figure is an estimate.
 - **Metrics block.** Rows in this order: context bar with counts; tps and think time; rate limit (only if reported); CPU, RAM, GPU, VRAM. In the sidebar form each row has its own line; in the footer it drops elements from the right when the line is narrow.
 - **Log strip.** The newest line of the server and model events, dim. It hides after 10 s of silence and reappears on new events.
-- **Prompt bar.** A box with rounded corners: the name of the model in the top border, the keys and the status in the bottom one. The first frame is the chat with `[no model selected]` in both places: the model is chosen with `/model`, and a message typed before that stays in the bar with a one-line note instead of being sent.
+- **Prompt bar.** A box with rounded corners: the shortened working directory in the top border, the keys and the status in the bottom one. The model stays in the footer, so its name is not drawn twice. The first frame is the chat with `[no model selected]` in the footer: the model is chosen with `/model`, and a message typed before that stays in the bar with a one-line note instead of being sent.
 - **Pinned paths.** A one-line chip row above the completions shows the `@` paths of the current draft. It is a view of the message tokens, not another home for them. The pinned paths go into the turn context as names only (9.5).
 - **Scrolling and the side bar.** The window is a single first-visible-row offset, clamped to `[0, total - height]`, with an oh-my-pi-style thumb (MIT): size `clamp(height² / total, 1, height)`, position proportional to the offset, drawn as `█` on a `│` track. The bar uses one column plus a one-column gap inside the transcript, is drawn only when the content overflows, and sits opposite the sidebar. The wheel scrolls three lines, Shift+Up/Down five, PgUp/PgDn a page (`height - 1`), Home/End the ends; the bar can be clicked or dragged. New rows keep the window pinned to the bottom only while it was at the bottom; otherwise the offset stays fixed, so the message being read does not move. The area of the input holds the text and nothing else, so the cursor is the only thing that moves in it, and the box keeps its shape while the agent works.
 - **Completion.** The composer completes what is typed, following the oh-my-pi composer (MIT): `/` completes the slash commands and the skills, `@` searches the files of the project (including hidden ones and paths below the first folder), and a path token that starts with `.`, `./`, `../`, `~/`, `/` or holds a `/` completes the entries of that directory. A command replaces the whole line; a path replaces only its token, keeping the prose around it and quoting a path with a space. A file is inserted with a trailing space; a directory keeps the token open so the list moves inside it. The arrows move the selection, Tab takes it, Enter takes a path without sending but takes and runs a command, Esc closes the list until the text changes. Multi-line input. Enter sends; Shift+Enter or Alt+Enter inserts a newline; Up and Down walk history on a single-line draft. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
-- **Footer.** One line: a mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name, then the reasoning chip (for example think: high; hidden when the model has no levels), then the working directory (shortened: the home is a `~`) and the git branch, and the metrics of the session. The metrics are in the footer when the sidebar is closed and at the bottom of the sidebar when it is open — never both (10.2). The `LOCAL` tag is only in the model picker: the chat names the model, and that is enough.
+- **Footer.** One line: a mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name, then the reasoning chip (for example think: high; hidden when the model has no levels), then the git branch, and the metrics of the session. The working directory is the caption of the prompt bar, not repeated here (10.2). The metrics are in the footer when the sidebar is closed and at the bottom of the sidebar when it is open — never both (10.2). The `LOCAL` tag is only in the model picker: the chat names the model, and that is enough.
 - **Sidebar.** Sections in order: Sessions (title and relative time, current project first, Enter resumes), Processes (PID, tag, command, uptime; `x` kills the selected one), then Metrics pinned to the bottom. Tab moves focus into the sidebar when it is open.
 - **Pickers.** One reusable centered overlay with a filterable list. `/model`: grouped by provider, local models flagged `LOCAL`, right-arrow opens the launch-options editor, left-arrow returns. `/tools` and `/skills`: checklists where Space toggles and changes apply and persist immediately. `/provider`: a list plus an add form (kind, base URL, key env var or key, models, context, rate limits).
 
@@ -458,7 +459,7 @@ Asset: `assets/logo.png`. The supplied version has a green background for contra
 - The symbol is a 3 x 3 square with a one-pixel arm in each of the four directions (a plus-shaped star in a 5 x 5 box), plus four detached single-pixel sparkles around it. It is exactly as tall as the letters, so they share a baseline.
 - The 3 x 3 core echoes the 3 x 3 thinking spinner, which gives the brand a consistent visual family.
 - Terminal rendering: extract the grid from the PNG once with a script, commit it as a constant bitmap in `seek-tui`, and draw each pixel as two columns of full blocks (50 x 9 cells), or with half-blocks (25 x 5) on short terminals. Below 56 columns show the word SEEK as plain text. Never scale the PNG at runtime.
-- Only the lit pixels are drawn: the background of the logo is the background of the terminal, not a block of colour. A wrapping streak like the thinking line's travels from the top right to the low left along the diagonal once every 4.2 seconds and lights the pixels at full brightness, with the per-pixel twinkle of the landing page's logo riding on it. The thinking line uses the same twinkle over its faster travelling streak. Both rest with `reduce_motion` (D-019, D-020).
+- Every pixel of the 25 x 9 grid is a cube: lit and dim pixels carry the mark, the rest are drawn in a dark shade so the mark has a body without becoming a filled rectangle. The resting lit colour is darker than the highlight, which makes the streak from the top right to the low left easier to see; the per-pixel twinkle of the landing page's logo rides on it. The thinking line uses the same twinkle over its faster travelling streak. Both rest with `reduce_motion` (D-019, D-020, D-022).
 
 ## 13. Install script
 

@@ -503,3 +503,20 @@ it prints the resting frame in plain blocks. It uses `awk`, which POSIX sh alrea
 no build artefacts.
 
 **Status:** accepted. The specification and the changelog were updated.
+
+## D-022 — The logo has dark cubes and a darker resting mark
+
+**Date:** 2026-11-18 · **Affects:** SPEC 12
+
+The diagonal streak introduced in D-021 was still hard to see. The owner asked for a wider range
+of dark cubes and a darker logo colour.
+
+`logo::pixel_color` now returns a colour for every level of the 25 x 9 bitmap. Dark cells are a
+shade between the terminal background and the dark cube colour, so the mark has a quiet body
+instead of holes. Lit and dim resting colours were pulled towards the background (0.42 and 0.55
+blend), while the streak still reaches full highlight; the streak is five diagonal cells wide and
+the underlying pulse is 0.10. Contrast, not speed, carries the effect, so the 4.2-second traverse
+of D-021 stays. `reduce_motion` still holds it still. The spec's old "only lit pixels are drawn"
+rule is replaced; this is a deliberate visual change, not a new file-format contract.
+
+**Status:** accepted. The specification and the changelog were updated.

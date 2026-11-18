@@ -2,7 +2,8 @@
 //!
 //! One line: the mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name with a
 //! `LOCAL` tag when the model is local, the reasoning chip (hidden when the model has no
-//! levels), then the working directory and the git branch, and the metrics of the session.
+//! levels), then the git branch, and the metrics of the session. The working directory is in the
+//! top border of the prompt bar, its one home (SPEC 10.2).
 //!
 //! The metrics live here when the sidebar is closed. When the sidebar is open they are at the
 //! bottom of the sidebar, and the footer shows the rest. Never both (SPEC 10.2).
@@ -44,7 +45,7 @@ pub struct Footer {
     pub model: ModelChip,
     /// The reasoning level, when the model has any.
     pub reasoning: Option<String>,
-    pub cwd: String,
+    /// The git branch, when there is one.
     pub branch: Option<String>,
     /// The metrics of the session, when the sidebar does not show them.
     pub metrics: Option<crate::metrics::Metrics>,
@@ -84,17 +85,14 @@ pub fn footer_line(footer: &Footer, theme: &Theme, width: u16) -> Line<'static> 
         ));
     }
 
-    // The working directory and the branch. The path is short: the home is a `~` and only
-    // the last two parts are kept, so the line has room for the metrics.
-    let mut place = short_path(&footer.cwd);
+    // The branch is here; the working directory is the caption of the prompt bar, so it is not
+    // shown twice (SPEC 10.2).
     if let Some(branch) = &footer.branch {
-        place.push(' ');
-        place.push_str(branch);
+        spans.push(Span::styled(
+            format!(" {branch}"),
+            Style::new().fg(theme.dim),
+        ));
     }
-    spans.push(Span::styled(
-        format!(" {place}"),
-        Style::new().fg(theme.dim),
-    ));
 
     // The metrics of the session, when the sidebar does not show them. They are dropped
     // from the right when the line is too narrow: the mode and the place come first.
@@ -153,7 +151,6 @@ mod tests {
                 local: false,
             },
             reasoning: None,
-            cwd: "/tmp".into(),
             branch: Some("develop".into()),
             metrics: None,
         }
@@ -207,9 +204,10 @@ mod tests {
         let line = footer_line(&footer, &theme, 200).to_string();
         assert!(line.contains("12.4k"), "{line}");
         assert!(
-            line.contains("/tmp"),
-            "the place is in the same line: {line}"
+            line.contains("develop"),
+            "the branch is in the same line: {line}"
         );
+        assert!(!line.contains("/tmp"), "the path is not repeated: {line}");
         assert!(line.contains("ASK"), "{line}");
     }
 
