@@ -284,7 +284,8 @@ pub fn web_search_schema() -> ToolSchema {
          intitle:, inurl:, filetype:, before:, after:, a \"quoted phrase\", a OR b, and -word to \
          leave something out. The recency keeps the results fresh.",
         r#"{"type":"object","properties":{"query":{"type":"string"},"recency":{"type":"string","enum":["day","week","month","year"]},"limit":{"type":"integer"}},"required":["query"]}"#,
-        Risk::Network,
+        // A search changes nothing, so it is a read: it is never asked (D-026).
+        Risk::Read,
     )
 }
 
