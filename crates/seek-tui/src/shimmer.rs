@@ -51,13 +51,13 @@ pub fn twinkle(index: usize, total: usize, secs: f32) -> f32 {
 pub const LOGO_PERIOD: f32 = 4.2;
 
 /// The half width of the streak, in diagonal pixels.
-const LOGO_HALF_WIDTH: f32 = 4.0;
+const LOGO_HALF_WIDTH: f32 = 5.0;
 /// The number of positions along the diagonal of the 25 x 9 bitmap.
 const LOGO_DIAGONAL: f32 = 34.0;
 /// The peak strength of the streak; lit pixels reach the full highlight.
 const LOGO_SHINE: f32 = 1.0;
 /// A gentle breathing underneath the streak.
-const LOGO_PULSE: f32 = 0.08;
+const LOGO_PULSE: f32 = 0.10;
 
 pub fn shine_opacity(diag: f32, secs: f32) -> f32 {
     // Run the head backwards along the diagonal: the sweep starts at the top right.

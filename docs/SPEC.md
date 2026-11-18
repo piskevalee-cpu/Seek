@@ -459,7 +459,7 @@ Asset: `assets/logo.png`. The supplied version has a green background for contra
 - The symbol is a 3 x 3 square with a one-pixel arm in each of the four directions (a plus-shaped star in a 5 x 5 box), plus four detached single-pixel sparkles around it. It is exactly as tall as the letters, so they share a baseline.
 - The 3 x 3 core echoes the 3 x 3 thinking spinner, which gives the brand a consistent visual family.
 - Terminal rendering: extract the grid from the PNG once with a script, commit it as a constant bitmap in `seek-tui`, and draw each pixel as two columns of full blocks (50 x 9 cells), or with half-blocks (25 x 5) on short terminals. Below 56 columns show the word SEEK as plain text. Never scale the PNG at runtime.
-- Only the lit pixels are drawn: the background of the logo is the background of the terminal, not a block of colour. A wrapping streak like the thinking line's travels from the top right to the low left along the diagonal once every 4.2 seconds and lights the pixels at full brightness, with the per-pixel twinkle of the landing page's logo riding on it. The thinking line uses the same twinkle over its faster travelling streak. Both rest with `reduce_motion` (D-019, D-020).
+- Every pixel of the 25 x 9 grid is a cube: lit and dim pixels carry the mark, the rest are drawn in a dark shade so the mark has a body without becoming a filled rectangle. The resting lit colour is darker than the highlight, which makes the streak from the top right to the low left easier to see; the per-pixel twinkle of the landing page's logo rides on it. The thinking line uses the same twinkle over its faster travelling streak. Both rest with `reduce_motion` (D-019, D-020, D-022).
 
 ## 13. Install script
 

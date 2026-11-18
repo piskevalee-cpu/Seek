@@ -13,6 +13,10 @@ workspace; each release ships a milestone (SPEC 15).
   model name; the footer keeps the model and the branch. The working directory has one home
   (SPEC 10.2).
 
+### Added
+- The startup logo now draws its dark bitmap cells as a quiet shade and uses a darker resting
+  mark, so the bright diagonal streak is easier to see (D-022).
+
 ## [0.7.1] - 2026-11-18
 
 The first patch after 0.7.0: a live tool and skill matrix, web search by query, OMP-style
