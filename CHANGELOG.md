@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.9] - 2026-11-18
+
+Pins the model can locate, a quieter composer and a one-command installer.
+
 ### Fixed
 - `@` mentions are expanded to absolute paths in the message the model reads, so it no longer
   guesses where a pinned file lives.
