@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Fixed
+- `install.sh` now resolves the repository from its own path and reports a clear error when run
+  without a clone, instead of failing on a missing `crates/seek` path.
+
 ## [0.7.6] - 2026-11-18
 
 Markdown answers in the transcript.

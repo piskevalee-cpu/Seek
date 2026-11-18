@@ -37,6 +37,15 @@ say() {
 	printf '%s\n' "$*"
 }
 
+# The script resolves the repository from its own path, so it works from any working directory.
+# A piped or copied script has no repository beside it: fail early with a useful message.
+if [ ! -f "$REPO_DIR/crates/seek/Cargo.toml" ]; then
+	echo "error: install.sh must be run from a clone of the SEEK repository." >&2
+	echo "       expected $REPO_DIR/crates/seek/Cargo.toml" >&2
+	echo "       clone https://github.com/piskevalee-cpu/Seek.git and run ./install.sh from its root." >&2
+	exit 1
+fi
+
 # The same 25 x 9 bitmap the TUI draws. A short diagonal sweep runs from the top right to the
 # low left, the way the startup logo does; a non-interactive install gets the resting frame.
 print_logo_frame() {
