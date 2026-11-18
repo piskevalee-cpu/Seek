@@ -9,6 +9,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
+use unicode_width::UnicodeWidthChar;
 
 use crate::app::{PERMISSION_CHOICES, PromptMode};
 use crate::input::Input;
@@ -22,46 +23,37 @@ pub const BOTTOM_RIGHT: &str = "╯";
 pub const HORIZONTAL: &str = "─";
 pub const VERTICAL: &str = "│";
 
-/// Render the input into lines, with a visible cursor.
-pub fn prompt_lines(input: &Input, theme: &Theme) -> Vec<Line<'static>> {
+/// Render the input into lines, with a single visible cursor.
+///
+/// `width` is the usable text width and `max_rows` caps the box; longer drafts scroll inside it.
+pub fn prompt_lines(
+    input: &Input,
+    theme: &Theme,
+    width: usize,
+    max_rows: usize,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
-    for (row, text) in input_texts(input).iter().enumerate() {
+    for row in input.visible_lines(width, max_rows) {
         let mut spans: Vec<Span<'static>> = Vec::new();
-        if row == 0 {
-            spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border_active)));
-        } else {
-            spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border)));
-        }
+        spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border_active)));
         spans.push(Span::styled(" ", Style::new()));
-        let (cursor_row, cursor_column) = input.cursor();
-        if row == cursor_row {
-            for (column, ch) in text.chars().enumerate() {
-                if column == cursor_column {
-                    spans.push(Span::styled(
-                        ch.to_string(),
-                        Style::new().fg(theme.bg).bg(theme.text),
-                    ));
-                } else {
-                    spans.push(Span::styled(ch.to_string(), Style::new().fg(theme.text)));
-                }
+        let cursor = row.cursor.unwrap_or(usize::MAX);
+        let mut used = 0usize;
+        for ch in row.text.chars() {
+            if used == cursor {
+                spans.push(Span::styled(
+                    ch.to_string(),
+                    Style::new().fg(theme.bg).bg(theme.text),
+                ));
+            } else {
+                spans.push(Span::styled(ch.to_string(), Style::new().fg(theme.text)));
             }
-            if cursor_column >= text.chars().count() {
-                spans.push(Span::styled(" ", Style::new().fg(theme.bg).bg(theme.text)));
-            }
-        } else {
-            spans.push(Span::styled(text.clone(), Style::new().fg(theme.text)));
+            used += UnicodeWidthChar::width(ch).unwrap_or(0);
+        }
+        if cursor >= used {
+            spans.push(Span::styled(" ", Style::new().fg(theme.bg).bg(theme.text)));
         }
         lines.push(Line::from(spans));
-    }
-    lines
-}
-
-/// The visible text of every input line.
-fn input_texts(input: &Input) -> Vec<String> {
-    let text = input.text();
-    let mut lines: Vec<String> = text.split('\n').map(str::to_string).collect();
-    if lines.is_empty() {
-        lines.push(String::new());
     }
     lines
 }
@@ -136,7 +128,13 @@ pub fn suggestion_lines(
 }
 
 /// The permission selector: three choices, the selected one highlighted.
-pub fn permission_lines(mode: &PromptMode, input: &Input, theme: &Theme) -> Vec<Line<'static>> {
+pub fn permission_lines(
+    mode: &PromptMode,
+    input: &Input,
+    theme: &Theme,
+    width: usize,
+    max_rows: usize,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     match mode {
         PromptMode::Normal => {}
@@ -186,7 +184,7 @@ pub fn permission_lines(mode: &PromptMode, input: &Input, theme: &Theme) -> Vec<
                 "  SEEK will call you by it. Esc leaves it empty.",
                 Style::new().fg(theme.dim),
             )));
-            lines.extend(prompt_lines(input, theme));
+            lines.extend(prompt_lines(input, theme, width, max_rows));
         }
         PromptMode::Tell { tool, .. } => {
             lines.push(Line::from(vec![
@@ -196,7 +194,7 @@ pub fn permission_lines(mode: &PromptMode, input: &Input, theme: &Theme) -> Vec<
                     Style::new().fg(theme.warn).bold(),
                 ),
             ]));
-            lines.extend(prompt_lines(input, theme));
+            lines.extend(prompt_lines(input, theme, width, max_rows));
         }
     }
     lines
@@ -252,8 +250,9 @@ pub struct PromptState {
 
 /// Draw the prompt bar.
 pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state: &PromptState) {
-    let width = area.width as usize;
-    let mut lines = permission_lines(&state.mode, input, theme);
+    let width = area.width.saturating_sub(3) as usize;
+    let max_rows = area.height.saturating_sub(2).max(1) as usize;
+    let mut lines = permission_lines(&state.mode, input, theme, width, max_rows);
 
     // The box: the caption in the top border, the keys and the status in the bottom one.
     // The area of the input holds the text and nothing else, so the cursor is the only
@@ -261,7 +260,7 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
     let mut box_lines = Vec::new();
     box_lines.push(top_border(width, &state.caption, theme));
     if lines.is_empty() {
-        lines = prompt_lines(input, theme);
+        lines = prompt_lines(input, theme, width, max_rows);
     }
     for line in lines {
         // The right border closes the box.
@@ -279,7 +278,7 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
     let hint = if state.busy {
         "Esc stops"
     } else {
-        "Enter sends \u{00b7} Alt+Enter newline"
+        "Enter sends \u{00b7} Shift+Enter newline"
     };
     box_lines.push(bottom_border(width, hint, &status, theme));
 
@@ -297,7 +296,7 @@ mod tests {
         for c in "cargo test".chars() {
             input.insert_char(c);
         }
-        let lines = prompt_lines(&input, &theme);
+        let lines = prompt_lines(&input, &theme, 40, 4);
         assert!(lines[0].to_string().contains("cargo test"));
     }
 
@@ -321,7 +320,7 @@ mod tests {
         input.insert_char('a');
         input.insert_newline();
         input.insert_char('b');
-        assert_eq!(prompt_lines(&input, &theme).len(), 2);
+        assert_eq!(prompt_lines(&input, &theme, 40, 4).len(), 2);
     }
 
     #[test]

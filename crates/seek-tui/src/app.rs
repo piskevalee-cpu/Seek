@@ -597,10 +597,7 @@ impl App {
 
         match key.code {
             KeyCode::Enter => {
-                if key
-                    .modifiers
-                    .intersects(KeyModifiers::SHIFT | KeyModifiers::ALT)
-                {
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
                     self.input.insert_newline();
                     return None;
                 }
@@ -2175,14 +2172,18 @@ impl App {
             Vec::new()
         };
         let pinned = prompt_bar::pin_lines(&pins, &self.theme);
-        // The box has a top border and a bottom border.
-        // The box has a top border and a bottom border. The status is in the bottom
-        // border, so the input keeps its height while the agent works.
-        let mut prompt_height = self.input.len().max(1) as u16 + 2;
+        let text_width = main_area.width.saturating_sub(3) as usize;
+        let max_rows = main_area.height.saturating_sub(6).max(1) as usize;
+        self.input.ensure_visible(text_width, max_rows);
+        let rows = self.input.visual_lines(text_width).len().min(max_rows);
+        // The box has a top border and a bottom border. The status is in the bottom border, so
+        // the input keeps its height while the agent works. Long drafts wrap and scroll inside
+        // the box instead of running off the right edge.
+        let mut prompt_height = rows as u16 + 2;
         if !matches!(self.prompt_mode, PromptMode::Normal) {
             // The permission selector needs five lines: the question, the summary, the three
             // choices and the line with the keys.
-            prompt_height = prompt_height.max(7);
+            prompt_height = prompt_height.max(7).min(max_rows as u16 + 2);
         }
 
         let log_lines = self.log_strip_lines(main_area.width as usize);

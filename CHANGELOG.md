@@ -8,6 +8,11 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Fixed
+- The prompt bar draws a single cursor (the terminal's native one is hidden), wraps long lines so
+  the end of a prompt stays visible, and grows up to the space available before scrolling inside
+  the box. Shift+Enter is now the only newline key; the hint says so (SPEC 10.3).
+
 ## [0.7.3] - 2026-11-18
 
 A correction to 0.7.2: the logo's background stays transparent; the darker cubes are inside the
