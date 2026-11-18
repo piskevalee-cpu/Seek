@@ -107,6 +107,18 @@ pub fn footer_line(footer: &Footer, theme: &Theme, width: u16) -> Line<'static> 
     Line::from(spans)
 }
 
+/// The caption of the prompt bar: the full path, truncated on the left only when needed so the
+/// directory the agent works in stays visible.
+pub fn caption_path(path: &str, max: usize) -> String {
+    let chars: Vec<char> = path.chars().collect();
+    if chars.len() <= max {
+        return path.to_string();
+    }
+    let keep = max.saturating_sub(1);
+    let tail: String = chars[chars.len() - keep..].iter().collect();
+    format!("…{tail}")
+}
+
 /// The path of a folder, short enough for the footer.
 ///
 /// The home is a `~` and only the last two parts are kept: the footer line has room for the

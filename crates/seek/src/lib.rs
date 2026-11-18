@@ -53,6 +53,8 @@ pub struct Runtime {
     pub live_context: Arc<std::sync::RwLock<String>>,
     /// The processes the tools have started.
     pub processes: Arc<seek_core::ProcessRegistry>,
+    /// The editable system prompt from `~/seek/SYSTEM.md`.
+    pub system_prompt: String,
     /// The instructions of the project: the AGENTS.md of the working directory.
     pub project_context: String,
     /// The external tools of `~/seek/tools`.
@@ -97,6 +99,8 @@ impl Runtime {
             }
         }
         let toggles = seek_core::Toggles::read(&state_dir.join("toggles.toml")).unwrap_or_default();
+        let system_prompt =
+            seek_core::prompt::system_prompt_from(&home.join(seek_core::prompt::SYSTEM_FILE));
 
         // The instructions of the project, if there are any (SPEC 9.5).
         let project_context = std::env::current_dir()
@@ -124,6 +128,7 @@ impl Runtime {
             current_model: Mutex::new(None),
             skills,
             toggles: std::sync::RwLock::new(toggles),
+            system_prompt,
             tools: Arc::new(std::sync::RwLock::new(
                 seek_core::r#loop::ToolRegistry::default(),
             )),
@@ -712,6 +717,7 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
             )
             // Pins are fixed for this turn; skills and tools can change mid-turn.
             .with_context(pin_context)
+            .with_system_prompt(runtime.system_prompt.clone())
             .with_shared_tools(runtime.tools.clone())
             .with_shared_context(runtime.live_context.clone())
             .with_usage(Arc::clone(&usage))

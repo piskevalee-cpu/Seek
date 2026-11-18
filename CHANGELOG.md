@@ -8,6 +8,26 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-11-18
+
+Prompt-bar and overlay polish, plus an editable system prompt.
+
+### Added
+- `~/seek/SYSTEM.md` is the editable system prompt, installed once from `builtin/SYSTEM.md`; the
+  compiled default is the fallback and still governs the prompt-budget test (D-023).
+
+### Fixed
+- The prompt bar draws a single cursor (the terminal's native one is hidden), wraps long lines so
+  the end of a prompt stays visible, and grows up to the space available before scrolling inside
+  the box. Shift+Enter is now the only newline key; the hint says so (SPEC 10.3).
+
+### Changed
+- The prompt bar shows the full working directory, and `@` pins now carry the absolute path of the
+  pinned file or directory; the completion list also shows that location.
+- Windowed menus now draw on an opaque stage with a rounded, responsive frame. The list scrolls to
+  the selection with clipped-row markers, and the sidebar is omitted on short terminals as well as
+  narrow ones (SPEC 10.3).
+
 ## [0.7.3] - 2026-11-18
 
 A correction to 0.7.2: the logo's background stays transparent; the darker cubes are inside the

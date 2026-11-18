@@ -3,8 +3,10 @@
 //! Hand-written on purpose: `tui-textarea` depends on ratatui 0.29 and cannot be used with
 //! ratatui 0.30 (see `docs/DECISIONS.md`).
 //!
-//! Enter sends, Shift+Enter and Alt+Enter insert a newline, Up and Down walk the history on a
-//! single-line draft.
+//! Enter sends, Shift+Enter inserts a newline, Up and Down walk the history on a single-line
+//! draft. Long lines wrap to the width of the box, so the end of a prompt stays visible.
+
+use unicode_width::UnicodeWidthChar;
 
 /// The slash commands the prompt bar offers.
 pub const SLASH_COMMANDS: &[(&str, &str)] = &[
@@ -33,6 +35,15 @@ pub struct Input {
     history: Vec<String>,
     history_index: Option<usize>,
     draft: Option<String>,
+    /// The first visual row shown when the draft is taller than the box.
+    view_top: usize,
+}
+
+/// One wrapped row of the input, with the cursor's display column when it is on this row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VisualLine {
+    pub text: String,
+    pub cursor: Option<usize>,
 }
 
 impl Input {
@@ -103,6 +114,59 @@ impl Input {
     /// The number of lines.
     pub fn len(&self) -> usize {
         self.lines.len()
+    }
+
+    /// The wrapped rows for a text width, with the cursor placed on one of them.
+    pub fn visual_lines(&self, width: usize) -> Vec<VisualLine> {
+        let mut rows = Vec::new();
+        for (line_index, line) in self.lines.iter().enumerate() {
+            for part in wrap_line(line, width) {
+                let cursor = if line_index == self.row
+                    && self.column >= part.start
+                    && self.column <= part.end
+                {
+                    let prefix: String = part.text.chars().take(self.column - part.start).collect();
+                    Some(display_width(&prefix))
+                } else {
+                    None
+                };
+                rows.push(VisualLine {
+                    text: part.text,
+                    cursor,
+                });
+            }
+        }
+        if rows.is_empty() {
+            rows.push(VisualLine {
+                text: String::new(),
+                cursor: Some(0),
+            });
+        }
+        rows
+    }
+
+    /// Keep the cursor inside a box that can show `max_rows` wrapped rows.
+    pub fn ensure_visible(&mut self, width: usize, max_rows: usize) {
+        let rows = self.visual_lines(width);
+        let cursor_row = rows
+            .iter()
+            .position(|row| row.cursor.is_some())
+            .unwrap_or(0);
+        let max = max_rows.max(1);
+        self.view_top = self
+            .view_top
+            .min(cursor_row)
+            .min(rows.len().saturating_sub(max));
+        if cursor_row >= self.view_top + max {
+            self.view_top = cursor_row + 1 - max;
+        }
+    }
+
+    /// The rows currently shown in the box.
+    pub fn visible_lines(&self, width: usize, max_rows: usize) -> Vec<VisualLine> {
+        let rows = self.visual_lines(width);
+        let max = max_rows.max(1);
+        rows.into_iter().skip(self.view_top).take(max).collect()
     }
 
     /// Whether the input has no lines (never true; kept for `clippy::len_without_is_empty`).
@@ -288,9 +352,67 @@ fn byte_index(text: &str, column: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+/// The display width of a string.
+fn display_width(text: &str) -> usize {
+    text.chars()
+        .map(|ch| UnicodeWidthChar::width(ch).unwrap_or(0))
+        .sum()
+}
+
+/// One piece of a wrapped line: its text and the character range it covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LinePart {
+    text: String,
+    start: usize,
+    end: usize,
+}
+
+fn wrap_line(line: &str, width: usize) -> Vec<LinePart> {
+    let width = width.max(1);
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut used = 0usize;
+    let mut start = 0usize;
+    for (index, ch) in line.chars().enumerate() {
+        let size = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + size > width && !current.is_empty() {
+            parts.push(LinePart {
+                text: std::mem::take(&mut current),
+                start,
+                end: index,
+            });
+            used = 0;
+            start = index;
+        }
+        current.push(ch);
+        used += size;
+    }
+    parts.push(LinePart {
+        text: current,
+        start,
+        end: char_len(line),
+    });
+    parts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_lines_wrap_with_one_cursor() {
+        let mut input = Input::new();
+        input.set_text("1234567890");
+        let rows = input.visual_lines(4);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].text, "1234");
+        assert_eq!(rows[2].text, "90");
+        assert_eq!(
+            rows.iter().filter(|row| row.cursor.is_some()).count(),
+            1,
+            "one cursor for the whole draft"
+        );
+    }
 
     #[test]
     fn typing_and_submitting() {

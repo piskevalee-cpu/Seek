@@ -140,6 +140,7 @@ copy_if_absent() {
 }
 
 say "==> the built-in skills and widgets"
+copy_if_absent "$REPO_DIR/builtin/SYSTEM.md" "$SEEK_HOME/SYSTEM.md"
 for skill in "$REPO_DIR"/builtin/skills/*; do
 	[ -d "$skill" ] || continue
 	copy_if_absent "$skill" "$SEEK_HOME/skills/$(basename -- "$skill")"

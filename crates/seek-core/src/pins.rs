@@ -135,14 +135,16 @@ pub fn context(pins: &[Pin]) -> String {
         if pin.is_dir {
             let names = directory_names(&pin.path);
             out.push_str(&format!(
-                "- {} — directory: {}\n",
+                "- {} — {}: {}\n",
                 pin.label,
+                pin.path.display(),
                 names.join(", ")
             ));
         } else {
             out.push_str(&format!(
-                "- {} — file, {}\n",
+                "- {} — {}, {}\n",
                 pin.label,
+                pin.path.display(),
                 human_size(pin.size)
             ));
         }
@@ -267,8 +269,17 @@ mod tests {
         let root = project();
         let pins = find("read @src/main.rs and @docs", &root);
         let text = context(&pins);
-        assert!(text.contains("src/main.rs — file, 18 B"), "{text}");
-        assert!(text.contains("docs — directory:"), "{text}");
+        assert!(
+            text.contains(&format!(
+                "src/main.rs — {}, 18 B",
+                root.join("src/main.rs").display()
+            )),
+            "{text}"
+        );
+        assert!(
+            text.contains(&format!("docs — {}:", root.join("docs").display())),
+            "{text}"
+        );
         assert!(text.contains("old/"), "{text}");
         assert!(!text.contains("the secret content"), "{text}");
         assert!(

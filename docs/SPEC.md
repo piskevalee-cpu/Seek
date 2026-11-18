@@ -57,7 +57,7 @@ Non-goals for v1: sub-agents, MCP, plan mode, built-in todo list, IDE integratio
 - SemVer with tags `vMAJOR.MINOR.PATCH`. One version for the whole workspace (`[workspace.package] version`). `seek --version` prints the version and short git SHA.
 - Before 1.0: MINOR = a shipped milestone (section 15) or any breaking contract change; PATCH = fixes. Pre-releases: `v0.4.0-alpha.1`, `v0.4.0-rc.1`.
 - From 1.0: breaking a contract means MAJOR.
-- **Contracts** (the public API): the `~/seek/` layout, `tool.toml`, `widget.toml`, `providers.toml`, `config.toml`, the per-model sidecar `.toml`, the session JSONL format, CLI flags and slash commands. Every file format carries `schema = 1`, with a migration whenever it changes.
+- **Contracts** (the public API): the `~/seek/` layout, `tool.toml`, `widget.toml`, `providers.toml`, `config.toml`, `SYSTEM.md`, the per-model sidecar `.toml`, the session JSONL format, CLI flags and slash commands. Every file format carries `schema = 1`, with a migration whenever it changes.
 - All contracts freeze at 1.0.0.
 
 ### 2.5 Commits and changelog
@@ -143,6 +143,7 @@ Created by `install.sh`; never overwritten once it exists.
 ├── widgets/        one folder per home-screen widget (widget.toml + executable)
 ├── config.toml     theme, default mode, default model, llama-server path
 ├── providers.toml  cloud providers and their models
+├── SYSTEM.md       the editable system prompt (installed from builtin/SYSTEM.md)
 └── state/          created at runtime: sessions/, logs/, auth.json (0600),
                     toggles.toml, pids
 ```
@@ -235,6 +236,7 @@ The tag is a user message: the system prompt tells the model that a message with
 - `edit` is an exact-match replace with a unique-match check, never a whole-file rewrite; `read` takes offset and limit.
 - Cap every tool output (default 200 lines or 16 KB, head and tail) with a marker telling the model how to fetch more.
 - Skills enter the prompt as a catalog only (9.5).
+- The system prompt is a file: `~/seek/SYSTEM.md`, installed once from `builtin/SYSTEM.md` and editable by the user. `Runtime` reads it at startup; if it is missing or empty, the compiled default is used. The user name, project AGENTS.md and pins are appended after it. The compiled default is the subject of the token-budget test (D-023).
 - Keep the prompt prefix stable and append-only so provider caches and llama.cpp prompt-cache reuse (`cache_prompt` **\[VERIFY\]**) keep working.
 - A CI test counts tokens of system prompt plus default schemas and fails above 1,500.
 
@@ -274,8 +276,9 @@ needed for the additive field.
 
 An `@` mention in a message pins a file or a directory for that turn. The path must exist; an
 unresolvable mention stays prose. Pins are resolved against the project root, up to eight per
-message. The model receives only their paths, sizes and the first names of a pinned directory —
-never the file content — and inspects them with `read`. The permission matrix is unchanged: reads
+message. The model receives each pin's **absolute path**, its size and the first names of a pinned
+directory — never the file content — and inspects it with `read`. The `@` completion list shows
+that absolute location beside each candidate, so the file's place is visible while typing. The permission matrix is unchanged: reads
 are always allowed, and writes or commands asked of a pinned path follow the current mode. This
 is the low-token counterpart of OMP's auto-read `FileMentionMessage` (MIT, D-019).
 
@@ -367,7 +370,7 @@ Minimum size 80x24; below that show one 'terminal too small' message. Sidebar wi
 | Context bar, tokens used/total, tps, think time, rate limits, vitals | METRICS block | Sidebar bottom when open, else the line under the prompt bar. Never both |
 | Permission mode | Footer, left chip |  |
 | Active model, provider, LOCAL flag | Footer, middle |  |
-| Working directory | Prompt bar, top border | Short path, with `~` for the home |
+| Working directory | Prompt bar, top border | Full path, left-truncated only when needed |
 | Git branch | Footer, right |  |
 | Server and model lifecycle events | Log strip | Process-level events only |
 | Reasoning text | Transcript, thinking style |  |
@@ -395,13 +398,13 @@ Lifetime usage across sessions is the `usage` widget on Home; METRICS is the cur
 - **Context bar.** Ten cubes, each 10% of the window, filling left to right. The cube currently filling uses partial blocks so it grows gradually. Right after it: used / total tokens (for example `12.4k / 32k`) and the percentage. Gray and green normally, amber from 80%, red from 95%. Prefix `~` while the figure is an estimate.
 - **Metrics block.** Rows in this order: context bar with counts; tps and think time; rate limit (only if reported); CPU, RAM, GPU, VRAM. In the sidebar form each row has its own line; in the footer it drops elements from the right when the line is narrow.
 - **Log strip.** The newest line of the server and model events, dim. It hides after 10 s of silence and reappears on new events.
-- **Prompt bar.** A box with rounded corners: the shortened working directory in the top border, the keys and the status in the bottom one. The model stays in the footer, so its name is not drawn twice. The first frame is the chat with `[no model selected]` in the footer: the model is chosen with `/model`, and a message typed before that stays in the bar with a one-line note instead of being sent.
+- **Prompt bar.** A box with rounded corners: the full working directory in the top border (left-truncated with `…` only when it does not fit), the keys and the status in the bottom one. This is the directory the tools run in. The model stays in the footer, so its name is not drawn twice. The first frame is the chat with `[no model selected]` in the footer: the model is chosen with `/model`, and a message typed before that stays in the bar with a one-line note instead of being sent.
 - **Pinned paths.** A one-line chip row above the completions shows the `@` paths of the current draft. It is a view of the message tokens, not another home for them. The pinned paths go into the turn context as names only (9.5).
 - **Scrolling and the side bar.** The window is a single first-visible-row offset, clamped to `[0, total - height]`, with an oh-my-pi-style thumb (MIT): size `clamp(height² / total, 1, height)`, position proportional to the offset, drawn as `█` on a `│` track. The bar uses one column plus a one-column gap inside the transcript, is drawn only when the content overflows, and sits opposite the sidebar. The wheel scrolls three lines, Shift+Up/Down five, PgUp/PgDn a page (`height - 1`), Home/End the ends; the bar can be clicked or dragged. New rows keep the window pinned to the bottom only while it was at the bottom; otherwise the offset stays fixed, so the message being read does not move. The area of the input holds the text and nothing else, so the cursor is the only thing that moves in it, and the box keeps its shape while the agent works.
-- **Completion.** The composer completes what is typed, following the oh-my-pi composer (MIT): `/` completes the slash commands and the skills, `@` searches the files of the project (including hidden ones and paths below the first folder), and a path token that starts with `.`, `./`, `../`, `~/`, `/` or holds a `/` completes the entries of that directory. A command replaces the whole line; a path replaces only its token, keeping the prose around it and quoting a path with a space. A file is inserted with a trailing space; a directory keeps the token open so the list moves inside it. The arrows move the selection, Tab takes it, Enter takes a path without sending but takes and runs a command, Esc closes the list until the text changes. Multi-line input. Enter sends; Shift+Enter or Alt+Enter inserts a newline; Up and Down walk history on a single-line draft. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
+- **Completion.** The composer completes what is typed, following the oh-my-pi composer (MIT): `/` completes the slash commands and the skills, `@` searches the files of the project (including hidden ones and paths below the first folder), and a path token that starts with `.`, `./`, `../`, `~/`, `/` or holds a `/` completes the entries of that directory. A command replaces the whole line; a path replaces only its token, keeping the prose around it and quoting a path with a space. A file is inserted with a trailing space; a directory keeps the token open so the list moves inside it. The arrows move the selection, Tab takes it, Enter takes a path without sending but takes and runs a command, Esc closes the list until the text changes. Multi-line input: a long line wraps to the width of the box and the box grows until it reaches the space left for it, then the draft scrolls inside it. There is exactly one drawn cursor, so the terminal's native cursor is hidden. Enter sends; Shift+Enter inserts a newline; Up and Down walk history on a single-line draft. Sending while the agent works queues the message. The bar has three modes: normal, permission-ask selector, tell-SEEK input.
 - **Footer.** One line: a mode chip (`READ`, `ASK` or `YOLO`, colored per mode), the model name, then the reasoning chip (for example think: high; hidden when the model has no levels), then the git branch, and the metrics of the session. The working directory is the caption of the prompt bar, not repeated here (10.2). The metrics are in the footer when the sidebar is closed and at the bottom of the sidebar when it is open — never both (10.2). The `LOCAL` tag is only in the model picker: the chat names the model, and that is enough.
-- **Sidebar.** Sections in order: Sessions (title and relative time, current project first, Enter resumes), Processes (PID, tag, command, uptime; `x` kills the selected one), then Metrics pinned to the bottom. Tab moves focus into the sidebar when it is open.
-- **Pickers.** One reusable centered overlay with a filterable list. `/model`: grouped by provider, local models flagged `LOCAL`, right-arrow opens the launch-options editor, left-arrow returns. `/tools` and `/skills`: checklists where Space toggles and changes apply and persist immediately. `/provider`: a list plus an add form (kind, base URL, key env var or key, models, context, rate limits).
+- **Sidebar.** Sections in order: Sessions (title and relative time, current project first, Enter resumes), Processes (PID, tag, command, uptime; `x` kills the selected one), then Metrics pinned to the bottom. Tab moves focus into the sidebar when it is open. It is omitted when the terminal is too narrow **or too short** to give it a usable height.
+- **Pickers.** One reusable overlay with a filterable list. It draws an opaque stage over the whole window, so background text cannot show through, then a rounded, bordered menu centered and sized to the terminal (at most 72 columns, 4 rows of margin). The list is scrolled to keep the selection visible and marks clipped rows with `…`. `/model`: grouped by provider, local models flagged `LOCAL`, right-arrow opens the launch-options editor, left-arrow returns. `/tools` and `/skills`: checklists where Space toggles and changes apply and persist immediately. `/provider`: a list plus an add form (kind, base URL, key env var or key, models, context, rate limits).
 
 ### 10.4 Commands and keys
 

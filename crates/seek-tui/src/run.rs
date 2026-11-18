@@ -27,15 +27,23 @@ pub type SeekTerminal = Terminal<CrosstermBackend<Stdout>>;
 /// the transcript, the way a chat does.
 pub fn init_terminal() -> SeekTerminal {
     let terminal = ratatui::init();
-    // The wheel scrolls the transcript and the side bar can be dragged, so mouse capture has to
-    // be really on: naming the crossterm type is not enough.
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
+    // We draw our own block cursor, so the terminal's thin native cursor must stay hidden. Mouse
+    // capture has to be really on: naming the crossterm type is not enough.
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::cursor::Hide,
+        crossterm::event::EnableMouseCapture
+    );
     terminal
 }
 
 /// Put the terminal back the way it was.
 pub fn restore_terminal() {
-    let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
+    let _ = crossterm::execute!(
+        std::io::stdout(),
+        crossterm::event::DisableMouseCapture,
+        crossterm::cursor::Show
+    );
     ratatui::restore();
 }
 

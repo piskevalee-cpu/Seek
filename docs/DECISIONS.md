@@ -529,3 +529,25 @@ rectangle around the mark. The owner clarified that the background must stay tra
 and dim pixels get a stable per-pixel shade (`shade_of`) so the mark itself spans several dark
 tones, while the sweep still reaches full highlight. The 4.2-second traverse and the twinkle are
 unchanged, and `reduce_motion` still rests both. SPEC §12 reflects the corrected rule.
+
+## D-023 — The system prompt lives in `~/seek/SYSTEM.md`
+
+**Date:** 2026-11-18 · **Affects:** SPEC 2.4, 5, 9.2
+
+The owner asked the model to "actually read the system prompt in the seek directory" and to be able
+to edit the default. Until now the prompt was a compiled constant; only the project's `AGENTS.md`
+was read from disk, and it was appended to the context rather than being the system prompt.
+
+`install.sh` now copies `builtin/SYSTEM.md` to `~/seek/SYSTEM.md` with `copy_if_absent`, so an
+existing file is never overwritten. `Runtime` reads it at startup through
+`seek_core::prompt::system_prompt_from`; a missing or empty file falls back to the compiled
+`SYSTEM_PROMPT`. `Agent::with_system_prompt` replaces the compiled base for that session. The user
+name, the project `AGENTS.md` context and the per-turn pins are still appended after the system
+prompt, as before. The default file begins "You are SEEK, a coding agent in the user's terminal.",
+so the model knows its name.
+
+This is additive: `SYSTEM.md` joins the file-format contracts with no schema bump, and the
+token-budget test still measures the compiled default, not a user edit.
+
+**Status:** accepted. The specification, the installer, the manual checklist and the changelog
+were updated.
