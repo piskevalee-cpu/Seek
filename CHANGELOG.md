@@ -19,8 +19,9 @@ startup logo has a dark body with a stronger sweep.
   (SPEC 10.2).
 
 ### Added
-- The startup logo now draws its dark bitmap cells as a quiet shade and uses a darker resting
-  mark, so the bright diagonal streak is easier to see (D-022).
+- The startup logo now uses a range of dark cube tones inside the mark and a darker resting
+  colour, so the bright diagonal streak is easier to see; the background stays transparent
+  (D-022).
 
 ## [0.7.1] - 2026-11-18
 
