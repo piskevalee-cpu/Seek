@@ -13,6 +13,13 @@ workspace; each release ships a milestone (SPEC 15).
   the end of a prompt stays visible, and grows up to the space available before scrolling inside
   the box. Shift+Enter is now the only newline key; the hint says so (SPEC 10.3).
 
+### Changed
+- The prompt bar shows the full working directory, and `@` pins now carry the absolute path of the
+  pinned file or directory; the completion list also shows that location.
+- Windowed menus now draw on an opaque stage with a rounded, responsive frame. The list scrolls to
+  the selection with clipped-row markers, and the sidebar is omitted on short terminals as well as
+  narrow ones (SPEC 10.3).
+
 ## [0.7.3] - 2026-11-18
 
 A correction to 0.7.2: the logo's background stays transparent; the darker cubes are inside the
@@ -28,8 +35,6 @@ A visual pass: the prompt bar names the working directory instead of repeating t
 startup logo has a dark body with a stronger sweep.
 
 ### Changed
-- The prompt bar shows the full working directory, and `@` pins now carry the absolute path of the
-  pinned file or directory; the completion list also shows that location.
 - The prompt bar's top border shows the shortened working directory instead of repeating the
   model name; the footer keeps the model and the branch. The working directory has one home
   (SPEC 10.2).

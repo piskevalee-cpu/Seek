@@ -2126,7 +2126,8 @@ impl App {
             return;
         }
 
-        let use_sidebar = self.sidebar.open && area.width >= SIDEBAR_MIN_WIDTH;
+        let use_sidebar =
+            self.sidebar.open && area.width >= SIDEBAR_MIN_WIDTH && area.height >= MIN_HEIGHT + 6;
         let (sidebar_area, main_area) = if use_sidebar {
             let width = sidebar::SIDEBAR_WIDTH;
             // The gap between the sidebar and the messages: the transcript must not touch

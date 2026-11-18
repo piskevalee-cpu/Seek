@@ -4,10 +4,8 @@
 //! local models, `/provider` shows the configured providers, `/tools` and `/skills` are
 //! checklists.
 
-use ratatui::Frame;
-use ratatui::layout::Rect;
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
+use ratatui::widgets::{BorderType, Clear};
+use ratatui::{Frame, layout::Rect, style::Style, text::Line, text::Span};
 
 use crate::theme::Theme;
 
@@ -173,19 +171,25 @@ impl Picker {
         self.selected = 0;
     }
 
-    /// Draw the picker.
+    /// Draw the picker on a blank stage, sized to the terminal and scrolled to the selection.
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let width = area.width.min(70);
-        let height = area.height.min(20);
+        // Opaque stage: background text must not show through or behind the menu.
+        frame.render_widget(Clear, area);
+        frame.render_widget(
+            ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
+            area,
+        );
+
+        let width = area.width.saturating_sub(4).clamp(8, 72).min(area.width);
+        let height = area.height.saturating_sub(4).max(5).min(area.height);
         let rect = Rect::new(
             area.x + (area.width - width) / 2,
             area.y + (area.height - height) / 2,
             width,
             height,
         );
-        // The overlay is opaque: nothing behind it shows through.
-        frame.render_widget(ratatui::widgets::Clear, rect);
         let block = ratatui::widgets::Block::bordered()
+            .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(theme.accent))
             .style(Style::new().bg(theme.bg))
             .title(Span::styled(
@@ -209,7 +213,11 @@ impl Picker {
             )));
         }
         let mut last_group: Option<&str> = None;
+        let mut selected_line = 0usize;
         for (index, item) in items.iter().enumerate() {
+            if index == self.selected {
+                selected_line = lines.len();
+            }
             if let Some(group) = &item.group
                 && last_group != Some(group.as_str())
             {
@@ -229,7 +237,7 @@ impl Picker {
             if let Some(checked) = item.checked {
                 spans.push(Span::styled(if checked { "[x] " } else { "[ ] " }, style));
             }
-            spans.push(Span::styled(format!("  {}", item.label), style));
+            spans.push(Span::styled(item.label.clone(), style));
             if let Some(tag) = &item.tag {
                 spans.push(Span::styled(
                     format!("  {tag}"),
@@ -252,9 +260,38 @@ impl Picker {
             )));
         }
 
+        // Show the window that contains the selection, with markers when the list is clipped.
+        let visible = inner.height as usize;
+        let total_lines = lines.len();
+        let clipped_top = selected_line >= visible;
+        let start = if clipped_top {
+            selected_line + 1 - visible
+        } else {
+            0
+        };
+        let shown_count = visible.saturating_sub(clipped_top as usize);
+        let clipped_bottom = start + shown_count < total_lines;
+        let mut shown: Vec<Line> = lines.into_iter().skip(start).take(shown_count).collect();
+        if clipped_top || clipped_bottom {
+            let mut marked = Vec::with_capacity(visible);
+            if clipped_top {
+                marked.push(Line::from(Span::styled("  …", Style::new().fg(theme.dim))));
+            }
+            marked.append(&mut shown);
+            if clipped_bottom {
+                marked.push(Line::from(Span::styled("  …", Style::new().fg(theme.dim))));
+            }
+            shown = marked;
+        }
+
         frame.render_widget(
-            ratatui::widgets::Paragraph::new(lines),
-            Rect::new(inner.x, inner.y, inner.width, inner.height),
+            ratatui::widgets::Paragraph::new(shown),
+            Rect::new(
+                inner.x + 1,
+                inner.y,
+                inner.width.saturating_sub(2),
+                inner.height,
+            ),
         );
     }
 }

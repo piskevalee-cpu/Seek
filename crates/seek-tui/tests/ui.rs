@@ -463,6 +463,30 @@ fn the_ownership_table_holds_for_the_regions_that_exist() {
 }
 
 #[test]
+fn a_picker_covers_the_background_and_fits_a_small_window() {
+    let mut app = app();
+    app.rows.push(Row::User("secret background text".into()));
+    for c in "/model".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+
+    let screen = render(&mut app, 100, 30);
+    assert!(!screen.contains("secret background"), "{screen}");
+    assert!(
+        screen.contains('╭'),
+        "the menu has a rounded border: {screen}"
+    );
+    assert!(
+        screen.contains("models"),
+        "the menu has its title: {screen}"
+    );
+
+    let small = render(&mut app, 90, 24);
+    assert!(small.contains('╭'), "the menu still fits: {small}");
+}
+
+#[test]
 fn the_model_picker_lists_the_catalog() {
     let mut app = app();
     for c in "/model".chars() {
