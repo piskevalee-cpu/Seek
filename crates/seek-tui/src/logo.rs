@@ -30,7 +30,7 @@ pub const FULL_BLOCK_HEIGHT: u16 = LOGO_ROWS as u16;
 /// A pixel of the logo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Level {
-    /// A quiet cube of the mark's body, close to the terminal background.
+    /// Transparent: nothing is drawn.
     Dark,
     /// A faint pixel: a sparkle.
     Dim,
@@ -48,26 +48,32 @@ fn level(cell: char) -> Level {
 
 /// The colour of a pixel at a point in the sweep.
 ///
-/// The resting lit colour is deliberately dark, so the bright streak stands out. Dark cells are
-/// drawn too, but only as a shade: the mark has a body without becoming a filled rectangle.
-fn pixel_color(cell: Level, theme: &Theme, opacity: f32) -> Color {
+/// The background stays transparent: only the lit and dim pixels of the bitmap are drawn. Within
+/// the mark, a per-pixel shade gives the cubes a range of darker tones; the sweep still lifts a
+/// pixel all the way to the highlight.
+fn pixel_color(cell: Level, theme: &Theme, opacity: f32, shade: f32) -> Option<Color> {
     match cell {
-        Level::Dark => blend(theme.bg, theme.cube_dark, 0.35),
+        Level::Dark => None,
         Level::Dim => {
-            let resting = blend(theme.bg, theme.dim, 0.55);
-            blend(resting, theme.cube_light, opacity * 0.6)
+            let resting = blend(theme.bg, theme.dim, 0.50 + shade * 0.20);
+            Some(blend(resting, theme.cube_light, opacity * 0.6))
         }
         Level::Lit => {
-            let resting = blend(theme.bg, theme.cube_light, 0.42);
-            blend(resting, theme.cube_light, opacity)
+            let resting = blend(theme.bg, theme.cube_light, 0.32 + shade * 0.18);
+            Some(blend(resting, theme.cube_light, opacity))
         }
     }
 }
 
+/// A stable per-pixel shade in `[0, 1]`, so the mark has several dark tones, not a flat rectangle.
+fn shade_of(index: usize) -> f32 {
+    (index * 7 % 11) as f32 / 10.0
+}
+
 /// The logo as text lines, with the sweep at the given time.
 ///
-/// The lines are centered. Every pixel of the 25 x 9 grid is a cube: lit and dim pixels carry the
-/// mark, dark ones are a quiet shade behind it.
+/// The lines are centered. Only the lit and dim pixels of the 25 x 9 grid are drawn, so the
+/// background stays transparent; the mark itself has a range of dark cube tones.
 pub fn logo_lines(theme: &Theme, half_blocks: bool, secs: f32) -> Vec<Line<'static>> {
     let rows = LOGO_ROWS as f32;
     let cols = LOGO_COLS as f32;
@@ -84,10 +90,12 @@ pub fn logo_lines(theme: &Theme, half_blocks: bool, secs: f32) -> Vec<Line<'stat
                     let index = row * LOGO_COLS + column;
                     let opacity =
                         shine_opacity(diag, secs) + twinkle(index, LOGO_ROWS * LOGO_COLS, secs);
-                    spans.push(Span::styled(
-                        "██",
-                        Style::new().fg(pixel_color(cell, theme, opacity)),
-                    ));
+                    if let Some(color) = pixel_color(cell, theme, opacity, shade_of(index)) {
+                        spans.push(Span::styled("██", Style::new().fg(color)));
+                    } else {
+                        // The background stays the background of the terminal.
+                        spans.push(Span::styled("  ", Style::new()));
+                    }
                 }
                 Line::from(spans).alignment(Alignment::Center)
             })
@@ -118,15 +126,14 @@ pub fn logo_lines(theme: &Theme, half_blocks: bool, secs: f32) -> Vec<Line<'stat
             let opacity = shine_opacity(diag, secs) + twinkle(index, LOGO_ROWS * LOGO_COLS, secs);
 
             let (glyph, cell) = match (upper, lower) {
-                (Level::Dark, Level::Dark) => (FULL, Level::Dark),
+                (Level::Dark, Level::Dark) => continue,
                 (Level::Dark, _) => (LOWER, lower),
                 (_, Level::Dark) => (UPPER, upper),
                 _ => (FULL, Level::Lit),
             };
-            spans.push(Span::styled(
-                glyph,
-                Style::new().fg(pixel_color(cell, theme, opacity)),
-            ));
+            if let Some(color) = pixel_color(cell, theme, opacity, shade_of(index)) {
+                spans.push(Span::styled(glyph, Style::new().fg(color)));
+            }
         }
         lines.push(Line::from(spans).alignment(Alignment::Center));
         top += 2;
@@ -182,26 +189,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_dark_cubes_form_the_body() {
+    fn the_background_of_the_logo_is_transparent() {
         let theme = Theme::default();
         let lines = logo_lines(&theme, false, 0.0);
-        // Every pixel is drawn now: lit and dim carry the mark, dark ones are a quiet shade.
+        // Only the lit and the dim pixels are drawn; the rest stays the terminal background.
         let drawn: usize = lines
             .iter()
             .map(|line| line.to_string().matches('█').count())
             .sum();
-        assert_eq!(
-            drawn,
-            LOGO_ROWS * LOGO_COLS * 2,
-            "the whole bitmap is drawn"
-        );
-        let dark = pixel_color(Level::Dark, &theme, 0.0);
-        assert_ne!(dark, theme.bg, "the body is a shade, not empty");
-        assert_ne!(dark, theme.cube_dark, "the body is darker than a lit cube");
+        let lit = LOGO
+            .iter()
+            .map(|row| row.matches('#').count())
+            .sum::<usize>();
+        let dim = LOGO
+            .iter()
+            .map(|row| row.matches('.').count())
+            .sum::<usize>();
+        // Every drawn pixel is two columns wide.
+        assert_eq!(drawn, (lit + dim) * 2, "the background is not drawn");
+        assert_eq!(pixel_color(Level::Dark, &theme, 0.0, 0.0), None);
+    }
+
+    #[test]
+    fn the_mark_has_a_range_of_dark_cubes() {
+        let theme = Theme::default();
+        let dark = pixel_color(Level::Lit, &theme, 0.0, 0.0).expect("a lit pixel");
+        let light = pixel_color(Level::Lit, &theme, 0.0, 1.0).expect("a lit pixel");
+        assert_ne!(dark, light, "the resting cubes have different shades");
         assert_ne!(
-            pixel_color(Level::Lit, &theme, 0.0),
-            theme.cube_light,
-            "the resting mark is darker than the highlight"
+            light, theme.cube_light,
+            "the resting mark is darker than the sweep"
         );
     }
 

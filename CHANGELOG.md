@@ -8,6 +8,15 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-11-18
+
+A correction to 0.7.2: the logo's background stays transparent; the darker cubes are inside the
+mark.
+
+### Fixed
+- The startup logo no longer fills its bounding box with dark cubes. Only the lit and dim pixels
+  are drawn, and those pixels span several dark tones so the sweep still reads clearly (D-022).
+
 ## [0.7.2] - 2026-11-18
 
 A visual pass: the prompt bar names the working directory instead of repeating the model, and the
@@ -19,8 +28,9 @@ startup logo has a dark body with a stronger sweep.
   (SPEC 10.2).
 
 ### Added
-- The startup logo now draws its dark bitmap cells as a quiet shade and uses a darker resting
-  mark, so the bright diagonal streak is easier to see (D-022).
+- The startup logo now uses a range of dark cube tones inside the mark and a darker resting
+  colour, so the bright diagonal streak is easier to see; the background stays transparent
+  (D-022).
 
 ## [0.7.1] - 2026-11-18
 

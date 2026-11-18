@@ -520,3 +520,12 @@ of D-021 stays. `reduce_motion` still holds it still. The spec's old "only lit p
 rule is replaced; this is a deliberate visual change, not a new file-format contract.
 
 **Status:** accepted. The specification and the changelog were updated.
+
+### Amendment to D-022 — transparent background kept
+
+The first version of D-022 drew the bitmap's empty cells as dark cubes, which produced a filled
+rectangle around the mark. The owner clarified that the background must stay transparent and the
+"darker cubes" belong **inside** the logo. `pixel_color` again returns `None` for dark cells; lit
+and dim pixels get a stable per-pixel shade (`shade_of`) so the mark itself spans several dark
+tones, while the sweep still reaches full highlight. The 4.2-second traverse and the twinkle are
+unchanged, and `reduce_motion` still rests both. SPEC §12 reflects the corrected rule.
