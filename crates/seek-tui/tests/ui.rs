@@ -326,6 +326,29 @@ fn the_mode_chip_is_the_only_place_the_mode_is_shown() {
 }
 
 #[test]
+fn the_prompt_bar_shows_the_working_directory_not_the_model_twice() {
+    let mut app = app();
+    app.cwd = "/tmp/seek-caption-test/project".into();
+    app.model = seek_tui::ModelChip {
+        provider: "local".into(),
+        model: "LFM3-1.7B".into(),
+        local: true,
+    };
+    let lines = render_lines(&mut app, 100, 30);
+    let screen = lines.join("\n");
+    assert!(
+        screen.contains("project"),
+        "the short cwd is the caption: {screen}"
+    );
+    assert_eq!(
+        screen.matches("LFM3-1.7B").count(),
+        1,
+        "the model is only in the footer"
+    );
+    assert!(lines.last().expect("the footer").contains("LFM3-1.7B"));
+}
+
+#[test]
 fn the_model_is_shown_in_the_footer() {
     let mut app = app();
     app.model = seek_tui::ModelChip {

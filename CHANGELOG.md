@@ -8,6 +8,11 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Changed
+- The prompt bar's top border shows the shortened working directory instead of repeating the
+  model name; the footer keeps the model and the branch. The working directory has one home
+  (SPEC 10.2).
+
 ## [0.7.1] - 2026-11-18
 
 The first patch after 0.7.0: a live tool and skill matrix, web search by query, OMP-style

@@ -17,7 +17,7 @@ use seek_local::model::{LocalModel, sidecar_path};
 use seek_local::options::LaunchOptions;
 
 use crate::completion::{self, Completion, Kind};
-use crate::footer::{Footer, ModelChip, PermissionMode, footer_line};
+use crate::footer::{Footer, ModelChip, PermissionMode, footer_line, short_path};
 use crate::input::Input;
 use crate::logo;
 use crate::metrics::Metrics;
@@ -2233,7 +2233,9 @@ impl App {
                 busy: self.status != Status::Idle,
                 queued: self.queued.len(),
                 mode: self.prompt_mode.clone(),
-                caption: self.model.model.clone(),
+                // The working directory is the caption; the model has its one home in the footer
+                // (SPEC 10.2).
+                caption: short_path(&self.cwd),
             },
         );
 
@@ -2243,7 +2245,6 @@ impl App {
             mode: self.mode,
             model: self.model.clone(),
             reasoning: self.reasoning.clone(),
-            cwd: self.cwd.clone(),
             branch: self.branch.clone(),
             metrics: match metrics_in_footer {
                 // The metrics are in the footer when the sidebar is closed.

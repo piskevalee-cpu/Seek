@@ -1,9 +1,9 @@
 //! The prompt bar (SPEC 10.3).
 //!
-//! A box with rounded corners, the way the grok-build pager draws its prompt: the model name
-//! sits in the top border, the text goes in the middle, and the keys are shown in the bottom
-//! border. Typing `/` opens one inline suggestion list above the bar, holding slash commands
-//! and skills together. Sending while the agent works queues the message.
+//! A box with rounded corners, the way the grok-build pager draws its prompt: the working
+//! directory sits in the top border, the text goes in the middle, and the keys are shown in the
+//! bottom border. The model stays in the footer, so it is not shown twice (SPEC 10.2). Typing `/`
+//! opens one inline suggestion list above the bar, holding slash commands and skills together. Sending while the agent works queues the message.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -246,7 +246,7 @@ pub struct PromptState {
     pub queued: usize,
     /// The mode of the prompt bar: the user types, or the agent asks.
     pub mode: PromptMode,
-    /// The caption of the top border: the name of the model.
+    /// The caption of the top border: the working directory, not the model in the footer.
     pub caption: String,
 }
 
