@@ -158,6 +158,7 @@ Every key of the specification, one by one.
 - [ ] **The focus.** With the sidebar open, Tab moves the focus into it; the selected session is highlighted. Tab again moves it back.
 - [ ] **The file.** `~/seek/state/sessions/` holds one JSONL file per session: a header, then a line per message and per model switch.
 - [ ] **The model switch is in the file.** Switch models in the middle of a conversation: the file says which model said what.
+- [ ] **Continue from the shell.** Quit SEEK, run `seek --continue` in the same directory — the past messages are on screen and the model chip shows the last model used.
 
 ## The context
 

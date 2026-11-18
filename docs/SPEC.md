@@ -119,6 +119,9 @@ Seek-/
 └── docs/  install.sh  .github/workflows/
 ```
 
+CLI flags: `--doctor` prints the configuration and exits, `--reduce-motion` rests the animations,
+and `--continue` resumes the last session of the current directory (SPEC 11). All are global.
+
 ### 4.2 Data flow
 
 The UI follows The Elm Architecture: Model, Message, Update, View. One `tokio::select!` loop reads the keys, a 100 ms tick and mpsc receivers. The keys are read by a thread of their own and reach the loop through a channel: the reader of the terminal blocks, and a blocked reader inside the loop freezes the interface. Messages: `Key`, `Resize`, `Tick`, `Agent(AgentEvent)`, `Local(LocalEvent)`, `Vitals(Sample)`, `Widget(WidgetOutput)`. Update is pure (no I/O); side effects are commands sent to core and local tasks. Redraw only when state changed or an animation is active. Ignore key events that are not `KeyEventKind::Press`. Restore the terminal on panic (`ratatui::init()` installs a hook).
@@ -451,7 +454,7 @@ Tokens: `bg`, `cube_dark`, `cube_light`, `accent`, `dim`, `warn`, `error`. `cube
 
 ## 11. Sessions
 
-Append-only JSONL per session in `state/sessions/<id>.jsonl`: a header (id, cwd, created, title), then one line per message and per model switch. The title is the first user message, truncated. Resuming replays the file into the canonical model and re-counts context for the active model. Model switches are recorded as events, so a resumed session shows which model said what.
+Append-only JSONL per session in `state/sessions/<id>.jsonl`: a header (id, cwd, created, title), then one line per message and per model switch. The title is the first user message, truncated. Resuming replays the file into the canonical model and re-counts context for the active model. Model switches are recorded as events, so a resumed session shows which model said what. `seek --continue` picks the newest session whose header `cwd` matches the directory SEEK was started in, replays its messages before the first frame and restores the model of its last message; a missing or unreadable session is a no-op.
 
 ## 12. Logo and branding
 

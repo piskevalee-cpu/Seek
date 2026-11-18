@@ -168,14 +168,34 @@ impl Runtime {
         std::fs::create_dir_all(&dir)?;
         let session = seek_core::Session::create(
             &dir,
-            &std::env::current_dir()
-                .map(|path| path.display().to_string())
-                .unwrap_or_default(),
+            &self.root.to_string_lossy(),
             &seek_core::Session::now(),
             &seek_core::Session::new_id(),
         )?;
         *self.session.lock().await = Some(session);
         Ok(())
+    }
+
+    /// The newest session of the current working directory, for `--continue`.
+    pub fn latest_session(&self) -> Option<String> {
+        let here = self.root.to_string_lossy().to_string();
+        seek_core::Session::list(&self.sessions_dir())
+            .into_iter()
+            .find(|session| session.cwd == here)
+            .map(|session| session.id)
+    }
+
+    /// The model that produced the last message of a session, if any.
+    pub fn session_model(&self, id: &str) -> Option<String> {
+        let path = self.sessions_dir().join(format!("{id}.jsonl"));
+        let session = seek_core::Session::open(&path).ok()?;
+        session
+            .model_history()
+            .ok()?
+            .into_iter()
+            .flatten()
+            .last()
+            .map(|tag| tag.model)
     }
 
     /// Open a session and return its messages.
@@ -1156,5 +1176,30 @@ mod tests {
         );
         let read = seek_core::Toggles::read(&home.join("state/toggles.toml")).expect("the file");
         assert_eq!(read, toggles);
+    }
+
+    #[tokio::test]
+    async fn continue_finds_the_last_session_and_its_model() {
+        let home = std::env::temp_dir().join(format!("seek-continue-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).expect("the home is created");
+        let root = PathBuf::from("/tmp/seek-continue-project");
+        let runtime =
+            Arc::new(Runtime::new(&home, "llama", Some("serve".into())).with_root(root.clone()));
+        runtime.new_session().await.expect("a session");
+        runtime
+            .append(&seek_core::Message::user("remember this"))
+            .await;
+        runtime.set_current_model(Some("model-a".into()));
+        runtime
+            .append(&seek_core::Message::assistant("I will"))
+            .await;
+
+        let id = runtime
+            .latest_session()
+            .expect("a session in this directory");
+        assert_eq!(runtime.session_model(&id).as_deref(), Some("model-a"));
+        let history = runtime.resume_session(&id).await.expect("the history");
+        assert_eq!(history.messages.len(), 2);
     }
 }

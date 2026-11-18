@@ -551,3 +551,22 @@ token-budget test still measures the compiled default, not a user edit.
 
 **Status:** accepted. The specification, the installer, the manual checklist and the changelog
 were updated.
+
+## D-024 — Past conversations return with `--continue`
+
+**Date:** 2026-11-18 · **Affects:** SPEC 4.1, 11
+
+The owner asked for "past chat history": a session resumed from the command line with its real
+context and the model that was used. Sessions were already append-only JSONL with message and
+model-switch events, and `/resume` could open one from the sidebar, but startup always began a new
+conversation.
+
+`seek --continue` now chooses the newest session whose header `cwd` matches the directory SEEK was
+started in, calls `Runtime::resume_session` before the agent loop and the first frame, and loads
+the model tag of the last message into both the runtime and the model chip. `SessionInfo` carries
+`cwd` so the choice can be scoped to this project; `Runtime::new_session` writes `self.root` into
+the header (the directory the tools run in) rather than the process cwd. A missing or unreadable
+session is ignored: SEEK opens a fresh chat, as before. No file format changed; `cwd` was already
+in the header.
+
+**Status:** accepted. The specification, the manual checklist and the changelog were updated.
