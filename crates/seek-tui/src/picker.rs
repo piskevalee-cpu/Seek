@@ -1,12 +1,14 @@
 //! The picker overlay (SPEC 10.3).
 //!
-//! One reusable centered overlay with a filterable list. `/model` groups by provider and flags
-//! local models, `/provider` shows the configured providers, `/tools` and `/skills` are
-//! checklists.
+//! One reusable floating panel with a search row, grouped rows, a side scrollbar and a detail
+//! line for the selection. It follows the compact pickers of OMP (MIT) and the grok-build pager
+//! (Apache-2.0): a list you can scan, not a modal wall of text.
 
 use ratatui::widgets::{BorderType, Clear};
 use ratatui::{Frame, layout::Rect, style::Style, text::Line, text::Span};
+use unicode_width::UnicodeWidthStr;
 
+use crate::scrollbar;
 use crate::theme::Theme;
 
 /// One entry of a picker.
@@ -179,138 +181,207 @@ impl Picker {
         self.filter.pop();
         self.selected = 0;
     }
-
-    /// Draw the picker on a blank stage, sized to the terminal and scrolled to the selection.
+    /// Draw the picker as a floating panel on an opaque stage.
+    ///
+    /// The panel has a search row, grouped rows, a side scrollbar and a detail line for the
+    /// selection. It is anchored above the prompt, so the box stays visible while choosing.
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        // Opaque stage: background text must not show through or behind the menu.
         frame.render_widget(Clear, area);
         frame.render_widget(
             ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
             area,
         );
 
-        let width = area.width.saturating_sub(4).clamp(8, 72).min(area.width);
-        let height = if self.bottom {
-            area.height.saturating_sub(4).clamp(5, 18).min(area.height)
-        } else {
-            area.height.saturating_sub(4).max(5).min(area.height)
-        };
+        let count = self.visible().len();
+        let width = area.width.saturating_sub(4).clamp(24, 76).min(area.width);
+        let height = area.height.saturating_sub(3).clamp(9, 22).min(area.height);
         let rect = Rect::new(
             area.x + (area.width - width) / 2,
-            if self.bottom {
-                area.y + area.height - height
-            } else {
-                area.y + (area.height - height) / 2
-            },
+            area.y + area.height - height,
             width,
             height,
         );
+        let title = if count == 0 {
+            self.title.clone()
+        } else {
+            format!("{} · {}", self.title, count)
+        };
         let block = ratatui::widgets::Block::bordered()
             .border_type(BorderType::Rounded)
             .border_style(Style::new().fg(theme.accent))
             .style(Style::new().bg(theme.bg))
             .title(Span::styled(
-                format!(" {} ", self.title),
+                format!(" {title} "),
                 Style::new().fg(theme.accent).bold(),
             ));
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
-        let mut lines: Vec<Line> = Vec::new();
-        lines.push(Line::from(vec![
-            Span::styled("> ", Style::new().fg(theme.accent)),
-            Span::styled(self.filter.clone(), Style::new().fg(theme.cube_light)),
-        ]));
+        let mut canvas: Vec<Line<'static>> = Vec::with_capacity(inner.height as usize);
+        let text_width = inner.width.saturating_sub(2) as usize;
 
+        // Search row, with a caret so it reads like the prompt rather than a label.
+        let search = if self.filter.is_empty() {
+            "type to search".to_string()
+        } else {
+            self.filter.clone()
+        };
+        let search_style = if self.filter.is_empty() {
+            Style::new().fg(theme.dim).italic()
+        } else {
+            Style::new().fg(theme.cube_light)
+        };
+        canvas.push(Line::from(vec![
+            Span::styled("  ", Style::new()),
+            Span::styled("\u{276f} ", Style::new().fg(theme.accent)),
+            Span::styled(
+                truncate(&search, text_width.saturating_sub(2)),
+                search_style,
+            ),
+            Span::styled("\u{258c}", Style::new().fg(theme.accent)),
+        ]));
+        canvas.push(Line::from(Span::styled(
+            "\u{2500}".repeat(inner.width as usize),
+            Style::new().fg(theme.cube_dark),
+        )));
+
+        // Build all rows first, so the window can be clamped around the selection.
         let items = self.visible();
-        if items.is_empty() {
-            lines.push(Line::from(Span::styled(
+        let mut rows: Vec<Line<'static>> = Vec::new();
+        let mut selected_row = 0usize;
+        let mut last_group: Option<String> = None;
+        for (index, item) in items.iter().enumerate() {
+            if let Some(group) = &item.group
+                && last_group.as_deref() != Some(group.as_str())
+            {
+                let label = format!("  {group} ");
+                let dashes = text_width.saturating_sub(UnicodeWidthStr::width(label.as_str()));
+                rows.push(Line::from(vec![
+                    Span::styled(label, Style::new().fg(theme.dim).bold()),
+                    Span::styled("\u{2500}".repeat(dashes), Style::new().fg(theme.cube_dark)),
+                ]));
+                last_group = Some(group.clone());
+            }
+            if index == self.selected {
+                selected_row = rows.len();
+            }
+            let picked = index == self.selected;
+            let mut spans = vec![Span::styled(
+                if picked { "\u{276f} " } else { "  " }.to_string(),
+                Style::new().fg(if picked { theme.accent } else { theme.dim }),
+            )];
+            if let Some(checked) = item.checked {
+                spans.push(Span::styled(
+                    if checked { "[x] " } else { "[ ] " }.to_string(),
+                    Style::new().fg(if picked { theme.accent } else { theme.text_dim }),
+                ));
+            }
+            let name = truncate(&item.label, text_width / 2);
+            spans.push(Span::styled(
+                name,
+                Style::new().fg(if picked { theme.accent } else { theme.text }),
+            ));
+            if let Some(tag) = &item.tag {
+                spans.push(Span::styled(
+                    format!("  {tag}"),
+                    Style::new().fg(if picked { theme.bg } else { theme.accent }),
+                ));
+            }
+            rows.push(Line::from(spans));
+        }
+        if rows.is_empty() {
+            rows.push(Line::from(Span::styled(
                 "  nothing matches",
                 Style::new().fg(theme.dim).italic(),
             )));
         }
-        let mut last_group: Option<&str> = None;
-        let mut selected_line = 0usize;
-        for (index, item) in items.iter().enumerate() {
-            if index == self.selected {
-                selected_line = lines.len();
-            }
-            if let Some(group) = &item.group
-                && last_group != Some(group.as_str())
-            {
-                lines.push(Line::from(Span::styled(
-                    format!("  {group}"),
-                    Style::new().fg(theme.dim).bold(),
-                )));
-                last_group = Some(group.as_str());
-            }
-            let selected = index == self.selected;
-            let style = if selected {
-                Style::new().fg(theme.bg).bg(theme.accent)
-            } else {
-                Style::new().fg(theme.cube_light)
-            };
-            let mut spans = Vec::new();
-            if let Some(checked) = item.checked {
-                spans.push(Span::styled(if checked { "[x] " } else { "[ ] " }, style));
-            }
-            spans.push(Span::styled(item.label.clone(), style));
-            if let Some(tag) = &item.tag {
-                spans.push(Span::styled(
-                    format!("  {tag}"),
-                    Style::new().fg(if selected { theme.bg } else { theme.accent }),
-                ));
-            }
-            lines.push(Line::from(spans));
-            if selected && !item.detail.is_empty() {
-                lines.push(Line::from(Span::styled(
-                    format!("    {}", item.detail),
-                    Style::new().fg(theme.dim),
-                )));
-            }
-        }
 
-        if let Some(hint) = &self.hint {
-            lines.push(Line::from(Span::styled(
-                format!("  {hint}"),
-                Style::new().fg(theme.dim).italic(),
-            )));
-        }
-
-        // Show the window that contains the selection, with markers when the list is clipped.
-        let visible = inner.height as usize;
-        let total_lines = lines.len();
-        let clipped_top = selected_line >= visible;
-        let start = if clipped_top {
-            selected_line + 1 - visible
+        // The detail line and the key hint are fixed; everything between scrolls.
+        let detail = items
+            .get(self.selected)
+            .map(|item| item.detail.clone())
+            .unwrap_or_default();
+        let chrome: usize = 2 + 1 + 1; // search + separator + detail + hint
+        let list_height = (inner.height as usize).saturating_sub(chrome).max(1);
+        let overflow = rows.len() > list_height;
+        let start = selected_row
+            .saturating_add(1)
+            .saturating_sub(list_height)
+            .min(rows.len().saturating_sub(list_height));
+        let thumb = if overflow {
+            Some(scrollbar::thumb_range(list_height, rows.len(), start))
         } else {
-            0
+            None
         };
-        let shown_count = visible.saturating_sub(clipped_top as usize);
-        let clipped_bottom = start + shown_count < total_lines;
-        let mut shown: Vec<Line> = lines.into_iter().skip(start).take(shown_count).collect();
-        if clipped_top || clipped_bottom {
-            let mut marked = Vec::with_capacity(visible);
-            if clipped_top {
-                marked.push(Line::from(Span::styled("  …", Style::new().fg(theme.dim))));
+
+        for (offset, (_, row)) in rows
+            .iter()
+            .enumerate()
+            .skip(start)
+            .take(list_height)
+            .enumerate()
+        {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            let right = if let Some(range) = &thumb {
+                let row_index = start + offset;
+                let color = if range.contains(&row_index) {
+                    theme.accent
+                } else {
+                    theme.cube_dark
+                };
+                spans.push(Span::styled(
+                    scrollbar::THUMB.to_string(),
+                    Style::new().fg(color),
+                ));
+                "  "
+            } else {
+                ""
+            };
+            spans.extend(row.spans.iter().cloned());
+            if !right.is_empty() {
+                spans.push(Span::styled(right.to_string(), Style::new()));
             }
-            marked.append(&mut shown);
-            if clipped_bottom {
-                marked.push(Line::from(Span::styled("  …", Style::new().fg(theme.dim))));
-            }
-            shown = marked;
+            canvas.push(Line::from(spans));
         }
 
-        frame.render_widget(
-            ratatui::widgets::Paragraph::new(shown),
-            Rect::new(
-                inner.x + 1,
-                inner.y,
-                inner.width.saturating_sub(2),
-                inner.height,
-            ),
-        );
+        canvas.push(Line::from(Span::styled(
+            format!("  {}", truncate(&detail, text_width.saturating_sub(2))),
+            Style::new().fg(theme.dim),
+        )));
+        let hint = self
+            .hint
+            .as_deref()
+            .unwrap_or("↑↓ choose · Enter use · Esc close");
+        canvas.push(Line::from(Span::styled(
+            format!("  {hint}"),
+            Style::new().fg(theme.dim).italic(),
+        )));
+
+        for (index, line) in canvas.into_iter().enumerate() {
+            if index >= inner.height as usize {
+                break;
+            }
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(line),
+                Rect::new(inner.x + 1, inner.y + index as u16, inner.width, 1),
+            );
+        }
     }
+}
+
+/// Trim a string to a display-width, without cutting a wide character.
+fn truncate(text: &str, max: usize) -> String {
+    let mut out = String::new();
+    let mut used = 0usize;
+    for ch in text.chars() {
+        let width = UnicodeWidthStr::width(ch.to_string().as_str());
+        if used + width > max {
+            break;
+        }
+        out.push(ch);
+        used += width;
+    }
+    out
 }
 
 #[cfg(test)]
