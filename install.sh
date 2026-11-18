@@ -161,12 +161,23 @@ if [ "$INSTALL_BINARY" = "1" ]; then
 	else
 		# The release of the platform, when there is one; the source build is the fallback.
 		version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
-		asset="seek-${version}-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m).tar.gz"
+		case "$(uname -m)" in
+			x86_64 | amd64) arch=x86_64 ;;
+			aarch64 | arm64) arch=aarch64 ;;
+			*) arch=$(uname -m) ;;
+		esac
+		case "$(uname -s)" in
+			Linux) target="${arch}-unknown-linux-gnu" ;;
+			Darwin) target="${arch}-apple-darwin" ;;
+			*) target="${arch}-$(uname -s | tr '[:upper:]' '[:lower:]')" ;;
+		esac
+		staging="seek-v${version}-${target}"
+		asset="${staging}.tar.gz"
 		url="https://github.com/piskevalee-cpu/Seek/releases/download/v${version}/${asset}"
 		if command -v curl >/dev/null 2>&1 && curl -fsSL "$url" -o "/tmp/$asset" 2>/dev/null; then
 			tar -xzf "/tmp/$asset" -C /tmp
-			cp "/tmp/seek" "$BIN_DIR/seek"
-			rm -f "/tmp/$asset" "/tmp/seek"
+			cp "/tmp/$staging/seek" "$BIN_DIR/seek"
+			rm -rf "/tmp/$asset" "/tmp/$staging"
 		else
 			say "    no release for this platform, building from the source"
 			cargo install --path "$REPO_DIR/crates/seek" --root "$HOME/.cargo" --force
