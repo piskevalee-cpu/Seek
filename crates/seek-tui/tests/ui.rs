@@ -1072,6 +1072,7 @@ fn the_sidebar_lists_the_sessions() {
     app.sessions = vec![seek_core::SessionInfo {
         id: "one".into(),
         title: "the first question".into(),
+        cwd: "/home/valerio/project".into(),
         created: "2026-11-11T12:00:00Z".into(),
     }];
 

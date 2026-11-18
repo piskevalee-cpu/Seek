@@ -25,6 +25,10 @@ struct Cli {
     /// Print the configuration and exit.
     #[arg(long, global = true)]
     doctor: bool,
+
+    /// Resume the last session of this directory, with its messages and model.
+    #[arg(long, global = true)]
+    continue_: bool,
 }
 
 #[tokio::main]
@@ -65,6 +69,25 @@ async fn main() -> Result<()> {
         llama_subcommand.clone(),
     ));
     let logs = runtime.supervisor.lock().await.logs_handle();
+
+    // `--continue` replays the last session of this directory before the agent loop starts, so the
+    // model sees the same history and the UI shows it on the first frame (SPEC 11).
+    let mut continued_messages: Option<Vec<seek_core::Message>> = None;
+    let mut continued_model: Option<String> = None;
+    if cli.continue_
+        && let Some(id) = runtime.latest_session()
+    {
+        match runtime.resume_session(&id).await {
+            Ok(history) => {
+                continued_messages = Some(history.messages);
+                continued_model = runtime.session_model(&id);
+                if let Some(model) = &continued_model {
+                    runtime.set_current_model(Some(model.clone()));
+                }
+            }
+            Err(error) => eprintln!("could not resume {id}: {error}"),
+        }
+    }
 
     // The agent task. It talks to the real provider when one is configured, and to the scripted
     // provider otherwise.
@@ -136,6 +159,18 @@ async fn main() -> Result<()> {
     app.external_tools = runtime.external_tools.clone();
     app.widgets = runtime.widgets.clone();
     app.llama_subcommand = llama_subcommand;
+
+    if let Some(messages) = continued_messages {
+        app.update(seek_tui::app::Message::Session(messages));
+    }
+    if let Some(id) = continued_model {
+        if id.starts_with("local/") {
+            app.select_local_model(&id);
+        } else {
+            app.select_model(&id);
+        }
+        app.model_configured = true;
+    }
 
     // `ratatui::init` installs a panic hook that restores the terminal.
     let terminal = init_terminal();

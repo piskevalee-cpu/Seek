@@ -2267,17 +2267,13 @@ impl App {
         match &self.overlay {
             Some(Overlay::Help) => self.render_help(frame, area),
             Some(Overlay::Picker(picker)) => {
-                // A bottom-anchored picker lives above the prompt, so the box stays visible.
-                let picker_area = if picker.bottom {
-                    Rect::new(
-                        area.x,
-                        area.y,
-                        area.width,
-                        area.height.saturating_sub(prompt_height + 1),
-                    )
-                } else {
-                    area
-                };
+                // The panel lives above the prompt, so the box stays visible while choosing.
+                let picker_area = Rect::new(
+                    area.x,
+                    area.y,
+                    area.width,
+                    area.height.saturating_sub(prompt_height + 1),
+                );
                 picker.render(frame, picker_area, &self.theme);
             }
             Some(Overlay::Options {

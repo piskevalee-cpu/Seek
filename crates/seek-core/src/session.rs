@@ -35,6 +35,8 @@ pub struct SessionInfo {
     pub id: String,
     /// The title: the first user message.
     pub title: String,
+    /// The working directory the session belongs to.
+    pub cwd: String,
     /// When the session was created.
     pub created: String,
 }
@@ -255,6 +257,7 @@ impl Session {
                 Some(SessionInfo {
                     id: session.header().id.clone(),
                     title: session.title(),
+                    cwd: session.header().cwd.clone(),
                     created: session.header().created.clone(),
                 })
             })

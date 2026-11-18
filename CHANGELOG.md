@@ -8,6 +8,16 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.8] - 2026-11-18
+
+Rebuilt pickers and resumable chat history.
+
+### Added
+- `seek --continue` replays the last session of the current directory before the first frame and
+  restores the model of its last message (D-024).
+- The pickers were rebuilt as compact floating panels with a search row, grouped rows, a side
+  scrollbar and a detail line: OMP/grok-build style rather than a modal wall of text.
+
 ## [0.7.7] - 2026-11-18
 
 A clear failure for an installer run without the repository.
