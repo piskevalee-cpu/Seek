@@ -570,3 +570,25 @@ session is ignored: SEEK opens a fresh chat, as before. No file format changed; 
 in the header.
 
 **Status:** accepted. The specification, the manual checklist and the changelog were updated.
+
+## D-025 — Absolute pins, a quieter composer and a one-command installer
+
+**Date:** 2026-11-18 · **Affects:** SPEC 4.1, 9.5, 10.3, 11, 13
+
+Three reports from a live session:
+
+1. The model saw `@documents` in the user's text and guessed its location even though the pin
+   context carried the absolute path. `pins::expand` now replaces a valid `@` mention with the
+   absolute path in the text sent to the model. The interface keeps the short form.
+2. The thinking animation interrupted the transcript and the bottom border showed a clipped
+   "working..." status. The animation now has its own line above the prompt, and the border only
+   carries the key hint.
+3. "Past chat history" was still hard to reach. `/history` lists the sessions already loaded into
+   the app and resumes the selected one, while `state/sessions/last_session.toml` makes
+   `seek --continue` resume the last session even from a different directory; a scan by cwd and
+   then by age is the fallback.
+4. `install.sh` run standalone (for example through `curl | sh`) now clones the repository into a
+   temporary directory and re-runs itself there, then removes the clone. `SEEK_INSTALL_REPO`
+   overrides the URL for tests. This makes a one-command install possible.
+
+**Status:** accepted. The specification, README, checklist and changelog were updated.

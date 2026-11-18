@@ -166,23 +166,34 @@ impl Runtime {
     pub async fn new_session(&self) -> std::io::Result<()> {
         let dir = self.sessions_dir();
         std::fs::create_dir_all(&dir)?;
+        let id = seek_core::Session::new_id();
         let session = seek_core::Session::create(
             &dir,
             &self.root.to_string_lossy(),
             &seek_core::Session::now(),
-            &seek_core::Session::new_id(),
+            &id,
         )?;
         *self.session.lock().await = Some(session);
+        let _ = seek_core::session::remember(&dir, &id);
         Ok(())
     }
 
     /// The newest session of the current working directory, for `--continue`.
     pub fn latest_session(&self) -> Option<String> {
+        let dir = self.sessions_dir();
+        // The pointer survives a change of directory; older homes fall back to a scan.
+        if let Some(id) = seek_core::session::last(&dir)
+            && dir.join(format!("{id}.jsonl")).is_file()
+        {
+            return Some(id);
+        }
+        let sessions = seek_core::Session::list(&dir);
         let here = self.root.to_string_lossy().to_string();
-        seek_core::Session::list(&self.sessions_dir())
-            .into_iter()
+        sessions
+            .iter()
             .find(|session| session.cwd == here)
-            .map(|session| session.id)
+            .or_else(|| sessions.first())
+            .map(|session| session.id.clone())
     }
 
     /// The model that produced the last message of a session, if any.
@@ -204,6 +215,7 @@ impl Runtime {
         let session = seek_core::Session::open(&path)?;
         let history = session.replay()?;
         *self.session.lock().await = Some(session);
+        let _ = seek_core::session::remember(&self.sessions_dir(), id);
         // The conversation of the resumed session is the conversation from now on.
         *self.history.lock().await = history.clone();
         Ok(history)
@@ -482,6 +494,12 @@ pub async fn agent_loop(
     let root = runtime.root.clone();
     let processes = runtime.processes.clone();
 
+    // Populate `/history` and the sidebar before the first key is pressed.
+    let sessions = seek_core::Session::list(&runtime.state_dir.join("sessions"));
+    let _ = widgets
+        .send(seek_tui::app::UiMessage::Sessions(sessions))
+        .await;
+
     while let Some(command) = commands.recv().await {
         match command {
             Command::Quit => break,
@@ -672,7 +690,9 @@ async fn run_turn(text: String, mode: PermissionMode, root: PathBuf, context: Tu
     // waits for the lock must not take the token of the turn that is running: an Esc would
     // then stop the wrong one (SPEC 9.1).
     let cancel = runtime.start_turn().await;
-    let user_message = seek_core::Message::user(text);
+    // The model reads the absolute path of every pin; the interface keeps the short `@` form.
+    let model_text = seek_core::pins::expand(&text, &root);
+    let user_message = seek_core::Message::user(model_text);
     history.push(user_message.clone());
     // The conversation is written to the session (SPEC 11).
     runtime.append(&user_message).await;

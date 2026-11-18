@@ -25,6 +25,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The logo.** It is the mark: the plus symbol on the left, `SEEK` on the right. It is drawn with blocks, two columns per pixel.
 - [ ] **The logo has no frame.** Only the lit pixels are drawn: the background of the mark is the background of the terminal, not a block of colour.
 - [ ] **The logo is centred.** Horizontally and vertically in the home screen.
+- [ ] **Thinking.** While the model works, the animation sits on its own line above the prompt, not inside the chat; the prompt border shows only "Enter sends".
 - [ ] **The sheen.** A shine sweeps across the logo from the top right to the low left. With reduced motion it rests.
 - [ ] **The system prompt.** `~/seek/SYSTEM.md` exists after install and begins "You are SEEK". Edit a line, restart SEEK — the model follows the edited prompt. Delete the file and SEEK falls back to the built-in default.
 - [ ] **The widgets.** The `git` widget shows the branch and the recent commits; the `usage` widget shows the tokens used so far. A widget that fails shows its title and a dash.
@@ -158,7 +159,8 @@ Every key of the specification, one by one.
 - [ ] **The focus.** With the sidebar open, Tab moves the focus into it; the selected session is highlighted. Tab again moves it back.
 - [ ] **The file.** `~/seek/state/sessions/` holds one JSONL file per session: a header, then a line per message and per model switch.
 - [ ] **The model switch is in the file.** Switch models in the middle of a conversation: the file says which model said what.
-- [ ] **Continue from the shell.** Quit SEEK, run `seek --continue` in the same directory — the past messages are on screen and the model chip shows the last model used.
+- [ ] **Continue from the shell.** Quit SEEK, run `seek --continue` — the past messages are on screen and the model chip shows the last model used, even from another directory.
+- [ ] **History in the app.** `/history` lists past sessions; Enter resumes one and the conversation appears.
 
 ## The context
 

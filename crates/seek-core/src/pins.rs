@@ -120,6 +120,22 @@ fn resolve(label: &str, root: &Path) -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
+/// Replace `@` mentions of existing paths with their absolute paths.
+///
+/// The pin context already lists the full path, but the user's own message still says
+/// `@documents`. Expanding it in the text the model reads removes the guesswork about where the
+/// file lives. The UI keeps the short form the user typed.
+pub fn expand(text: &str, root: &Path) -> String {
+    let mut out = text.to_string();
+    for pin in find(text, root) {
+        let absolute = pin.path.to_string_lossy();
+        out = out
+            .replace(&format!("@\"{}\"", pin.label), absolute.as_ref())
+            .replace(&format!("@{}", pin.label), absolute.as_ref());
+    }
+    out
+}
+
 /// The compact context for a turn with pins.
 ///
 /// Only paths, sizes and the first names of a directory go into the prompt: no file content. This
@@ -261,6 +277,21 @@ mod tests {
             find(&text, &root).len(),
             MAX_PINS,
             "one message pins at most eight paths"
+        );
+    }
+
+    #[test]
+    fn mentions_expand_to_absolute_paths_for_the_model() {
+        let root = project();
+        let text = "read @src/main.rs and @docs";
+        let expanded = expand(text, &root);
+        assert_eq!(
+            expanded,
+            format!(
+                "read {} and {}",
+                root.join("src/main.rs").display(),
+                root.join("docs").display()
+            )
         );
     }
 

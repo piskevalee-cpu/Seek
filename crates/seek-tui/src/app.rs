@@ -856,26 +856,10 @@ impl App {
         }
     }
 
-    /// The transcript rows, with the thinking indicator at the tail when it is running.
+    /// The transcript rows. The thinking animation has its own line above the prompt, so the
+    /// conversation is never interrupted by a moving indicator.
     fn transcript_rows(&self, width: usize) -> Vec<(usize, Line<'static>)> {
-        let mut lines = transcript_lines(&self.rows, &self.theme, self.show_reasoning, width);
-        if self.status == Status::Thinking {
-            if self.reduce_motion {
-                lines.push((
-                    usize::MAX,
-                    Line::from(Span::styled(
-                        crate::spinner::STATIC_THINKING,
-                        Style::new().fg(self.theme.dim),
-                    )),
-                ));
-            } else {
-                // The thinking line sits behind the message: a blank line, and the cubes
-                // in the column of the text.
-                lines.push((usize::MAX, Line::from("")));
-                lines.push((usize::MAX, self.spinner.shimmer_line(&self.theme)));
-            }
-        }
-        lines
+        transcript_lines(&self.rows, &self.theme, self.show_reasoning, width)
     }
 
     /// A click or a drag on the scrollbar column.
@@ -1203,6 +1187,15 @@ impl App {
                 {
                     self.sidebar_side = side;
                     return Some(Command::SetSidebarSide(side));
+                }
+                return None;
+            }
+            "history" => {
+                if choose
+                    && let Some(value) = picker.selected_item().map(|item| item.value.as_str())
+                    && let Some(id) = value.strip_prefix("session:")
+                {
+                    return Some(Command::ResumeSession(id.to_string()));
                 }
                 return None;
             }
@@ -1805,6 +1798,28 @@ impl App {
                 self.overlay = Some(Overlay::Help);
                 None
             }
+            "/history" => {
+                let now = std::time::SystemTime::now();
+                let items = self
+                    .sessions
+                    .iter()
+                    .map(|session| {
+                        let title = if session.title.is_empty() {
+                            "(no title)".to_string()
+                        } else {
+                            session.title.clone()
+                        };
+                        PickerItem::new(title, format!("session:{}", session.id))
+                            .with_detail(format!("{}  ·  {}", session.cwd, session.age(now)))
+                    })
+                    .collect();
+                self.overlay = Some(Overlay::Picker(
+                    Picker::new("history", items)
+                        .bottom_anchored()
+                        .tap_hint("↑↓ sessions · Enter resume · Esc close"),
+                ));
+                None
+            }
             "/thoughts" => {
                 self.show_reasoning = !self.show_reasoning;
                 None
@@ -1890,6 +1905,7 @@ impl App {
         match text {
             "/quit" => Some("/quit"),
             "/help" => Some("/help"),
+            "/history" => Some("/history"),
             "/thoughts" => Some("/thoughts"),
             "/model" => Some("/model"),
             "/provider" => Some("/provider"),
@@ -2193,6 +2209,23 @@ impl App {
         }
 
         let log_lines = self.log_strip_lines(main_area.width as usize);
+        let thinking_height = if self.status == Status::Thinking {
+            1
+        } else {
+            0
+        };
+        let thinking_line = if self.status == Status::Thinking {
+            if self.reduce_motion {
+                Line::from(Span::styled(
+                    crate::spinner::STATIC_THINKING,
+                    Style::new().fg(self.theme.dim),
+                ))
+            } else {
+                self.spinner.shimmer_line(&self.theme)
+            }
+        } else {
+            Line::from("")
+        };
 
         // The metrics have exactly one home: the bottom of the sidebar when it is open, the
         // footer line otherwise. Never both (SPEC 10.2).
@@ -2201,6 +2234,7 @@ impl App {
         let [
             transcript_area,
             log_area,
+            thinking_area,
             pinned_area,
             suggestions_area,
             prompt_area,
@@ -2208,6 +2242,7 @@ impl App {
         ] = Layout::vertical([
             Constraint::Min(3),
             Constraint::Length(log_lines.len() as u16),
+            Constraint::Length(thinking_height),
             Constraint::Length(pinned.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(prompt_height),
@@ -2217,6 +2252,12 @@ impl App {
 
         if !log_lines.is_empty() {
             frame.render_widget(ratatui::widgets::Paragraph::new(log_lines), log_area);
+        }
+        if thinking_height == 1 {
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(thinking_line),
+                thinking_area,
+            );
         }
         if !pinned.is_empty() {
             frame.render_widget(ratatui::widgets::Paragraph::new(pinned), pinned_area);

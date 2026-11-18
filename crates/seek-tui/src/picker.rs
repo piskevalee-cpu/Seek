@@ -194,7 +194,12 @@ impl Picker {
 
         let count = self.visible().len();
         let width = area.width.saturating_sub(4).clamp(24, 76).min(area.width);
-        let height = area.height.saturating_sub(3).clamp(9, 22).min(area.height);
+        // Fit the content when the list is short, and stop growing at a comfortable maximum.
+        let wanted = 2 + count.max(1) + 2 + 2;
+        let height = wanted.clamp(9, 22);
+        let height = height
+            .min(area.height.saturating_sub(3) as usize)
+            .min(area.height as usize) as u16;
         let rect = Rect::new(
             area.x + (area.width - width) / 2,
             area.y + area.height - height,

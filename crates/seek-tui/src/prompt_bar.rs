@@ -268,19 +268,14 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
         spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border_active)));
         box_lines.push(Line::from(spans));
     }
-    let status = if state.queued > 0 {
-        format!("{} queued", state.queued)
-    } else if state.busy {
-        "working...".to_string()
-    } else {
-        String::new()
-    };
+    // No "working..." status in the border: the thinking animation has its own line above the
+    // prompt, so the bottom border only carries the key hint and never gets clipped.
     let hint = if state.busy {
         "Esc stops"
     } else {
         "Enter sends"
     };
-    box_lines.push(bottom_border(width, hint, &status, theme));
+    box_lines.push(bottom_border(width, hint, "", theme));
 
     frame.render_widget(ratatui::widgets::Paragraph::new(box_lines), area);
 }
@@ -309,8 +304,13 @@ mod tests {
         }
         let items = crate::completion::completions(&input, &[], std::path::Path::new("."));
         let lines = suggestion_lines(&items, &theme, 0);
-        assert_eq!(lines.len(), 1);
-        assert!(lines[0].to_string().contains("/help"));
+        assert_eq!(lines.len(), 2);
+        assert!(lines.iter().any(|line| line.to_string().contains("/help")));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.to_string().contains("/history"))
+        );
     }
 
     #[test]

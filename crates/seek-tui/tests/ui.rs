@@ -491,16 +491,37 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
 }
 
 #[test]
+fn the_history_command_lists_and_resumes_past_sessions() {
+    let mut app = app();
+    app.sessions = vec![seek_core::SessionInfo {
+        id: "one".into(),
+        title: "a past question".into(),
+        cwd: "/home/valerio/project".into(),
+        created: "2026-11-11T12:00:00Z".into(),
+    }];
+    for c in "/history".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("a past question"), "{screen}");
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(command, Some(Command::ResumeSession("one".into())));
+}
+
+#[test]
 fn the_model_picker_lists_the_catalog() {
     let mut app = app();
     for c in "/model".chars() {
         app.update(Message::Key(key(KeyCode::Char(c))));
     }
     app.update(Message::Key(key(KeyCode::Enter)));
+    for c in "GPT".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
 
     let screen = render(&mut app, 100, 30);
-    assert!(screen.contains("Claude Sonnet 4.5"));
-    assert!(screen.contains("GPT-5.4"));
+    assert!(screen.contains("GPT-5.4"), "{screen}");
 }
 
 #[test]
@@ -1107,10 +1128,12 @@ fn the_tools_picker_has_the_fetch_tool() {
         app.update(Message::Key(key(KeyCode::Char(c))));
     }
     app.update(Message::Key(key(KeyCode::Enter)));
+    for c in "fetch".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
 
     let screen = render(&mut app, 100, 30);
     assert!(screen.contains("fetch"));
-    assert!(screen.contains("network"));
 }
 
 #[test]

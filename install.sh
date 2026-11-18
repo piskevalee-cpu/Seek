@@ -40,10 +40,26 @@ say() {
 # The script resolves the repository from its own path, so it works from any working directory.
 # A piped or copied script has no repository beside it: fail early with a useful message.
 if [ ! -f "$REPO_DIR/crates/seek/Cargo.toml" ]; then
-	echo "error: install.sh must be run from a clone of the SEEK repository." >&2
-	echo "       expected $REPO_DIR/crates/seek/Cargo.toml" >&2
-	echo "       clone https://github.com/piskevalee-cpu/Seek.git and run ./install.sh from its root." >&2
-	exit 1
+	if [ "${SEEK_INSTALL_CLONED:-0}" = "1" ]; then
+		echo "error: the cloned repository has no crates/seek" >&2
+		exit 1
+	fi
+	if ! command -v git >/dev/null 2>&1; then
+		echo "error: git is needed to fetch the SEEK repository." >&2
+		exit 1
+	fi
+	clone_dir="${TMPDIR:-/tmp}/seek-install-$$"
+	repo_url="${SEEK_INSTALL_REPO:-https://github.com/piskevalee-cpu/Seek.git}"
+	rm -rf "$clone_dir"
+	say "==> the installer was run without the repository; cloning it"
+	if ! git clone --depth 1 "$repo_url" "$clone_dir"; then
+		echo "error: could not clone $repo_url" >&2
+		exit 1
+	fi
+	status=0
+	SEEK_INSTALL_CLONED=1 sh "$clone_dir/install.sh" "$@" || status=$?
+	rm -rf "$clone_dir"
+	exit "$status"
 fi
 
 # The same 25 x 9 bitmap the TUI draws. A short diagonal sweep runs from the top right to the
