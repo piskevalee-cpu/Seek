@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-11-18
+
+Markdown answers in the transcript.
+
 ### Added
 - Markdown in the model's answers: bold, italic, inline code, headings, bullets and block quotes
   are styled in the transcript instead of shown as raw markers.
