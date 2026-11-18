@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-11-18
+
+Prompt-bar and overlay polish, plus an editable system prompt.
+
 ### Added
 - `~/seek/SYSTEM.md` is the editable system prompt, installed once from `builtin/SYSTEM.md`; the
   compiled default is the fallback and still governs the prompt-budget test (D-023).
