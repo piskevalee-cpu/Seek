@@ -8,6 +8,11 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-11-18
+
+A visual pass: the prompt bar names the working directory instead of repeating the model, and the
+startup logo has a dark body with a stronger sweep.
+
 ### Changed
 - The prompt bar's top border shows the shortened working directory instead of repeating the
   model name; the footer keeps the model and the branch. The working directory has one home
