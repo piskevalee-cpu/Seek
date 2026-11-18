@@ -41,29 +41,39 @@ impl Spinner {
         self.frame
     }
 
-    /// The line of cells, the wave going through them.
+    /// The cells of the animation, without a rail: used by the footer and the sidebar.
+    pub fn cells_line(&self, theme: &Theme) -> Vec<Span<'static>> {
+        cells_line_at(self.frame, theme)
+    }
+
+    /// The line of cells with the transcript rail, for the log strip.
     ///
-    /// The line sits in the column of the message text: the rail is in front of it, the way
-    /// the blocks of the transcript are.
+    /// The rail is in front of the cells, the way the blocks of the transcript are.
     pub fn shimmer_line(&self, theme: &Theme) -> Line<'static> {
         let mut spans = Vec::with_capacity(CELLS as usize + 2);
         spans.push(Span::styled(
             crate::transcript::RAIL,
             Style::new().fg(theme.accent_thinking),
         ));
-        for index in 0..CELLS {
-            // The travelling streak is joined by the same per-cell twinkle the logo uses, so the
-            // thinking line and the mark at the start of the session shimmer alike.
-            let secs = self.frame as f32 * STEP_MS as f32 / 1000.0;
-            let brightness = (wave_brightness(self.frame, index, CELLS, SPEED)
-                + twinkle(index as usize, CELLS as usize, secs))
-            .min(1.0);
-            // The cells are dark, and the wave lifts them up to the lit colour.
-            let color = blend(theme.bg, theme.cube_light, brightness);
-            spans.push(Span::styled("█", Style::new().fg(color)));
-        }
+        spans.extend(self.cells_line(theme));
         Line::from(spans)
     }
+}
+
+/// The cells of the animation at a given frame.
+pub fn cells_line_at(frame: u64, theme: &Theme) -> Vec<Span<'static>> {
+    let mut spans = Vec::with_capacity(CELLS as usize);
+    for index in 0..CELLS {
+        // The travelling streak is joined by the same per-cell twinkle the logo uses, so the
+        // thinking animation and the mark at the start of the session shimmer alike.
+        let secs = frame as f32 * STEP_MS as f32 / 1000.0;
+        let brightness = (wave_brightness(frame, index, CELLS, SPEED)
+            + twinkle(index as usize, CELLS as usize, secs))
+        .min(1.0);
+        let color = blend(theme.bg, theme.cube_light, brightness);
+        spans.push(Span::styled("█", Style::new().fg(color)));
+    }
+    spans
 }
 
 /// The static text used when `reduce_motion` is on.
