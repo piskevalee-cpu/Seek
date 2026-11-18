@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Added
+- `~/seek/SYSTEM.md` is the editable system prompt, installed once from `builtin/SYSTEM.md`; the
+  compiled default is the fallback and still governs the prompt-budget test (D-023).
+
 ### Fixed
 - The prompt bar draws a single cursor (the terminal's native one is hidden), wraps long lines so
   the end of a prompt stays visible, and grows up to the space available before scrolling inside

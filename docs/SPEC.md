@@ -57,7 +57,7 @@ Non-goals for v1: sub-agents, MCP, plan mode, built-in todo list, IDE integratio
 - SemVer with tags `vMAJOR.MINOR.PATCH`. One version for the whole workspace (`[workspace.package] version`). `seek --version` prints the version and short git SHA.
 - Before 1.0: MINOR = a shipped milestone (section 15) or any breaking contract change; PATCH = fixes. Pre-releases: `v0.4.0-alpha.1`, `v0.4.0-rc.1`.
 - From 1.0: breaking a contract means MAJOR.
-- **Contracts** (the public API): the `~/seek/` layout, `tool.toml`, `widget.toml`, `providers.toml`, `config.toml`, the per-model sidecar `.toml`, the session JSONL format, CLI flags and slash commands. Every file format carries `schema = 1`, with a migration whenever it changes.
+- **Contracts** (the public API): the `~/seek/` layout, `tool.toml`, `widget.toml`, `providers.toml`, `config.toml`, `SYSTEM.md`, the per-model sidecar `.toml`, the session JSONL format, CLI flags and slash commands. Every file format carries `schema = 1`, with a migration whenever it changes.
 - All contracts freeze at 1.0.0.
 
 ### 2.5 Commits and changelog
@@ -143,6 +143,7 @@ Created by `install.sh`; never overwritten once it exists.
 ├── widgets/        one folder per home-screen widget (widget.toml + executable)
 ├── config.toml     theme, default mode, default model, llama-server path
 ├── providers.toml  cloud providers and their models
+├── SYSTEM.md       the editable system prompt (installed from builtin/SYSTEM.md)
 └── state/          created at runtime: sessions/, logs/, auth.json (0600),
                     toggles.toml, pids
 ```
@@ -235,6 +236,7 @@ The tag is a user message: the system prompt tells the model that a message with
 - `edit` is an exact-match replace with a unique-match check, never a whole-file rewrite; `read` takes offset and limit.
 - Cap every tool output (default 200 lines or 16 KB, head and tail) with a marker telling the model how to fetch more.
 - Skills enter the prompt as a catalog only (9.5).
+- The system prompt is a file: `~/seek/SYSTEM.md`, installed once from `builtin/SYSTEM.md` and editable by the user. `Runtime` reads it at startup; if it is missing or empty, the compiled default is used. The user name, project AGENTS.md and pins are appended after it. The compiled default is the subject of the token-budget test (D-023).
 - Keep the prompt prefix stable and append-only so provider caches and llama.cpp prompt-cache reuse (`cache_prompt` **\[VERIFY\]**) keep working.
 - A CI test counts tokens of system prompt plus default schemas and fails above 1,500.
 

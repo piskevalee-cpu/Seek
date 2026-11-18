@@ -25,7 +25,8 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The logo.** It is the mark: the plus symbol on the left, `SEEK` on the right. It is drawn with blocks, two columns per pixel.
 - [ ] **The logo has no frame.** Only the lit pixels are drawn: the background of the mark is the background of the terminal, not a block of colour.
 - [ ] **The logo is centred.** Horizontally and vertically in the home screen.
-- [ ] **The sheen.** A shine sweeps across the logo from the bottom left to the top right. With `SEEK_COLOR`/reduced motion it rests.
+- [ ] **The sheen.** A shine sweeps across the logo from the top right to the low left. With reduced motion it rests.
+- [ ] **The system prompt.** `~/seek/SYSTEM.md` exists after install and begins "You are SEEK". Edit a line, restart SEEK — the model follows the edited prompt. Delete the file and SEEK falls back to the built-in default.
 - [ ] **The widgets.** The `git` widget shows the branch and the recent commits; the `usage` widget shows the tokens used so far. A widget that fails shows its title and a dash.
 - [ ] **No model at the start.** The chat is there from the first frame: the footer and the top border of the prompt say `[no model selected]`. No picker opens on its own.
 - [ ] **A message needs a model.** Type "hello" and press Enter — the transcript says to choose a model with `/model`, and the draft stays.

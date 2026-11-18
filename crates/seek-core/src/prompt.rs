@@ -8,9 +8,21 @@
 //! batch the calls, read before you write, do the work instead of offering to, and never
 //! report a check that was not run.
 
+use std::path::Path;
 use std::sync::LazyLock;
 
 use crate::tool::{Risk, ToolSchema};
+
+/// The name of the editable system prompt in the SEEK home.
+pub const SYSTEM_FILE: &str = "SYSTEM.md";
+
+/// Read the system prompt, falling back to the compiled default.
+pub fn system_prompt_from(path: &Path) -> String {
+    std::fs::read_to_string(path)
+        .ok()
+        .filter(|text| !text.trim().is_empty())
+        .unwrap_or_else(|| SYSTEM_PROMPT.to_string())
+}
 
 /// The system prompt.
 ///
@@ -233,6 +245,17 @@ mod tests {
         let prefix = default_prompt_prefix();
         assert!(prefix.contains("- read:"));
         assert!(!prefix.contains("- grep:"));
+    }
+
+    #[test]
+    fn the_system_prompt_file_replaces_the_default() {
+        let dir = std::env::temp_dir().join(format!("seek-prompt-file-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(SYSTEM_FILE);
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(system_prompt_from(&path), SYSTEM_PROMPT);
+        std::fs::write(&path, "You are SEEK.\n").expect("written");
+        assert_eq!(system_prompt_from(&path), "You are SEEK.\n");
     }
 
     #[test]

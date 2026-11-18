@@ -108,6 +108,8 @@ pub struct Agent {
     processes: Arc<ProcessRegistry>,
     /// What else goes into the prompt: the skills and the instructions of the project.
     context: String,
+    /// The system prompt, editable in `~/seek/SYSTEM.md` (SPEC 9.2).
+    system: Option<String>,
     /// A shared copy of the context, refreshed when `/skills` changes (D-020).
     shared_context: Option<Arc<RwLock<String>>>,
     /// The name of the user: the model addresses them by it.
@@ -139,6 +141,7 @@ impl Agent {
             permissions,
             processes,
             context: String::new(),
+            system: None,
             shared_context: None,
             user_name: None,
             external_tools: Vec::new(),
@@ -182,6 +185,12 @@ impl Agent {
         self
     }
 
+    /// Use an editable system prompt instead of the compiled default (SPEC 9.2).
+    pub fn with_system_prompt(mut self, system: impl Into<String>) -> Self {
+        self.system = Some(system.into());
+        self
+    }
+
     /// Share the tool registry with the interface. `/tools` replaces its contents in place, so a
     /// running turn sees the change on its next request (D-020).
     pub fn with_shared_tools(mut self, tools: Arc<RwLock<ToolRegistry>>) -> Self {
@@ -214,7 +223,10 @@ impl Agent {
 
     /// The system prompt of the request.
     fn system_prompt(&self) -> String {
-        let mut prompt = crate::prompt::SYSTEM_PROMPT.to_string();
+        let mut prompt = self
+            .system
+            .clone()
+            .unwrap_or_else(|| crate::prompt::SYSTEM_PROMPT.to_string());
         if let Some(name) = &self.user_name {
             let name = name.trim();
             if !name.is_empty() {
