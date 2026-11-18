@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Fixed
+- The thinking animation is labelled and sits next to the RAM in the footer, moving into the
+  sidebar's metrics when the sidebar is open; it no longer takes a row in the chat.
+
 ## [0.7.9] - 2026-11-18
 
 Pins the model can locate, a quieter composer and a one-command installer.

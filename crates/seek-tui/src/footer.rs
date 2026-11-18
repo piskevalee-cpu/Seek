@@ -49,6 +49,8 @@ pub struct Footer {
     pub branch: Option<String>,
     /// The metrics of the session, when the sidebar does not show them.
     pub metrics: Option<crate::metrics::Metrics>,
+    /// The thinking animation and label, when the model works and the sidebar is closed.
+    pub thinking: Option<Line<'static>>,
 }
 
 /// Build the footer line.
@@ -103,6 +105,11 @@ pub fn footer_line(footer: &Footer, theme: &Theme, width: u16) -> Line<'static> 
             spans.push(Span::styled(" ", Style::new()));
             spans.extend(metrics.compact_line(theme, room.saturating_sub(1)).spans);
         }
+    }
+    // The thinking animation sits just after the vitals, like a small status word.
+    if let Some(thinking) = &footer.thinking {
+        spans.push(Span::styled(" ", Style::new()));
+        spans.extend(thinking.spans.iter().cloned());
     }
     Line::from(spans)
 }
@@ -163,6 +170,7 @@ mod tests {
                 local: false,
             },
             reasoning: None,
+            thinking: None,
             branch: Some("develop".into()),
             metrics: None,
         }

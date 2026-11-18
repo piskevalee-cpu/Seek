@@ -2174,6 +2174,8 @@ impl App {
         };
         if use_sidebar {
             self.sync_processes();
+            self.sidebar.thinking = self.status == Status::Thinking;
+            self.sidebar.frame = self.spinner.frame();
             sidebar::render(
                 frame,
                 sidebar_area,
@@ -2209,22 +2211,21 @@ impl App {
         }
 
         let log_lines = self.log_strip_lines(main_area.width as usize);
-        let thinking_height = if self.status == Status::Thinking {
-            1
+        let thinking = self.status == Status::Thinking;
+        let footer_thinking = if thinking && self.reduce_motion {
+            Some(Line::from(Span::styled(
+                "thinking",
+                Style::new().fg(self.theme.dim).italic(),
+            )))
+        } else if thinking {
+            let mut spans = vec![Span::styled(
+                "thinking",
+                Style::new().fg(self.theme.dim).italic(),
+            )];
+            spans.extend(self.spinner.cells_line(&self.theme));
+            Some(Line::from(spans))
         } else {
-            0
-        };
-        let thinking_line = if self.status == Status::Thinking {
-            if self.reduce_motion {
-                Line::from(Span::styled(
-                    crate::spinner::STATIC_THINKING,
-                    Style::new().fg(self.theme.dim),
-                ))
-            } else {
-                self.spinner.shimmer_line(&self.theme)
-            }
-        } else {
-            Line::from("")
+            None
         };
 
         // The metrics have exactly one home: the bottom of the sidebar when it is open, the
@@ -2234,7 +2235,6 @@ impl App {
         let [
             transcript_area,
             log_area,
-            thinking_area,
             pinned_area,
             suggestions_area,
             prompt_area,
@@ -2242,7 +2242,6 @@ impl App {
         ] = Layout::vertical([
             Constraint::Min(3),
             Constraint::Length(log_lines.len() as u16),
-            Constraint::Length(thinking_height),
             Constraint::Length(pinned.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(prompt_height),
@@ -2252,12 +2251,6 @@ impl App {
 
         if !log_lines.is_empty() {
             frame.render_widget(ratatui::widgets::Paragraph::new(log_lines), log_area);
-        }
-        if thinking_height == 1 {
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(thinking_line),
-                thinking_area,
-            );
         }
         if !pinned.is_empty() {
             frame.render_widget(ratatui::widgets::Paragraph::new(pinned), pinned_area);
@@ -2294,6 +2287,11 @@ impl App {
             model: self.model.clone(),
             reasoning: self.reasoning.clone(),
             branch: self.branch.clone(),
+            thinking: if metrics_in_footer {
+                footer_thinking
+            } else {
+                None
+            },
             metrics: match metrics_in_footer {
                 // The metrics are in the footer when the sidebar is closed.
                 true => Some(self.metrics.clone()),

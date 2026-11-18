@@ -424,7 +424,16 @@ fn the_spinner_appears_while_the_agent_thinks() {
     let mut app = app();
     app.update(Message::Agent(AgentEvent::TurnStarted));
     let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("thinking"), "the footer names it: {screen}");
     assert!(screen.contains("██"));
+
+    // With the sidebar open, the animation moves there instead.
+    app.sidebar.open = true;
+    let screen = render(&mut app, 120, 30);
+    assert!(
+        screen.contains("thinking"),
+        "the sidebar names it: {screen}"
+    );
 }
 
 #[test]

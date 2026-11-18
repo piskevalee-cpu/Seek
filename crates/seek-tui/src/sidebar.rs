@@ -13,6 +13,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
 use crate::metrics::Metrics;
+use crate::spinner::cells_line_at;
 use crate::theme::Theme;
 
 /// The width of the sidebar.
@@ -30,6 +31,10 @@ pub struct Sidebar {
     pub selected_session: usize,
     /// The index of the selected process.
     pub selected_process: usize,
+    /// Whether the model is working; the animation then sits in the metrics section.
+    pub thinking: bool,
+    /// The frame of the thinking animation.
+    pub frame: u64,
 }
 
 impl Sidebar {
@@ -114,7 +119,15 @@ pub fn render(
     }
 
     // The metrics are pinned to the bottom of the sidebar.
-    let metric_lines = metrics.sidebar_lines(theme);
+    let mut metric_lines = metrics.sidebar_lines(theme);
+    if sidebar.thinking {
+        let mut spans = vec![Span::styled(
+            " thinking ",
+            Style::new().fg(theme.dim).italic(),
+        )];
+        spans.extend(cells_line_at(sidebar.frame, theme));
+        metric_lines.push(Line::from(spans));
+    }
     let metrics_height = metric_lines.len() as u16;
     let list_height = inner.height.saturating_sub(metrics_height);
 
