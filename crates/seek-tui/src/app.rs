@@ -2218,10 +2218,10 @@ impl App {
                 Style::new().fg(self.theme.dim).italic(),
             )))
         } else if thinking {
-            let mut spans = vec![Span::styled(
-                "thinking",
-                Style::new().fg(self.theme.dim).italic(),
-            )];
+            let mut spans = vec![
+                Span::styled("thinking", Style::new().fg(self.theme.dim).italic()),
+                Span::styled("  ", Style::new()),
+            ];
             spans.extend(self.spinner.cells_line(&self.theme));
             Some(Line::from(spans))
         } else {
