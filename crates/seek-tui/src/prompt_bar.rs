@@ -250,17 +250,19 @@ pub struct PromptState {
 
 /// Draw the prompt bar.
 pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state: &PromptState) {
-    let width = area.width.saturating_sub(3) as usize;
+    let box_width = area.width as usize;
+    // One column for the left border, one for the space after it, one for the right border.
+    let text_width = box_width.saturating_sub(3);
     let max_rows = area.height.saturating_sub(2).max(1) as usize;
-    let mut lines = permission_lines(&state.mode, input, theme, width, max_rows);
+    let mut lines = permission_lines(&state.mode, input, theme, text_width, max_rows);
 
     // The box: the caption in the top border, the keys and the status in the bottom one.
     // The area of the input holds the text and nothing else, so the cursor is the only
     // thing that moves in it.
     let mut box_lines = Vec::new();
-    box_lines.push(top_border(width, &state.caption, theme));
+    box_lines.push(top_border(box_width, &state.caption, theme));
     if lines.is_empty() {
-        lines = prompt_lines(input, theme, width, max_rows);
+        lines = prompt_lines(input, theme, text_width, max_rows);
     }
     for line in lines {
         // The right border closes the box.
@@ -275,7 +277,7 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
     } else {
         "Enter sends"
     };
-    box_lines.push(bottom_border(width, hint, "", theme));
+    box_lines.push(bottom_border(box_width, hint, "", theme));
 
     frame.render_widget(ratatui::widgets::Paragraph::new(box_lines), area);
 }

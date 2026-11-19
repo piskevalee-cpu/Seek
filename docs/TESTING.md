@@ -155,7 +155,8 @@ Every key of the specification, one by one.
 
 ## The sessions
 
-- [ ] **The sidebar.** Ctrl+B — the sessions are at the top, with their title and how old they are.
+- [ ] **The sidebar.** Ctrl+B — the sessions are at the top, but only the last three are shown, with their title and how old they are. Up and Down select one, Enter resumes it.
+- [ ] **All sessions.** `/sessions` (or `/history`) opens the full list; Enter resumes the selected one.
 - [ ] **A new session.** `/new` — the transcript is empty again.
 - [ ] **Resume.** `/resume` — the sidebar opens on the sessions. Move with Up and Down, press Enter — the conversation comes back.
 - [ ] **The focus.** With the sidebar open, Tab moves the focus into it; the selected session is highlighted. Tab again moves it back.
