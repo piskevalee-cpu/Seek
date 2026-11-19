@@ -480,7 +480,7 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
     let screen = render(&mut app, 100, 30);
     // The model selector is inline: the transcript stays visible around it.
     assert!(
-        screen.contains("/model"),
+        screen.contains("Models"),
         "the inline model list is open: {screen}"
     );
     assert!(screen.contains('╭'), "the prompt box is visible: {screen}");
@@ -491,7 +491,7 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
 
     let small = render(&mut app, 90, 24);
     assert!(
-        small.contains("/model"),
+        small.contains("Models"),
         "the inline list still fits: {small}"
     );
 }

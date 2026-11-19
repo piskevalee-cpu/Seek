@@ -665,3 +665,18 @@ The transcript stays visible around it. The settings menu keeps the grok-build m
 is how the reference renders settings.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-030 — One design language for the menus and the sidebar
+
+**Date:** 2026-11-19 · **Affects:** SPEC 10.3
+
+The inline model picker of D-029 was closer to the grok-code reference, but its `/model <model>
+[window] [effort]` line and the grok-build chrome left in `/settings` looked foreign next to the
+sidebar. The owner asked for one coherent language across the model picker, the settings panel and
+the launch-options editor. All three now use the sidebar's vocabulary: a dark-cube border, a dim
+title with spaces, a bold `accent` section header, `cube_light` primary text, `dim` secondary text
+and the directional gradient on the selected row. The `/model` hint line is gone; while filtering,
+the typed query appears dimmed after the `Models`/`Settings` header. The shared `panel_block` and
+`section_header` helpers in `seek-tui::menu` keep the panels in step.
+
+**Status:** accepted. The specification and changelog were updated.
