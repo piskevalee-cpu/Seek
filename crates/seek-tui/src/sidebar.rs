@@ -12,6 +12,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 
+use crate::gradient;
 use crate::metrics::Metrics;
 use crate::spinner::cells_line_at;
 use crate::theme::Theme;
@@ -50,6 +51,7 @@ impl Sidebar {
 /// Draw the sidebar.
 ///
 /// The metrics are pinned to the bottom (SPEC 10.3).
+#[allow(clippy::too_many_arguments)]
 pub fn render(
     frame: &mut Frame,
     area: Rect,
@@ -58,6 +60,7 @@ pub fn render(
     metrics: &Metrics,
     sessions: &[seek_core::SessionInfo],
     selected_session: usize,
+    from_left: bool,
 ) {
     let block = ratatui::widgets::Block::bordered()
         .border_style(Style::new().fg(theme.cube_dark))
@@ -79,24 +82,23 @@ pub fn render(
     } else {
         let now = std::time::SystemTime::now();
         for (index, session) in sessions.iter().take(SIDEBAR_SESSIONS).enumerate() {
-            let style = if index == selected_session {
-                Style::new().fg(theme.bg).bg(theme.accent)
-            } else {
-                Style::new().fg(theme.cube_light)
-            };
             let title = if session.title.is_empty() {
-                "(no title)"
+                "(no title)".to_string()
             } else {
-                &session.title
+                session.title.clone()
             };
-            lines.push(Line::from(vec![
+            let mut spans = vec![
                 Span::styled("  ", Style::new()),
-                Span::styled(title.to_string(), style),
+                Span::styled(title, Style::new().fg(theme.cube_light)),
                 Span::styled(
                     format!("  {}", session.age(now)),
                     Style::new().fg(theme.dim),
                 ),
-            ]));
+            ];
+            if index == selected_session {
+                spans = gradient::paint(spans, inner.width as usize, from_left, theme);
+            }
+            lines.push(Line::from(spans));
         }
     }
 

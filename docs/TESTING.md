@@ -158,6 +158,7 @@ Every key of the specification, one by one.
 
 ## The sessions
 
+- [ ] **The gradient.** The selected session row and the selected menu row shade from dark to blue; with the sidebar on the right the gradient runs the other way.
 - [ ] **The sidebar.** Ctrl+B — the sessions are at the top, but only the last three are shown, with their title and how old they are. The first message lines up with "Sessions" inside the sidebar. Up and Down select one, Enter resumes it.
 - [ ] **All sessions.** `/sessions` (or `/history`) opens the full list; Enter resumes the selected one.
 - [ ] **A new session.** `/new` — the transcript is empty again.
