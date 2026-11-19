@@ -259,12 +259,9 @@ fn the_settings_can_move_the_sidebar() {
         app.update(Message::Key(key(KeyCode::Char(c))));
     }
     app.update(Message::Key(key(KeyCode::Enter)));
-    // "Sidebar side" is the second entry of the settings picker.
+    // "Sidebar side" is the second row; Right cycles it to the other side.
     app.update(Message::Key(key(KeyCode::Down)));
-    app.update(Message::Key(key(KeyCode::Enter)));
-    // "right" is the second entry of the side picker.
-    app.update(Message::Key(key(KeyCode::Down)));
-    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    let command = app.update(Message::Key(key(KeyCode::Right)));
     assert_eq!(app.sidebar_side, seek_core::user::Side::Right);
     assert_eq!(
         command,
@@ -714,7 +711,7 @@ fn the_right_arrow_opens_the_launch_options() {
     }
     app.update(Message::Key(key(KeyCode::Enter)));
 
-    // The local model is the only one, so it is selected.
+    // The local model is the only one, so Right opens its launch options.
     app.update(Message::Key(key(KeyCode::Right)));
 
     let screen = render(&mut app, 100, 30);
