@@ -1261,6 +1261,7 @@ impl App {
             (current + if forward { 1 } else { item.options.len() - 1 }) % item.options.len();
         let value = item.options[next].clone();
         item.current = Some(value.clone());
+        item.right_label = value.clone();
         match item.value.as_str() {
             "settings:side" => {
                 if let Some(side) = seek_core::user::Side::parse(&value) {
@@ -1620,10 +1621,17 @@ impl App {
             .items
             .into_iter()
             .map(|item| {
+                let right = item
+                    .value
+                    .strip_prefix("model:")
+                    .or_else(|| item.value.strip_prefix("local:"))
+                    .unwrap_or("")
+                    .to_string();
                 MenuItem::new(item.label, item.value)
                     .with_detail(item.detail)
+                    .with_right(right)
                     .with_group(item.group.unwrap_or_default())
-                    .with_tag(item.tag.unwrap_or_default())
+                    .with_badge(item.tag.unwrap_or_default())
             })
             .collect();
         Menu::new("models", MenuKind::Model, items)
@@ -1633,36 +1641,35 @@ impl App {
     /// The grok-style settings menu: each row is a value you can cycle with ←/→.
     fn settings_menu(&self) -> Menu {
         let name = self.user_name.clone().unwrap_or_default();
+        let side = self.sidebar_side.as_str().to_string();
+        let mode = self.mode.label().to_string();
+        let reasoning = if self.show_reasoning { "on" } else { "off" }.to_string();
+        let motion = if self.reduce_motion { "on" } else { "off" }.to_string();
         let items = vec![
             MenuItem::new("User name", "settings:name")
-                .with_detail(if name.is_empty() {
-                    "not set".into()
-                } else {
-                    name
-                })
+                .with_detail("The name the model calls you by")
+                .with_right(if name.is_empty() { "not set" } else { &name })
                 .with_group("session"),
             MenuItem::new("Sidebar side", "settings:side")
                 .with_detail("Which side the sessions and metrics sit on")
+                .with_right(&side)
                 .with_group("interface")
-                .selecting(&["left", "right"], self.sidebar_side.as_str()),
+                .selecting(&["left", "right"], &side),
             MenuItem::new("Permission mode", "settings:mode")
                 .with_detail("Read only, ask for writes, or allow everything")
+                .with_right(&mode)
                 .with_group("security")
-                .selecting(&["READ", "ASK", "YOLO"], self.mode.label()),
+                .selecting(&["READ", "ASK", "YOLO"], &mode),
             MenuItem::new("Reasoning text", "settings:reasoning")
                 .with_detail("Show the model's reasoning in the transcript")
+                .with_right(&reasoning)
                 .with_group("interface")
-                .selecting(
-                    &["on", "off"],
-                    if self.show_reasoning { "on" } else { "off" },
-                ),
+                .selecting(&["on", "off"], &reasoning),
             MenuItem::new("Reduce motion", "settings:motion")
                 .with_detail("Hold the logo and the thinking animation still")
+                .with_right(&motion)
                 .with_group("interface")
-                .selecting(
-                    &["on", "off"],
-                    if self.reduce_motion { "on" } else { "off" },
-                ),
+                .selecting(&["on", "off"], &motion),
         ];
         Menu::new("settings", MenuKind::Settings, items)
             .with_hint("↑↓ setting · ←→ change · Enter apply · Esc close")

@@ -636,3 +636,18 @@ then the compiled default. `.seek/config.toml` overlays only the keys it sets on
 which system prompt file is in use.
 
 **Status:** accepted. The specification, changelog and manual checklist were updated.
+
+## D-028 — Port the grok-build modal chrome into the menus
+
+**Date:** 2026-11-19 · **Affects:** SPEC 10.3
+
+The first "grok-style" menu was only inspired by the pager, and the owner asked for the real thing.
+The Apache-2.0 source is public at `xai-org/grok-build`; a shallow checkout now lives in
+`reference/grok-build` (gitignored). The model selector and settings menu were rewritten from the
+pager's `views/picker.rs` and `views/modal_window.rs`: 90% width with generous vertical margins,
+square border with a bold title and `[✗]`, ` search: ` search row, full-width dim divider, `◆`
+picker rows with right-aligned labels and badges, a detail line below the selection, and a centered
+shortcut footer. Nothing was copied verbatim; the code is written for SEEK's `Theme` and ratatui
+0.30 types. The SEEK addition is the directional blue gradient on the selected row.
+
+**Status:** accepted. The specification and changelog were updated.

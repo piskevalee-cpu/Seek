@@ -8,14 +8,23 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.17] - 2026-11-19
+
+The menus now carry the grok-build modal chrome.
+
+### Changed
+- `/model` and `/settings` were rebuilt from the grok-build pager source (Apache-2.0): wide modal,
+  square border with title and close button, ` search: ` row, `◆` picker rows with right-aligned
+  ids and badges, and a centered shortcut footer. The picked row keeps SEEK's gradient (D-028).
+
 ## [0.7.16] - 2026-11-19
 
 Grok-style model selection and settings.
 
 ### Changed
-- `/model` and `/settings` were rebuilt from the ground up as grok-build-style floating menus: a
-  search row, a list with gradient-selected rows, and a detail pane for the selected model.
-  Settings values cycle with ←/→.
+- `/model` and `/settings` were rebuilt from the grok-build pager source (Apache-2.0): wide modal,
+  square border with title and close button, ` search: ` row, `◆` picker rows with right-aligned
+  ids and badges, and a centered shortcut footer. The picked row keeps SEEK's gradient (D-028).
 
 ## [0.7.15] - 2026-11-19
 
