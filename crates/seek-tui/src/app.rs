@@ -2295,7 +2295,19 @@ impl App {
             );
         }
 
-        self.render_transcript(frame, transcript_area);
+        // The sidebar's border title takes the first row; shift the transcript down by one so
+        // its first message lines up with the first line inside the sidebar.
+        let transcript_draw_area = if use_sidebar {
+            Rect::new(
+                transcript_area.x,
+                transcript_area.y + 1,
+                transcript_area.width,
+                transcript_area.height.saturating_sub(1),
+            )
+        } else {
+            transcript_area
+        };
+        self.render_transcript(frame, transcript_draw_area);
 
         prompt_bar::render(
             frame,
