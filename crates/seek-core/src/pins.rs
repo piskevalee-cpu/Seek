@@ -136,6 +136,30 @@ pub fn expand(text: &str, root: &Path) -> String {
     out
 }
 
+/// A pasted clipboard path (plain, `file://` or `~/`) that exists on disk.
+pub fn pasted_path(text: &str, root: &Path) -> Option<PathBuf> {
+    let trimmed = text.trim().trim_matches(['"', '\'']);
+    if trimmed.is_empty() || trimmed.contains('\n') {
+        return None;
+    }
+    let raw = trimmed
+        .strip_prefix("file://")
+        .unwrap_or(trimmed)
+        .replace("%20", " ");
+    let path = if let Some(rest) = raw.strip_prefix("~/") {
+        let home = std::env::var("HOME").ok()?;
+        PathBuf::from(home).join(rest)
+    } else {
+        PathBuf::from(&raw)
+    };
+    let path = if path.is_absolute() {
+        path
+    } else {
+        root.join(path)
+    };
+    path.exists().then_some(path)
+}
+
 /// The compact context for a turn with pins.
 ///
 /// Only paths, sizes and the first names of a directory go into the prompt: no file content. This
@@ -278,6 +302,18 @@ mod tests {
             MAX_PINS,
             "one message pins at most eight paths"
         );
+    }
+
+    #[test]
+    fn pasted_paths_are_normalized() {
+        let root = project();
+        let file = root.join("src/main.rs");
+        assert_eq!(
+            pasted_path(&format!("file://{}", file.display()), &root),
+            Some(file.clone())
+        );
+        assert_eq!(pasted_path("src/main.rs", &root), Some(file));
+        assert_eq!(pasted_path("no/such/file", &root), None);
     }
 
     #[test]

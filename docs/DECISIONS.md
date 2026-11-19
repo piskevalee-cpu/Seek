@@ -592,3 +592,25 @@ Three reports from a live session:
    overrides the URL for tests. This makes a one-command install possible.
 
 **Status:** accepted. The specification, README, checklist and changelog were updated.
+
+## D-026 — A read is never confirmed, and the web search is a read
+
+**Date:** 2026-11-18 · **Affects:** SPEC 9.3, 9.4
+
+The owner asked that `web_search` and `read` stop asking for confirmation: neither changes
+anything, unlike a write or a command.
+
+- `read` was already allowed inside the project, but the path rule of SPEC 9.4 made it ask for a
+  path outside the project root in `ask` mode. It is now allowed wherever it goes; the same holds
+  for the read-only helpers `ls`, `grep` and `find`. The path rule still asks for a write or a
+  command outside the project root, whatever the tool is.
+- `web_search` carried `Risk::Network` and was asked in `ask` mode (D-016). It now carries
+  `Risk::Read`, like `read`: the tool only reads the web, so it runs in every mode and is no longer
+  denied in `read` mode. `fetch` stays `Risk::Network` and still asks in `ask` mode and is denied
+  in `read` mode.
+
+The risk is declared by the tool schema (`websearch::web_search_schema`) and applied by
+`Agent::risk_of`; the permission matrix itself is unchanged. The manual checklist no longer
+expects a prompt for a search.
+
+**Status:** accepted. The specification, README, checklist and changelog were updated.

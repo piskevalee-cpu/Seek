@@ -55,6 +55,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **Type.** Every character appears, and the cursor is a block behind the last one.
 - [ ] **Send.** Press Enter — the message appears in the transcript as a `USER` box.
 - [ ] **A newline.** Paste a multi-line draft — the box grows to show every line; there is no newline key.
+- [ ] **A pasted path.** Copy a file path (or `file://` URL) and paste it — it becomes an `@` pin with the full path, and the chip row shows it.
 - [ ] **The history.** Press Up — the last message you sent comes back. Press Down — it goes away again.
 - [ ] **The suggestions.** Type `/` — a list of the slash commands appears above the bar. Type `/mod` — the list narrows to `/model` and `/mode`.
 - [ ] **A backspace.** It deletes one character, not one byte: a character with an accent is gone in one press.
@@ -118,7 +119,8 @@ Every key of the specification, one by one.
 - [ ] **Tell SEEK what to do.** Choose the third choice, type "use hello.md instead", press Enter — the model gets that text as the result of the tool call.
 - [ ] **Read mode.** Press Shift+Tab until the chip says `READ` — a write is denied without asking.
 - [ ] **Yolo mode.** Press Shift+Tab until the chip says `YOLO` — the write goes through without asking.
-- [ ] **A path outside the project.** Ask it to write to `/tmp/whatever.txt` — in `ASK` mode it asks, whatever the tool is.
+- [ ] **A path outside the project.** Ask it to write to `/tmp/whatever.txt` — in `ASK` mode it asks, whichever tool writes or runs.
+- [ ] **A read outside the project.** "Read the first lines of `/tmp/whatever.txt`." — in `ASK` mode the read runs without a question, wherever the file is.
 
 ## The tools
 
@@ -134,7 +136,7 @@ Every key of the specification, one by one.
 ## The web search
 
 - [ ] **On by default.** `/tools` lists `web_search` checked; leave the picker without touching it.
-- [ ] **A search without a URL.** In `ASK` mode, "What is the latest version of Rust?" — the permission is asked for a network tool, and the answer lists numbered sources with their address.
+- [ ] **A search without a URL.** In `ASK` mode, "What is the latest version of Rust?" — the search runs without a permission question, and the answer lists numbered sources with their address.
 - [ ] **The operators.** "Search for `site:rust-lang.org async`." — the results stay on `rust-lang.org`; a constraint the engine could not honour is reported in a `Note:` line instead of an empty answer.
 - [ ] **The fallback.** Put `providers = ['mojeek', 'duckduckgo']` under `[web_search]` in `~/seek/config.toml` — a Mojeek failure is named in a `Note:` line and the answer comes from DuckDuckGo.
 - [ ] **The public fan-out.** Set `providers = ['public']` — the results merge the engines that answer, with the pages found by more than one engine first.

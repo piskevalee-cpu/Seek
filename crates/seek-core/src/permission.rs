@@ -8,7 +8,9 @@
 //! | `ask`  | allow | ask   | ask  | ask     |
 //! | `yolo` | allow | allow | allow| allow   |
 //!
-//! Paths outside the project root are always asked in `ask` mode.
+//! Reading is never asked, wherever it goes: a file outside the project root, or the web. A
+//! write or a command that touches a path outside the project root is always asked in `ask`
+//! mode (D-026).
 
 use std::path::Path;
 
@@ -67,9 +69,10 @@ impl PermissionMode {
 
     /// What happens to a tool call that touches a path outside the project root.
     ///
-    /// In `ask` mode such a path is always asked, whatever the risk is.
+    /// In `ask` mode such a path is always asked, unless the call only reads: a read changes
+    /// nothing, wherever the file is (D-026).
     pub fn decide_path(self, risk: Risk, inside_project: bool) -> Decision {
-        if self == PermissionMode::Ask && !inside_project {
+        if self == PermissionMode::Ask && !inside_project && risk != Risk::Read {
             return Decision::Ask;
         }
         self.decide(risk)
@@ -139,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn a_path_outside_the_project_is_always_asked() {
+    fn a_write_outside_the_project_is_asked_but_a_read_is_not() {
         let root = Path::new("/tmp/project");
         assert!(is_inside_project(
             root,
@@ -147,11 +150,23 @@ mod tests {
         ));
         assert_eq!(
             PermissionMode::Ask.decide_path(Risk::Read, false),
-            Decision::Ask
+            Decision::Allow
         );
         assert_eq!(
             PermissionMode::Ask.decide_path(Risk::Read, true),
             Decision::Allow
+        );
+        assert_eq!(
+            PermissionMode::Ask.decide_path(Risk::Write, false),
+            Decision::Ask
+        );
+        assert_eq!(
+            PermissionMode::Ask.decide_path(Risk::Exec, false),
+            Decision::Ask
+        );
+        assert_eq!(
+            PermissionMode::Ask.decide_path(Risk::Write, true),
+            Decision::Ask
         );
     }
 

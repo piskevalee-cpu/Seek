@@ -599,7 +599,8 @@ impl Agent {
     /// The risk of a tool.
     fn risk_of(&self, name: &str) -> Risk {
         match name {
-            "read" => Risk::Read,
+            // Reading is always allowed, wherever it goes: the files and the web (D-026).
+            "read" | "ls" | "grep" | "find" | "web_search" => Risk::Read,
             "write" | "edit" => Risk::Write,
             "bash" => Risk::Exec,
             _ => Risk::Network,
@@ -1156,5 +1157,89 @@ mod tests {
         permissions.answer(request.id, PermissionDecision::Allow);
         let reason = handle.await.expect("the turn finishes");
         assert_eq!(reason, TurnReason::Stop);
+    }
+
+    #[tokio::test]
+    async fn a_read_outside_the_project_is_not_asked() {
+        let outside = std::env::temp_dir().join("seek-agent-outside-read.txt");
+        std::fs::write(&outside, "outside").expect("written");
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            vec![ProviderEvent::ToolCall {
+                id: "t1".into(),
+                name: "read".into(),
+                input: serde_json::json!({ "path": outside.to_string_lossy() }),
+            }],
+            vec![ProviderEvent::TextDelta("read it".into())],
+        ]));
+        let (agent, mut requests, _permissions) = agent(provider, PermissionMode::Ask);
+        let (tx, _rx) = mpsc::channel(32);
+        let mut handle = tokio::spawn({
+            let agent = Arc::new(agent);
+            async move {
+                let mut history = History::new();
+                agent.run_turn(&mut history, &tx).await
+            }
+        });
+
+        tokio::select! {
+            request = requests.recv() => {
+                assert!(request.is_none(), "a read should not ask: {request:?}");
+                assert_eq!(handle.await.expect("the turn finishes"), TurnReason::Stop);
+            }
+            reason = &mut handle => {
+                assert_eq!(reason.expect("the turn finishes"), TurnReason::Stop);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_web_search_is_not_asked() {
+        let provider = Arc::new(ScriptedProvider::new(vec![
+            vec![ProviderEvent::ToolCall {
+                id: "t1".into(),
+                name: "web_search".into(),
+                // No query: the tool fails before it reaches the network.
+                input: serde_json::json!({}),
+            }],
+            vec![ProviderEvent::TextDelta("done".into())],
+        ]));
+        let (agent, mut requests, _permissions) = agent(provider, PermissionMode::Ask);
+        agent
+            .tools
+            .write()
+            .expect("tools are not poisoned")
+            .web_search = Some(crate::websearch::WebSearchTool::new(
+            crate::websearch::Settings::default(),
+            &crate::config::Auth::default(),
+        ));
+        let (tx, mut rx) = mpsc::channel(32);
+        let mut handle = tokio::spawn({
+            let agent = Arc::new(agent);
+            async move {
+                let mut history = History::new();
+                agent.run_turn(&mut history, &tx).await
+            }
+        });
+
+        tokio::select! {
+            request = requests.recv() => {
+                assert!(request.is_none(), "a web search should not ask: {request:?}");
+                assert_eq!(handle.await.expect("the turn finishes"), TurnReason::Stop);
+            }
+            reason = &mut handle => {
+                assert_eq!(reason.expect("the turn finishes"), TurnReason::Stop);
+            }
+        }
+
+        // The search ran: the missing query is the answer, not a refusal.
+        let mut outputs = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            if let AgentEvent::ToolOutput(output) = event {
+                outputs.push(output);
+            }
+        }
+        assert_eq!(outputs.len(), 1, "{outputs:?}");
+        assert!(outputs[0].is_error);
+        assert!(outputs[0].content.contains("query"), "{:?}", outputs[0]);
     }
 }
