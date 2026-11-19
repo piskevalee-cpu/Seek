@@ -33,7 +33,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The widgets.** The `git` widget shows the branch and the recent commits; the `usage` widget shows the tokens used so far. A widget that fails shows its title and a dash.
 - [ ] **No model at the start.** The chat is there from the first frame: the footer and the top border of the prompt say `[no model selected]`. No picker opens on its own.
 - [ ] **A message needs a model.** Type "hello" and press Enter — the transcript says to choose a model with `/model`, and the draft stays.
-- [ ] **The model picker.** Type `/model` and press Enter. The local model is listed with a `LOCAL` tag, next to the catalog.
+- [ ] **The model selector.** Type `/model` and press Enter. The local model is listed with a `LOCAL` tag, next to the catalog; the right pane shows its details and the selected row uses the directional gradient.
 - [ ] **Choose a model.** Press Enter — the picker closes, the footer shows the model.
 - [ ] **The footer.** One line: the mode chip (`ASK`), the model, the working directory, the branch and the metrics of the session. The metrics are not on a line of their own.
 - [ ] **Shift+Tab switches the mode.** Press it — the chip changes, whatever the sidebar does.
@@ -77,7 +77,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The wheel.** Scroll up — the line you were reading stays on screen while the model answers. Scroll back to the bottom — new answers follow again.
 - [ ] **The keys.** Shift+Up and Shift+Down move five lines, PgUp/PgDn a page, Home/End the ends when the prompt is empty.
 - [ ] **The mouse bar.** Click above or below the thumb to page; click the thumb and drag it — the transcript follows.
-- [ ] **Move the sidebar.** `/settings` → "Sidebar side" → "right". The sidebar moves to the right and the scrollbar moves to the left at once. Restart SEEK: the choice is kept in `state/user.toml`.
+- [ ] **Move the sidebar.** `/settings` → "Sidebar side" → press → to change it to right. The sidebar moves to the right and the scrollbar moves to the left at once. Restart SEEK: the choice is kept in `state/user.toml`.
 
 ## The conversation
 

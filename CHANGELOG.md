@@ -8,6 +8,11 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Changed
+- `/model` and `/settings` were rebuilt from the ground up as grok-build-style floating menus: a
+  search row, a list with gradient-selected rows, and a detail pane for the selected model.
+  Settings values cycle with ←/→.
+
 ## [0.7.15] - 2026-11-19
 
 Directional gradients and a Ctrl+Backspace that works across terminals.
