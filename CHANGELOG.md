@@ -13,6 +13,10 @@ workspace; each release ships a milestone (SPEC 15).
   `web_search` is now a read-only tool: both run in every mode without a permission question.
   `write`, `edit`, `bash` and `fetch` keep the matrix (D-026).
 
+### Added
+- Bracketed paste: pasted text keeps its line breaks, and a pasted file path (including `file://`
+  and `~/`) becomes an `@` pin so the agent sees its absolute location.
+
 ## [0.7.11] - 2026-11-18
 
 A small spacing correction in the footer.

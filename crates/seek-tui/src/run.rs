@@ -32,7 +32,8 @@ pub fn init_terminal() -> SeekTerminal {
     let _ = crossterm::execute!(
         std::io::stdout(),
         crossterm::cursor::Hide,
-        crossterm::event::EnableMouseCapture
+        crossterm::event::EnableMouseCapture,
+        crossterm::event::EnableBracketedPaste
     );
     terminal
 }
@@ -42,6 +43,7 @@ pub fn restore_terminal() {
     let _ = crossterm::execute!(
         std::io::stdout(),
         crossterm::event::DisableMouseCapture,
+        crossterm::event::DisableBracketedPaste,
         crossterm::cursor::Show
     );
     ratatui::restore();
@@ -105,6 +107,7 @@ pub async fn run(
                         }),
                         _ => None,
                     },
+                    Event::Paste(text) => Some(Message::Paste(text)),
                     _ => None,
                 };
                 if let Some(message) = message

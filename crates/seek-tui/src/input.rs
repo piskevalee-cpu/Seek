@@ -183,6 +183,18 @@ impl Input {
         self.column += 1;
     }
 
+    /// Insert text at the cursor, keeping its newlines. Used for bracketed pastes.
+    pub fn insert_text(&mut self, text: &str) {
+        for (index, part) in text.split('\n').enumerate() {
+            if index > 0 {
+                self.insert_newline();
+            }
+            for character in part.chars() {
+                self.insert_char(character);
+            }
+        }
+    }
+
     /// Insert a newline at the cursor.
     pub fn insert_newline(&mut self) {
         let line = self.lines[self.row].clone();

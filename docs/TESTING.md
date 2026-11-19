@@ -55,6 +55,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **Type.** Every character appears, and the cursor is a block behind the last one.
 - [ ] **Send.** Press Enter — the message appears in the transcript as a `USER` box.
 - [ ] **A newline.** Paste a multi-line draft — the box grows to show every line; there is no newline key.
+- [ ] **A pasted path.** Copy a file path (or `file://` URL) and paste it — it becomes an `@` pin with the full path, and the chip row shows it.
 - [ ] **The history.** Press Up — the last message you sent comes back. Press Down — it goes away again.
 - [ ] **The suggestions.** Type `/` — a list of the slash commands appears above the bar. Type `/mod` — the list narrows to `/model` and `/mode`.
 - [ ] **A backspace.** It deletes one character, not one byte: a character with an accent is gone in one press.

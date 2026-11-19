@@ -160,6 +160,8 @@ pub enum Message {
     /// The application starts. The chat opens with no model chosen (D-017).
     Start,
     Key(KeyEvent),
+    /// Bracketed paste: text or a path from the clipboard.
+    Paste(String),
     /// The wheel of the mouse: a positive number scrolls up.
     Scroll(isize),
     /// A click or drag on the side scrollbar; `row` is a terminal row, `col` a terminal column.
@@ -481,6 +483,7 @@ impl App {
                 None
             }
             Message::Key(key) => self.on_key(key),
+            Message::Paste(text) => self.on_paste(&text),
             Message::Scroll(delta) => {
                 // The wheel scrolls the transcript. A positive number scrolls up.
                 self.scroll_by(-delta);
@@ -545,6 +548,22 @@ impl App {
             return Some(Command::RunWidgets);
         }
         command
+    }
+
+    /// A bracketed paste: multi-line text stays multi-line, and a pasted path becomes an `@` pin
+    /// with its absolute location, the way OMP turns clipboard paths into attachments.
+    fn on_paste(&mut self, text: &str) -> Option<Command> {
+        let root = std::path::Path::new(&self.cwd);
+        let converted: Vec<String> = text
+            .split('\n')
+            .map(|line| match seek_core::pins::pasted_path(line, root) {
+                Some(path) => format!("@{} ", path.display()),
+                None => line.to_string(),
+            })
+            .collect();
+        self.input.insert_text(&converted.join("\n"));
+        self.completion_dismissed = false;
+        None
     }
 
     fn on_key(&mut self, key: KeyEvent) -> Option<Command> {
@@ -2718,6 +2737,24 @@ mod tests {
         );
         // The draft stays: it is sent once a model is chosen with `/model`.
         assert_eq!(app.input.text(), "hello");
+    }
+
+    #[test]
+    fn paste_keeps_newlines_and_turns_paths_into_pins() {
+        let mut app = App::new(Theme::default());
+        app.update(Message::Paste("one\ntwo".into()));
+        assert_eq!(app.input.text(), "one\ntwo");
+
+        let path = std::env::temp_dir().join(format!("seek-paste-{}", std::process::id()));
+        std::fs::write(&path, "image bytes").expect("written");
+        let mut app = App::new(Theme::default());
+        app.cwd = std::env::temp_dir().to_string_lossy().to_string();
+        app.update(Message::Paste(path.to_string_lossy().to_string()));
+        let text = app.input.text();
+        assert!(text.starts_with('@'), "a pasted path is a pin: {text}");
+        let pins = seek_core::pins::find(&text, std::path::Path::new(&app.cwd));
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].path, path);
     }
 
     #[test]
