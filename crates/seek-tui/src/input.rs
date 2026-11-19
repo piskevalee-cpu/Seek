@@ -19,6 +19,7 @@ pub const SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/provider", "Add or edit providers"),
     ("/quit", "Exit SEEK"),
     ("/resume", "Open the sessions"),
+    ("/sessions", "Pick a past session"),
     ("/settings", "Your name and settings"),
     ("/skills", "Toggle the skills"),
     ("/think", "Set the reasoning level"),

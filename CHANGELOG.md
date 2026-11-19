@@ -12,7 +12,9 @@ workspace; each release ships a milestone (SPEC 15).
 
 The prompt box keeps long pasted text inside its borders.
 
-### Fixed
+### Changed
+- The sidebar shows only the last three sessions; `/sessions` (alias `/history`) opens the full
+  picker, and Up/Down + Enter select and resume sessions directly while the sidebar is open.
 - The prompt borders now span the full box width; a long paste no longer draws past the right edge.
 
 ## [0.7.12] - 2026-11-19

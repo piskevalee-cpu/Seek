@@ -16,6 +16,9 @@ use crate::metrics::Metrics;
 use crate::spinner::cells_line_at;
 use crate::theme::Theme;
 
+/// How many sessions the sidebar shows; the full list lives in `/sessions`.
+pub const SIDEBAR_SESSIONS: usize = 3;
+
 /// The width of the sidebar.
 pub const SIDEBAR_WIDTH: u16 = 32;
 
@@ -75,7 +78,7 @@ pub fn render(
         )));
     } else {
         let now = std::time::SystemTime::now();
-        for (index, session) in sessions.iter().enumerate() {
+        for (index, session) in sessions.iter().take(SIDEBAR_SESSIONS).enumerate() {
             let style = if index == selected_session {
                 Style::new().fg(theme.bg).bg(theme.accent)
             } else {

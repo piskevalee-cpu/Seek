@@ -500,6 +500,23 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
 }
 
 #[test]
+fn the_sessions_command_opens_the_picker() {
+    let mut app = app();
+    app.sessions = vec![seek_core::SessionInfo {
+        id: "one".into(),
+        title: "a past question".into(),
+        cwd: "/home/valerio/project".into(),
+        created: "2026-11-11T12:00:00Z".into(),
+    }];
+    for c in "/sessions".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    let screen = render(&mut app, 100, 30);
+    assert!(screen.contains("a past question"), "{screen}");
+}
+
+#[test]
 fn the_history_command_lists_and_resumes_past_sessions() {
     let mut app = app();
     app.sessions = vec![seek_core::SessionInfo {
@@ -1093,6 +1110,48 @@ fn a_new_session_asks_for_one() {
     let command = app.update(Message::Key(key(KeyCode::Enter)));
     assert!(matches!(command, Some(seek_tui::Command::NewSession)));
     assert!(app.rows.is_empty());
+}
+
+#[test]
+fn the_sidebar_shows_only_the_last_three_sessions() {
+    let mut app = app();
+    app.sidebar.open = true;
+    app.sessions = (0..6)
+        .map(|index| seek_core::SessionInfo {
+            id: format!("s{index}"),
+            title: format!("past question {index}"),
+            cwd: "/home/valerio/project".into(),
+            created: "2026-11-11T12:00:00Z".into(),
+        })
+        .collect();
+    let screen = render(&mut app, 120, 30);
+    assert!(screen.contains("past question 0"));
+    assert!(screen.contains("past question 2"));
+    assert!(!screen.contains("past question 3"), "{screen}");
+}
+
+#[test]
+fn sessions_can_be_picked_with_arrows_in_the_open_sidebar() {
+    let mut app = app();
+    app.sidebar.open = true;
+    app.sessions = vec![
+        seek_core::SessionInfo {
+            id: "a".into(),
+            title: "first".into(),
+            cwd: "/home/valerio/project".into(),
+            created: "2026-11-11T12:00:00Z".into(),
+        },
+        seek_core::SessionInfo {
+            id: "b".into(),
+            title: "second".into(),
+            cwd: "/home/valerio/project".into(),
+            created: "2026-11-12T12:00:00Z".into(),
+        },
+    ];
+    app.update(Message::Key(key(KeyCode::Down)));
+    assert_eq!(app.session_selected, 1);
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    assert_eq!(command, Some(Command::ResumeSession("b".into())));
 }
 
 #[test]

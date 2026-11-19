@@ -614,10 +614,11 @@ impl App {
             return None;
         }
 
+        let picking_sessions = self.sidebar.open && (self.sidebar_focused || self.input.is_empty());
         match key.code {
             KeyCode::Enter => {
-                if self.sidebar_focused {
-                    // Enter resumes the selected session (SPEC 10.3).
+                if picking_sessions {
+                    // Enter resumes the selected session when the sidebar is showing.
                     if let Some(session) = self.sessions.get(self.session_selected) {
                         let id = session.id.clone();
                         self.sidebar_focused = false;
@@ -660,7 +661,7 @@ impl App {
                 None
             }
             KeyCode::Up => {
-                if self.sidebar_focused {
+                if picking_sessions {
                     self.move_session_selection(-1);
                 } else if self.input.is_empty() {
                     self.move_selection(-1);
@@ -670,7 +671,7 @@ impl App {
                 None
             }
             KeyCode::Down => {
-                if self.sidebar_focused {
+                if picking_sessions {
                     self.move_session_selection(1);
                 } else if self.input.is_empty() {
                     self.move_selection(1);
@@ -1209,7 +1210,7 @@ impl App {
                 }
                 return None;
             }
-            "history" => {
+            "sessions" | "history" => {
                 if choose
                     && let Some(value) = picker.selected_item().map(|item| item.value.as_str())
                     && let Some(id) = value.strip_prefix("session:")
@@ -1470,6 +1471,30 @@ impl App {
             .tap_hint("↑↓ models · type to search · Enter use · Esc close")
     }
 
+    /// The picker for `/sessions` and `/history`: every session of this SEEK home.
+    fn sessions_picker(&self) -> Picker {
+        let now = std::time::SystemTime::now();
+        let items = self
+            .sessions
+            .iter()
+            .map(|session| {
+                let title = if session.title.is_empty() {
+                    "(no title)".to_string()
+                } else {
+                    session.title.clone()
+                };
+                PickerItem::new(title, format!("session:{}", session.id)).with_detail(format!(
+                    "{}  ·  {}",
+                    session.cwd,
+                    session.age(now)
+                ))
+            })
+            .collect();
+        Picker::new("sessions", items)
+            .bottom_anchored()
+            .tap_hint("↑↓ sessions · Enter resume · Esc close")
+    }
+
     /// The picker for `/mode`: the three permission modes.
     fn mode_picker(&self) -> Picker {
         let items = [
@@ -1684,11 +1709,16 @@ impl App {
 
     /// Move the session selection in the sidebar.
     fn move_session_selection(&mut self, delta: isize) {
-        if self.sessions.is_empty() {
+        let visible = if self.sidebar.open {
+            self.sessions.len().min(crate::sidebar::SIDEBAR_SESSIONS)
+        } else {
+            self.sessions.len()
+        };
+        if visible == 0 {
             self.session_selected = 0;
             return;
         }
-        let length = self.sessions.len() as isize;
+        let length = visible as isize;
         let next = (self.session_selected as isize + delta).rem_euclid(length);
         self.session_selected = next as usize;
     }
@@ -1817,26 +1847,8 @@ impl App {
                 self.overlay = Some(Overlay::Help);
                 None
             }
-            "/history" => {
-                let now = std::time::SystemTime::now();
-                let items = self
-                    .sessions
-                    .iter()
-                    .map(|session| {
-                        let title = if session.title.is_empty() {
-                            "(no title)".to_string()
-                        } else {
-                            session.title.clone()
-                        };
-                        PickerItem::new(title, format!("session:{}", session.id))
-                            .with_detail(format!("{}  ·  {}", session.cwd, session.age(now)))
-                    })
-                    .collect();
-                self.overlay = Some(Overlay::Picker(
-                    Picker::new("history", items)
-                        .bottom_anchored()
-                        .tap_hint("↑↓ sessions · Enter resume · Esc close"),
-                ));
+            "/history" | "/sessions" => {
+                self.overlay = Some(Overlay::Picker(self.sessions_picker()));
                 None
             }
             "/thoughts" => {
@@ -1925,6 +1937,7 @@ impl App {
             "/quit" => Some("/quit"),
             "/help" => Some("/help"),
             "/history" => Some("/history"),
+            "/sessions" => Some("/sessions"),
             "/thoughts" => Some("/thoughts"),
             "/model" => Some("/model"),
             "/provider" => Some("/provider"),
