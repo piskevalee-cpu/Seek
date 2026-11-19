@@ -742,7 +742,9 @@ impl App {
 
     fn on_control_key(&mut self, key: KeyEvent) -> Option<Command> {
         match key.code {
-            KeyCode::Backspace => {
+            KeyCode::Backspace | KeyCode::Delete | KeyCode::Char('w' | 'h') => {
+                // Terminals disagree about the byte for Ctrl+Backspace: some send Backspace, some
+                // Delete, some the old Ctrl-H/Ctrl-W sequences. All delete a word here.
                 self.input.delete_word_backward();
                 self.completion_dismissed = false;
                 None
@@ -2243,6 +2245,7 @@ impl App {
                 &self.metrics,
                 &self.sessions,
                 self.session_selected,
+                self.sidebar_side == seek_core::user::Side::Left,
             );
         }
 
@@ -2384,7 +2387,12 @@ impl App {
                     area.width,
                     area.height.saturating_sub(prompt_height + 1),
                 );
-                picker.render(frame, picker_area, &self.theme);
+                picker.render(
+                    frame,
+                    picker_area,
+                    &self.theme,
+                    self.sidebar_side == seek_core::user::Side::Left,
+                );
             }
             Some(Overlay::Options {
                 name,
@@ -2805,6 +2813,17 @@ mod tests {
             KeyModifiers::CONTROL,
         )));
         assert_eq!(app.input.text(), "hello ");
+
+        // Other terminals send Ctrl+Delete or Ctrl+W for the same gesture.
+        for code in [KeyCode::Delete, KeyCode::Char('w')] {
+            let mut app = App::new(Theme::default());
+            app.model_configured = true;
+            for c in "hello world".chars() {
+                app.update(Message::Key(key(KeyCode::Char(c))));
+            }
+            app.update(Message::Key(KeyEvent::new(code, KeyModifiers::CONTROL)));
+            assert_eq!(app.input.text(), "hello ", "with {code:?}");
+        }
     }
 
     #[test]

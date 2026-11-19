@@ -8,6 +8,7 @@ use ratatui::widgets::{BorderType, Clear};
 use ratatui::{Frame, layout::Rect, style::Style, text::Line, text::Span};
 use unicode_width::UnicodeWidthStr;
 
+use crate::gradient;
 use crate::scrollbar;
 use crate::theme::Theme;
 
@@ -185,7 +186,7 @@ impl Picker {
     ///
     /// The panel has a search row, grouped rows, a side scrollbar and a detail line for the
     /// selection. It is anchored above the prompt, so the box stays visible while choosing.
-    pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme, from_left: bool) {
         frame.render_widget(Clear, area);
         frame.render_widget(
             ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
@@ -289,8 +290,12 @@ impl Picker {
             if let Some(tag) = &item.tag {
                 spans.push(Span::styled(
                     format!("  {tag}"),
-                    Style::new().fg(if picked { theme.bg } else { theme.accent }),
+                    Style::new().fg(theme.accent),
                 ));
+            }
+            if picked {
+                let row_width = inner.width.saturating_sub(2) as usize;
+                spans = gradient::paint(spans, row_width, from_left, theme);
             }
             rows.push(Line::from(spans));
         }
