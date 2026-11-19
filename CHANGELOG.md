@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.15] - 2026-11-19
+
+Directional gradients and a Ctrl+Backspace that works across terminals.
+
 ### Changed
 - Selected rows in the sidebar and the pickers now use a directional blue gradient instead of a
   solid block; the direction follows which side the sidebar is on.
