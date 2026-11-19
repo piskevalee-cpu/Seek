@@ -1205,3 +1205,25 @@ fn a_tool_row_is_closed_by_its_own_id() {
     assert_eq!(status(0), "ok");
     assert_eq!(status(1), "running");
 }
+#[test]
+fn pasted_long_text_stays_inside_the_box() {
+    let mut app = app();
+    let text = format!("start {}", "d".repeat(500));
+    app.update(Message::Paste(text));
+    let lines = render_lines(&mut app, 120, 30);
+    for (i, line) in lines.iter().enumerate() {
+        assert!(
+            line.chars().count() <= 120,
+            "line {i} has {} chars",
+            line.chars().count()
+        );
+    }
+    assert!(
+        lines.iter().any(|line| line.ends_with('╮')),
+        "the top border reaches the right edge"
+    );
+    assert!(
+        lines.iter().any(|line| line.ends_with('╯')),
+        "the bottom border reaches the right edge"
+    );
+}
