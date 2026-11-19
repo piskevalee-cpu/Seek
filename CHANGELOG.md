@@ -8,6 +8,19 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Fixed
+- OpenAI-compatible providers (including local llama.cpp) now receive the system prompt as the first
+  `system` message and tool results as proper `role: "tool"` messages with their call ids. This is
+  why an agent could miss command output and doubt that a command had run.
+- The transcript's first line aligns with the first line inside the sidebar when it is open.
+- A command with no output returns `(no output)` instead of an empty result.
+
+### Added
+- Ctrl+Backspace deletes a word, Ctrl+Shift+V pastes clipboard text, and Ctrl+V saves a clipboard
+  image under `state/pastes/` and pins its path, following grok-code/OMP conventions.
+- Project-level `.seek/SYSTEM.md` and `.seek/config.toml` override the user's SEEK home; only the
+  keys present in the project file are applied (D-027).
+
 ## [0.7.13] - 2026-11-19
 
 The prompt box keeps long pasted text inside its borders.

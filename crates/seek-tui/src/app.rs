@@ -152,6 +152,10 @@ pub enum UiMessage {
     Session(Vec<seek_core::Message>),
     /// The models an endpoint knows (SPEC 6).
     Models(std::collections::BTreeMap<String, Vec<String>>),
+    /// Text read from the clipboard by the binary.
+    PasteText(String),
+    /// An image file read from the clipboard by the binary.
+    PasteImage(std::path::PathBuf),
 }
 
 /// Everything that can happen to the application.
@@ -162,6 +166,8 @@ pub enum Message {
     Key(KeyEvent),
     /// Bracketed paste: text or a path from the clipboard.
     Paste(String),
+    /// An image file pasted with Ctrl+V.
+    PasteImage(std::path::PathBuf),
     /// The wheel of the mouse: a positive number scrolls up.
     Scroll(isize),
     /// A click or drag on the side scrollbar; `row` is a terminal row, `col` a terminal column.
@@ -188,6 +194,8 @@ pub enum Message {
 /// A side effect that the binary has to perform.
 #[derive(Debug, PartialEq)]
 pub enum Command {
+    /// Read the clipboard: raw text (Ctrl+Shift+V) or an image file (Ctrl+V).
+    Clipboard { image: bool },
     /// Hand a message to the agent, with the permission mode the user chose.
     Submit { text: String, mode: PermissionMode },
     /// Answer a permission request.
@@ -484,6 +492,11 @@ impl App {
             }
             Message::Key(key) => self.on_key(key),
             Message::Paste(text) => self.on_paste(&text),
+            Message::PasteImage(path) => {
+                self.input.insert_text(&format!("@{} ", path.display()));
+                self.completion_dismissed = false;
+                None
+            }
             Message::Scroll(delta) => {
                 // The wheel scrolls the transcript. A positive number scrolls up.
                 self.scroll_by(-delta);
@@ -729,6 +742,20 @@ impl App {
 
     fn on_control_key(&mut self, key: KeyEvent) -> Option<Command> {
         match key.code {
+            KeyCode::Backspace => {
+                self.input.delete_word_backward();
+                self.completion_dismissed = false;
+                None
+            }
+            KeyCode::Char('v') => {
+                // The image shortcut is Ctrl+V; text pasting uses Ctrl+Shift+V or the terminal's
+                // own bracketed paste.
+                if key.modifiers.contains(KeyModifiers::SHIFT) {
+                    Some(Command::Clipboard { image: false })
+                } else {
+                    Some(Command::Clipboard { image: true })
+                }
+            }
             KeyCode::Char('c') => {
                 // Ctrl+C clears the input; twice it quits.
                 self.last_ctrl_c += 1;
@@ -2644,6 +2671,9 @@ impl App {
 
         let keys = [
             ("Enter", "send"),
+            ("Ctrl+Backspace", "delete a word"),
+            ("Ctrl+Shift+V", "paste text from the clipboard"),
+            ("Ctrl+V", "paste an image from the clipboard"),
             ("Esc", "interrupt / close"),
             ("Shift+Tab", "cycle permission mode"),
             ("Ctrl+B", "toggle sidebar"),
@@ -2762,6 +2792,28 @@ mod tests {
         );
         // The draft stays: it is sent once a model is chosen with `/model`.
         assert_eq!(app.input.text(), "hello");
+    }
+
+    #[test]
+    fn ctrl_backspace_deletes_a_word() {
+        let mut app = App::new(Theme::default());
+        for c in "hello world".chars() {
+            app.update(Message::Key(key(KeyCode::Char(c))));
+        }
+        app.update(Message::Key(KeyEvent::new(
+            KeyCode::Backspace,
+            KeyModifiers::CONTROL,
+        )));
+        assert_eq!(app.input.text(), "hello ");
+    }
+
+    #[test]
+    fn a_pasted_image_becomes_a_pin() {
+        let mut app = App::new(Theme::default());
+        let path = std::path::PathBuf::from("/tmp/seek-pasted-image.png");
+        app.update(Message::PasteImage(path.clone()));
+        let text = app.input.text();
+        assert!(text.contains(&format!("@{}", path.display())), "{text}");
     }
 
     #[test]
