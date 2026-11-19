@@ -1655,11 +1655,6 @@ impl App {
                 .with_right(&side)
                 .with_group("interface")
                 .selecting(&["left", "right"], &side),
-            MenuItem::new("Permission mode", "settings:mode")
-                .with_detail("Read only, ask for writes, or allow everything")
-                .with_right(&mode)
-                .with_group("security")
-                .selecting(&["READ", "ASK", "YOLO"], &mode),
             MenuItem::new("Reasoning text", "settings:reasoning")
                 .with_detail("Show the model's reasoning in the transcript")
                 .with_right(&reasoning)
@@ -1670,6 +1665,11 @@ impl App {
                 .with_right(&motion)
                 .with_group("interface")
                 .selecting(&["on", "off"], &motion),
+            MenuItem::new("Permission mode", "settings:mode")
+                .with_detail("Read only, ask for writes, or allow everything")
+                .with_right(&mode)
+                .with_group("security")
+                .selecting(&["READ", "ASK", "YOLO"], &mode),
         ];
         Menu::new("settings", MenuKind::Settings, items)
             .with_hint("↑↓ setting · ←→ change · Enter apply · Esc close")
@@ -2498,15 +2498,17 @@ impl App {
             footer_area,
         );
 
+        // Overlays live in the main column, never under the sidebar. When it is open they
+        // share its width and the gradient follows its side.
         match &self.overlay {
-            Some(Overlay::Help) => self.render_help(frame, area),
+            Some(Overlay::Help) => self.render_help(frame, main_area),
             Some(Overlay::Picker(picker)) => {
                 // The panel lives above the prompt, so the box stays visible while choosing.
                 let picker_area = Rect::new(
-                    area.x,
-                    area.y,
-                    area.width,
-                    area.height.saturating_sub(prompt_height + 1),
+                    main_area.x,
+                    main_area.y,
+                    main_area.width,
+                    main_area.height.saturating_sub(prompt_height + 1),
                 );
                 picker.render(
                     frame,
@@ -2517,10 +2519,10 @@ impl App {
             }
             Some(Overlay::Menu(menu)) => {
                 let menu_area = Rect::new(
-                    area.x,
-                    area.y,
-                    area.width,
-                    area.height.saturating_sub(prompt_height + 1),
+                    main_area.x,
+                    main_area.y,
+                    main_area.width,
+                    main_area.height.saturating_sub(prompt_height + 1),
                 );
                 menu.render(
                     frame,
@@ -2534,8 +2536,8 @@ impl App {
                 prefix,
                 input,
                 ..
-            }) => self.render_options(frame, area, name, prefix, input),
-            Some(Overlay::ProviderForm(form)) => self.render_provider_form(frame, area, form),
+            }) => self.render_options(frame, main_area, name, prefix, input),
+            Some(Overlay::ProviderForm(form)) => self.render_provider_form(frame, main_area, form),
             None => {}
         }
     }

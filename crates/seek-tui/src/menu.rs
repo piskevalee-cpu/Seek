@@ -1,9 +1,8 @@
 //! The model selector and the settings menu (SPEC 10.3).
 //!
-//! Both overlays and the launch-options editor are drawn in the design language of the sidebar:
-//! a dark-cube border, a dim title with spaces, `accent` section headers, `cube_light` primary
-//! text, `dim` secondary text, and the directional blue gradient on the selected row. Nothing
-//! from the grok-build chrome (close button, search row, `◆`, centered shortcuts) remains.
+//! Both are drawn in the design language of the sidebar: a dark-cube border with a dim title,
+//! `accent` section headers, `cube_light` primary text, `dim` secondary text, and the directional
+//! blue gradient on the selected row. Grouped rows mirror the sidebar's Sessions/Processes.
 
 use ratatui::widgets::{BorderType, Clear};
 use ratatui::{Frame, layout::Rect, style::Style, text::Line, text::Span};
@@ -104,21 +103,6 @@ pub(crate) fn section_header(text: &str, theme: &Theme) -> Line<'static> {
     ))
 }
 
-/// The header line: a bold section name and, while filtering, the typed query in dim.
-fn header_line(name: &str, filter: &str, theme: &Theme) -> Line<'static> {
-    let mut spans = vec![Span::styled(
-        name.to_string(),
-        Style::new().fg(theme.accent).bold().bg(theme.bg),
-    )];
-    if !filter.is_empty() {
-        spans.push(Span::styled(
-            format!("  {filter}"),
-            Style::new().fg(theme.dim).bg(theme.bg),
-        ));
-    }
-    Line::from(spans)
-}
-
 /// One list row: two-space indent, a cursor, the label, optional badge and a right-aligned
 /// value. The selected row gets the directional gradient.
 fn row_line(
@@ -158,6 +142,13 @@ fn row_line(
         }
     }
     Line::from(spans)
+}
+
+/// A line of a grouped list: a section header, an item, or the empty state.
+enum InlineRow<'a> {
+    Group(String),
+    Item(&'a MenuItem, usize),
+    Empty,
 }
 
 impl Menu {
@@ -225,11 +216,90 @@ impl Menu {
         self.selected = 0;
     }
 
-    /// The model selector is an inline list above the prompt, drawn like the sidebar.
+    /// Group the visible items into section headers and rows.
+    fn grouped_rows(&self, indices: &[usize]) -> Vec<InlineRow<'_>> {
+        let mut rows = Vec::new();
+        let mut last_group: Option<&str> = None;
+        for (offset, index) in indices.iter().enumerate() {
+            let item = &self.items[*index];
+            if let Some(group) = item.group.as_deref()
+                && last_group != Some(group)
+            {
+                last_group = Some(group);
+                rows.push(InlineRow::Group(group.to_string()));
+            }
+            rows.push(InlineRow::Item(item, offset));
+        }
+        if rows.is_empty() {
+            rows.push(InlineRow::Empty);
+        }
+        rows
+    }
+
+    /// The first row of a window of `height` that keeps the selection visible.
+    fn window_start(rows: &[InlineRow<'_>], selected: usize, height: usize) -> usize {
+        let marker = rows
+            .iter()
+            .position(|row| matches!(row, InlineRow::Item(_, offset) if *offset == selected))
+            .unwrap_or(0);
+        marker
+            .saturating_add(1)
+            .saturating_sub(height)
+            .min(rows.len().saturating_sub(height))
+    }
+
+    fn render_row(
+        frame: &mut Frame,
+        row: &InlineRow<'_>,
+        rect: Rect,
+        selected: usize,
+        theme: &Theme,
+        from_left: bool,
+    ) {
+        match row {
+            InlineRow::Group(group) => {
+                frame.render_widget(section_header(group, theme), rect);
+            }
+            InlineRow::Item(item, offset) => {
+                let right = if item.right_label.is_empty() {
+                    &item.detail
+                } else {
+                    &item.right_label
+                };
+                let right = truncate(right, rect.width as usize / 3);
+                frame.render_widget(
+                    row_line(
+                        item,
+                        &right,
+                        *offset == selected,
+                        rect.width as usize,
+                        from_left,
+                        theme,
+                    ),
+                    rect,
+                );
+            }
+            InlineRow::Empty => {
+                frame.render_widget(
+                    ratatui::widgets::Paragraph::new(Span::styled(
+                        "  none",
+                        Style::new().fg(theme.dim).italic().bg(theme.bg),
+                    )),
+                    rect,
+                );
+            }
+        }
+    }
+
+    /// The model selector is a sidebar-style panel above the prompt.
     fn render_inline(&self, frame: &mut Frame, area: Rect, theme: &Theme, from_left: bool) {
         let indices = self.visible_indices();
-        // A dark divider, the "Models" section header, then the rows.
-        let height = (indices.len().max(1) + 2).min(area.height as usize).max(1);
+        let rows = self.grouped_rows(&indices);
+        let inner_height = area.height.saturating_sub(2).max(1) as usize;
+        let start = Self::window_start(&rows, self.selected, inner_height);
+        let count = inner_height.min(rows.len());
+        let height = (count + 2).min(area.height as usize).max(3);
+        // Bottom-anchored: the panel sits just above the prompt.
         let rect = Rect::new(
             area.x,
             area.y + area.height - height as u16,
@@ -237,47 +307,28 @@ impl Menu {
             height as u16,
         );
         frame.render_widget(Clear, rect);
-        frame.render_widget(
-            ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
-            rect,
-        );
-        frame.render_widget(
-            ratatui::widgets::Paragraph::new(Span::styled(
-                "\u{2500}".repeat(rect.width as usize),
-                Style::new().fg(theme.cube_dark).bg(theme.bg),
-            )),
-            Rect::new(rect.x, rect.y, rect.width, 1),
-        );
-        frame.render_widget(
-            ratatui::widgets::Paragraph::new(header_line("Models", &self.filter, theme)),
-            Rect::new(rect.x, rect.y + 1, rect.width, 1),
-        );
-
-        let window = height.saturating_sub(2);
-        let start = self
-            .selected
-            .saturating_add(1)
-            .saturating_sub(window)
-            .min(indices.len().saturating_sub(window));
-        for (offset, index) in indices.iter().enumerate().skip(start).take(window) {
-            let item = &self.items[*index];
-            let right = if item.right_label.is_empty() {
-                &item.detail
-            } else {
-                &item.right_label
-            };
-            let right = truncate(right, rect.width as usize / 3);
-            let y = rect.y + 2 + offset as u16 - start as u16;
-            frame.render_widget(
-                row_line(
-                    item,
-                    &right,
-                    offset == self.selected,
-                    rect.width as usize,
-                    from_left,
-                    theme,
-                ),
-                Rect::new(rect.x, y, rect.width, 1),
+        let title = if self.filter.is_empty() {
+            self.title.clone()
+        } else {
+            format!("{}: {}", self.title, self.filter)
+        };
+        let block = panel_block(&title, theme);
+        let inner = block.inner(rect);
+        frame.render_widget(block, rect);
+        for (i, row) in self
+            .grouped_rows(&indices)
+            .iter()
+            .skip(start)
+            .take(count)
+            .enumerate()
+        {
+            Self::render_row(
+                frame,
+                row,
+                Rect::new(inner.x, inner.y + i as u16, inner.width, 1),
+                self.selected,
+                theme,
+                from_left,
             );
         }
     }
@@ -294,17 +345,24 @@ impl Menu {
             area,
         );
 
+        let indices = self.visible_indices();
+        let rows = self.grouped_rows(&indices);
+        let hint = self
+            .hint
+            .as_deref()
+            .unwrap_or("\u{2191}\u{2193} move \u{00b7} Enter use \u{00b7} Esc close");
+
         let max_width = area.width.saturating_sub(4).min(96);
         let width = ((area.width as f32 * 0.8) as u16)
             .min(max_width)
             .max(48)
             .min(area.width);
-        let height = area.height.saturating_sub(10).max(9).min(area.height);
+        let height = (rows.len() + 3).min(area.height as usize).max(5);
         let rect = Rect::new(
             area.x + (area.width - width) / 2,
-            area.y + (area.height - height) / 2,
+            area.y + (area.height - height as u16) / 2,
             width,
-            height,
+            height as u16,
         );
         let title = if self.filter.is_empty() {
             self.title.clone()
@@ -315,48 +373,18 @@ impl Menu {
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
-        let indices = self.visible_indices();
-        // One header row and one hint row are reserved; the rest hold the settings.
-        let available = inner.height.saturating_sub(2).max(1) as usize;
-        let start = self
-            .selected
-            .saturating_add(1)
-            .saturating_sub(available)
-            .min(indices.len().saturating_sub(available));
-
-        frame.render_widget(
-            header_line("Settings", "", theme),
-            Rect::new(inner.x, inner.y, inner.width, 1),
-        );
-        for (offset, index) in indices.iter().enumerate().skip(start).take(available) {
-            let item = &self.items[*index];
-            let right = truncate(&item.right_label, inner.width as usize / 3);
-            let y = inner.y + 1 + offset as u16 - start as u16;
-            frame.render_widget(
-                row_line(
-                    item,
-                    &right,
-                    offset == self.selected,
-                    inner.width as usize,
-                    from_left,
-                    theme,
-                ),
-                Rect::new(inner.x, y, inner.width, 1),
+        let available = inner.height.saturating_sub(1).max(1) as usize;
+        let start = Self::window_start(&rows, self.selected, available);
+        for (i, row) in rows.iter().skip(start).take(available).enumerate() {
+            Self::render_row(
+                frame,
+                row,
+                Rect::new(inner.x, inner.y + i as u16, inner.width, 1),
+                self.selected,
+                theme,
+                from_left,
             );
         }
-        if indices.is_empty() {
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(Span::styled(
-                    "  nothing matches",
-                    Style::new().fg(theme.dim).italic().bg(theme.bg),
-                )),
-                Rect::new(inner.x, inner.y + 1, inner.width, 1),
-            );
-        }
-        let hint = self
-            .hint
-            .as_deref()
-            .unwrap_or("\u{2191}\u{2193} move \u{00b7} Enter use \u{00b7} Esc close");
         frame.render_widget(
             ratatui::widgets::Paragraph::new(Span::styled(
                 format!("  {hint}"),

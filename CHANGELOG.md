@@ -8,6 +8,17 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.20] - 2026-11-20
+
+The menus now use the sidebar's panel and stay clear of it.
+
+### Changed
+- `/model` and `/settings` are bordered panels with grouped section headers, like the sidebar's
+  `┌ SEEK ┐` box, instead of a divider with a bare header. The model list is grouped by provider
+  and local; settings groups its values into session, interface and security.
+- All overlays are drawn in the main column when the sidebar is open, never under it, and the
+  selected-row gradient keeps following the sidebar's side (D-031).
+
 ## [0.7.19] - 2026-11-19
 
 The menus now speak the same visual language as the sidebar.

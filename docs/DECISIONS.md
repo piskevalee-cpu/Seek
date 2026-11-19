@@ -680,3 +680,17 @@ the typed query appears dimmed after the `Models`/`Settings` header. The shared 
 `section_header` helpers in `seek-tui::menu` keep the panels in step.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-031 — Menus are sidebar panels in the main column
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.3
+
+A screenshot with the sidebar open showed the model list spanning the whole window and drawing its
+rows beneath the sidebar, while the sidebar itself is a bordered `┌ SEEK ┐` panel. The owner asked
+for the model selector and settings to look like the sidebar and to adapt when it is open. Both are
+now bordered panels with a dim title on the border, grouped `accent` section headers and the same
+row styling as the sidebar's sessions. Crucially, overlays are rendered into `main_area` rather than
+the full screen, so they occupy the column beside the sidebar; the directional gradient keeps
+following the sidebar's side. Settings were reordered so each group header appears once.
+
+**Status:** accepted. The specification and changelog were updated.
