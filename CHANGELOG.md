@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.16] - 2026-11-19
+
+Grok-style model selection and settings.
+
 ### Changed
 - `/model` and `/settings` were rebuilt from the ground up as grok-build-style floating menus: a
   search row, a list with gradient-selected rows, and a detail pane for the selected model.
