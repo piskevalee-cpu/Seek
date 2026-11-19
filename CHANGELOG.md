@@ -8,6 +8,10 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.14] - 2026-11-19
+
+Local models get the system prompt and tool output; grok-style paste keys and project config.
+
 ### Fixed
 - OpenAI-compatible providers (including local llama.cpp) now receive the system prompt as the first
   `system` message and tool results as proper `role: "tool"` messages with their call ids. This is
