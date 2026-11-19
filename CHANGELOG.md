@@ -8,6 +8,16 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.18] - 2026-11-19
+
+The model selector now matches the grok-code inline list.
+
+### Changed
+- `/model` is an inline picker above the prompt instead of a modal: a thin divider, a
+  `/model <model> [window] [effort]` line, and compact `❯` rows with the model name, a
+  `CURRENT`/`LOCAL` badge and a right-aligned id. The picked row keeps SEEK's gradient and the
+  transcript stays visible around the list. `/settings` stays a grok-build-style modal (D-029).
+
 ## [0.7.17] - 2026-11-19
 
 The menus now carry the grok-build modal chrome.

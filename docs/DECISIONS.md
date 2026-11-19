@@ -651,3 +651,17 @@ shortcut footer. Nothing was copied verbatim; the code is written for SEEK's `Th
 0.30 types. The SEEK addition is the directional blue gradient on the selected row.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-029 — The model picker is inline, the settings stay a modal
+
+**Date:** 2026-11-19 · **Affects:** SPEC 10.3
+
+The grok-code screenshot shows the model selector as a compact list directly above the prompt,
+not as a full-screen modal. D-028 ported the modal chrome, which made SEEK's picker look unlike the
+reference. The model selector is now inline: it clears only its own rows, draws a thin divider and
+a `/model <model> [window] [effort]` line, then compact rows with the cursor glyph, the model name,
+the `CURRENT`/`LOCAL` badge and a right-aligned id, with the directional gradient on the picked row.
+The transcript stays visible around it. The settings menu keeps the grok-build modal chrome, which
+is how the reference renders settings.
+
+**Status:** accepted. The specification and changelog were updated.

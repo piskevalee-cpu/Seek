@@ -148,8 +148,101 @@ impl Menu {
         self.selected = 0;
     }
 
+    /// The model selector is an inline list above the prompt, like the grok-code picker.
+    fn render_inline(&self, frame: &mut Frame, area: Rect, theme: &Theme, from_left: bool) {
+        let indices = self.visible_indices();
+        let rows = indices.len().max(1);
+        let height = (rows + 2).min(area.height as usize).max(1);
+        let rect = Rect::new(
+            area.x,
+            area.y + area.height - height as u16,
+            area.width,
+            height as u16,
+        );
+        frame.render_widget(Clear, rect);
+        frame.render_widget(
+            ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
+            rect,
+        );
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(Span::styled(
+                "\u{2500}".repeat(rect.width as usize),
+                Style::new().fg(theme.dim).bg(theme.bg),
+            )),
+            Rect::new(rect.x, rect.y, rect.width, 1),
+        );
+
+        let query = if self.filter.is_empty() {
+            "<model> [window] [effort]".to_string()
+        } else {
+            format!("{} <model> [window] [effort]", self.filter)
+        };
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(Span::styled(
+                format!(" /model {query}"),
+                Style::new().fg(theme.dim).bg(theme.bg),
+            )),
+            Rect::new(rect.x, rect.y + 1, rect.width, 1),
+        );
+
+        let window = height.saturating_sub(2);
+        let start = self
+            .selected
+            .saturating_add(1)
+            .saturating_sub(window)
+            .min(indices.len().saturating_sub(window));
+        for (offset, index) in indices.iter().enumerate().skip(start).take(window) {
+            let item = &self.items[*index];
+            let picked = offset == self.selected;
+            let right = if item.right_label.is_empty() {
+                &item.detail
+            } else {
+                &item.right_label
+            };
+            let right = truncate(right, rect.width as usize / 3);
+            let prefix = if picked { "\u{276f} " } else { "  " };
+            let badge = if item.badge.is_empty() {
+                String::new()
+            } else {
+                format!("[{}] ", item.badge)
+            };
+            let label_width = (rect.width as usize)
+                .saturating_sub(prefix.width() + badge.width() + right.width() + 4);
+            let label = truncate(&item.label, label_width);
+            let pad = (rect.width as usize)
+                .saturating_sub(prefix.width() + label.width() + badge.width() + right.width() + 1);
+            let mut spans = vec![
+                Span::styled(
+                    prefix.to_string(),
+                    Style::new().fg(theme.accent).bg(theme.bg),
+                ),
+                Span::styled(label, Style::new().fg(theme.text).bg(theme.bg)),
+                Span::styled(badge, Style::new().fg(theme.accent).bg(theme.bg)),
+                Span::styled(" ".repeat(pad), Style::new().bg(theme.bg)),
+                Span::styled(right, Style::new().fg(theme.dim).bg(theme.bg)),
+            ];
+            if picked {
+                spans = gradient::paint(spans, rect.width as usize, from_left, theme);
+                for span in &mut spans {
+                    if span.style.add_modifier.is_empty() {
+                        *span = span.clone().style(span.style.bold());
+                    }
+                }
+            }
+            let y = rect.y + 2 + offset as u16 - start as u16;
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(Line::from(spans)),
+                Rect::new(rect.x, y, rect.width, 1),
+            );
+        }
+    }
+
     /// Draw the menu on an opaque stage above the prompt.
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme, from_left: bool) {
+        if self.kind == MenuKind::Model {
+            self.render_inline(frame, area, theme, from_left);
+            return;
+        }
         frame.render_widget(Clear, area);
         frame.render_widget(
             ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
