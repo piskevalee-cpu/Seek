@@ -93,15 +93,12 @@ impl Runtime {
         // A server of a previous run does not survive SEEK.
         supervisor.kill_orphans();
 
-        // The skills of ~/seek/skills, and the built-in ones that are not installed yet.
-        let mut skills = seek_core::skill::scan(&home.join("skills"));
-        for skill in seek_core::skill::scan(&builtin_skills()) {
-            if !skills.iter().any(|installed| installed.name == skill.name) {
-                skills.push(skill);
-            }
-        }
-        let toggles = seek_core::Toggles::read(&state_dir.join("toggles.toml")).unwrap_or_default();
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        // Skills from the project, the SEEK home, the other harnesses and the built-ins; a name
+        // resolves to the highest-precedence copy (D-028).
+        let user_home = seek_core::skill::user_home().unwrap_or_else(|| PathBuf::from("."));
+        let skills = seek_core::skill::discover(&root, home, &user_home, &builtin_skills());
+        let toggles = seek_core::Toggles::read(&state_dir.join("toggles.toml")).unwrap_or_default();
         let config = seek_core::filesys::config(home, &root);
         let system_prompt = seek_core::filesys::system_prompt(home, &root);
 

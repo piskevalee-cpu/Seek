@@ -8,6 +8,13 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Added
+- Skills are discovered in the `skills/` folders of the other harnesses as well: `.claude`,
+  `.codex`, `.hermes`, `.agents`, `.opencode`, `.cursor`, `.gemini`, `.grok`, `.github`,
+  `.windsurf`, `.cline`, `.roo`, `.kilocode`, `.continue` and `.openclaw`, at project and user
+  scope, plus any other hidden folder with a `skills/` child. SEEK's own folders win on a name
+  collision, project skills beat user skills and installed skills beat built-ins (D-028).
+
 ## [0.7.15] - 2026-11-19
 
 Directional gradients and a Ctrl+Backspace that works across terminals.
