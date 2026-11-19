@@ -95,10 +95,7 @@ impl OpenAiProvider {
 
     /// Build the request body.
     pub fn build_body(&self, request: &ChatRequest) -> Value {
-        let mut messages = Vec::new();
-        for message in &request.messages {
-            messages.push(encode_message(message));
-        }
+        let messages = encode_messages(&request.messages, request.system.as_deref());
 
         let mut body = json!({
             "model": self.model,
@@ -137,32 +134,72 @@ impl OpenAiProvider {
     }
 }
 
-/// Encode one canonical message into the OpenAI wire format.
-fn encode_message(message: &Message) -> Value {
-    let role = match message.role {
-        Role::System => "system",
-        Role::User => "user",
-        Role::Assistant => "assistant",
-    };
-
-    let mut parts = Vec::new();
-    for block in &message.blocks {
-        match block {
-            seek_core::Block::Text { text } => parts.push(text.clone()),
-            seek_core::Block::Thinking { text, .. } => parts.push(text.clone()),
-            seek_core::Block::ToolUse { id, name, input } => {
-                parts.push(format!(
-                    "{}: {}",
-                    name,
-                    serde_json::to_string(input).unwrap_or_default()
-                ));
-                let _ = id;
-            }
-            seek_core::Block::ToolResult { content, .. } => parts.push(content.clone()),
-        }
+/// Encode canonical messages into the OpenAI wire format.
+///
+/// `request.system` becomes the first `system` message, matching what the Anthropic provider does
+/// with its top-level `system` field. Tool calls and their results use the protocol's own fields,
+/// so a local llama.cpp model sees the output of a command as a `tool` message rather than loose
+/// prose.
+fn encode_messages(messages: &[Message], system: Option<&str>) -> Vec<Value> {
+    let mut out = Vec::new();
+    if let Some(prompt) = system
+        && !prompt.is_empty()
+    {
+        out.push(json!({ "role": "system", "content": prompt }));
     }
 
-    json!({ "role": role, "content": parts.join("\n") })
+    for message in messages {
+        let mut text = Vec::new();
+        let mut tool_calls = Vec::new();
+        let mut results = Vec::new();
+        for block in &message.blocks {
+            match block {
+                seek_core::Block::Text { text: part } => text.push(part.clone()),
+                seek_core::Block::Thinking { text: part, .. } => text.push(part.clone()),
+                seek_core::Block::ToolUse { id, name, input } => {
+                    tool_calls.push(json!({
+                        "id": id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": serde_json::to_string(input).unwrap_or_default(),
+                        },
+                    }));
+                }
+                seek_core::Block::ToolResult {
+                    id,
+                    content,
+                    is_error,
+                } => {
+                    let body = if *is_error {
+                        format!("error: {content}")
+                    } else {
+                        content.clone()
+                    };
+                    results.push(json!({
+                        "role": "tool",
+                        "tool_call_id": id,
+                        "content": body,
+                    }));
+                }
+            }
+        }
+
+        let role = match message.role {
+            Role::System => "system",
+            Role::User => "user",
+            Role::Assistant => "assistant",
+        };
+        if !text.is_empty() || !tool_calls.is_empty() {
+            let mut value = json!({ "role": role, "content": text.join("\n") });
+            if !tool_calls.is_empty() {
+                value["tool_calls"] = Value::Array(tool_calls);
+            }
+            out.push(value);
+        }
+        out.extend(results);
+    }
+    out
 }
 
 impl Provider for OpenAiProvider {
@@ -411,6 +448,52 @@ mod tests {
         let body = provider.build_body(&ChatRequest::default());
         assert_eq!(body["stream"], json!(true));
         assert_eq!(body["stream_options"]["include_usage"], json!(true));
+    }
+
+    #[test]
+    fn the_system_prompt_is_the_first_message() {
+        let provider = OpenAiProvider::new("http://localhost/v1", None, "model", 4096);
+        let request = ChatRequest {
+            system: Some("You are SEEK.".into()),
+            ..ChatRequest::default()
+        };
+        let body = provider.build_body(&request);
+        assert_eq!(body["messages"][0]["role"], json!("system"));
+        assert_eq!(body["messages"][0]["content"], json!("You are SEEK."));
+    }
+
+    #[test]
+    fn tool_calls_and_results_use_the_wire_protocol() {
+        use seek_core::{Block, Message, Role};
+        let provider = OpenAiProvider::new("http://localhost/v1", None, "model", 4096);
+        let request = ChatRequest {
+            messages: vec![
+                Message::new(
+                    Role::Assistant,
+                    vec![Block::ToolUse {
+                        id: "c1".into(),
+                        name: "bash".into(),
+                        input: json!({"command": "echo hi"}),
+                    }],
+                ),
+                Message::new(
+                    Role::User,
+                    vec![Block::ToolResult {
+                        id: "c1".into(),
+                        content: "hi".into(),
+                        is_error: false,
+                    }],
+                ),
+            ],
+            ..ChatRequest::default()
+        };
+        let body = provider.build_body(&request);
+        let messages = body["messages"].as_array().expect("an array");
+        assert_eq!(messages[0]["role"], json!("assistant"));
+        assert_eq!(messages[0]["tool_calls"][0]["id"], json!("c1"));
+        assert_eq!(messages[1]["role"], json!("tool"));
+        assert_eq!(messages[1]["tool_call_id"], json!("c1"));
+        assert_eq!(messages[1]["content"], json!("hi"));
     }
 
     #[test]

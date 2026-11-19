@@ -614,3 +614,25 @@ The risk is declared by the tool schema (`websearch::web_search_schema`) and app
 expects a prompt for a search.
 
 **Status:** accepted. The specification, README, checklist and changelog were updated.
+
+## D-027 — The system prompt reaches local models; the filesystem overrides it
+
+**Date:** 2026-11-19 · **Affects:** SPEC 4.1, 5, 9.2, 10.3
+
+A live session showed two bugs. First, the model repeated a `git push` because it could not tell
+that the earlier one had run: `seek-llm::openai` flattened tool results into loose user text and
+dropped the call id. Second, `~/seek/SYSTEM.md` was read by the runtime but never sent to
+OpenAI-compatible providers, because `OpenAiProvider::build_body` ignored `request.system` while
+the Anthropic provider set `body.system`.
+
+The OpenAI encoder now emits a leading `system` message, assistant `tool_calls` with ids and
+`arguments`, and one `role: "tool"` message per result. A command with no output returns the marker
+`(no output)` so small models do not re-run it. The transcript is shifted down one row while the
+sidebar is open, so the first message lines up with "Sessions" inside the sidebar.
+
+The system prompt has one source of truth: a project's `.seek/SYSTEM.md`, then `~/seek/SYSTEM.md`,
+then the compiled default. `.seek/config.toml` overlays only the keys it sets on the user's
+`config.toml`. No file format changed; the project directory is optional. `seek doctor` reports
+which system prompt file is in use.
+
+**Status:** accepted. The specification, changelog and manual checklist were updated.

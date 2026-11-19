@@ -237,7 +237,7 @@ fn the_scrollbar_sits_opposite_the_sidebar() {
     app.sidebar.open = true;
     app.sidebar_side = seek_core::user::Side::Left;
     let lines = render_lines(&mut app, 120, 30);
-    let glyph = lines[0].chars().nth(119).expect("the bar column");
+    let glyph = lines[1].chars().nth(119).expect("the bar column");
     assert!(
         glyph == '█' || glyph == '│',
         "the bar is on the right: {glyph}"
@@ -245,7 +245,7 @@ fn the_scrollbar_sits_opposite_the_sidebar() {
 
     app.sidebar_side = seek_core::user::Side::Right;
     let lines = render_lines(&mut app, 120, 30);
-    let glyph = lines[0].chars().next().expect("the bar column");
+    let glyph = lines[1].chars().next().expect("the bar column");
     assert!(
         glyph == '█' || glyph == '│',
         "the bar is on the left: {glyph}"
@@ -1110,6 +1110,23 @@ fn a_new_session_asks_for_one() {
     let command = app.update(Message::Key(key(KeyCode::Enter)));
     assert!(matches!(command, Some(seek_tui::Command::NewSession)));
     assert!(app.rows.is_empty());
+}
+
+#[test]
+fn the_first_message_lines_up_with_the_sidebar_sessions() {
+    let mut app = app();
+    app.sidebar.open = true;
+    app.rows.push(Row::Assistant("first answer".into()));
+    let lines = render_lines(&mut app, 120, 30);
+    let sessions = lines
+        .iter()
+        .position(|line| line.contains("Sessions"))
+        .expect("the sidebar header");
+    let answer = lines
+        .iter()
+        .position(|line| line.contains("first answer"))
+        .expect("the transcript");
+    assert_eq!(sessions, answer, "the first lines share a row: {lines:?}");
 }
 
 #[test]

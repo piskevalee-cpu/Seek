@@ -131,6 +131,8 @@ pub async fn run(
                     crate::app::UiMessage::Sessions(sessions) => Message::Sessions(sessions),
                     crate::app::UiMessage::Session(messages) => Message::Session(messages),
                     crate::app::UiMessage::Models(models) => Message::Models(models),
+                    crate::app::UiMessage::PasteText(text) => Message::Paste(text),
+                    crate::app::UiMessage::PasteImage(path) => Message::PasteImage(path),
                 };
                 if let Some(command) = app.update(message)
                     && commands.send(command).await.is_err()

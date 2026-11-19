@@ -28,6 +28,8 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **Thinking.** While the model works, a labelled `thinking` animation sits just after the RAM in the footer; open the sidebar and it moves into the sidebar's metrics. The chat keeps every row.
 - [ ] **The sheen.** A shine sweeps across the logo from the top right to the low left. With reduced motion it rests.
 - [ ] **The system prompt.** `~/seek/SYSTEM.md` exists after install and begins "You are SEEK". Edit a line, restart SEEK — the model follows the edited prompt. Delete the file and SEEK falls back to the built-in default.
+- [ ] **The project prompt.** A `.seek/SYSTEM.md` beside the project's root wins over the user's file; `.seek/config.toml` overrides only the keys it sets. `seek doctor` names the file in use.
+- [ ] **Command output.** Ask the agent to run a command and then what it said: it must quote the real output (or `(no output)`), not re-run the command because it "did not execute".
 - [ ] **The widgets.** The `git` widget shows the branch and the recent commits; the `usage` widget shows the tokens used so far. A widget that fails shows its title and a dash.
 - [ ] **No model at the start.** The chat is there from the first frame: the footer and the top border of the prompt say `[no model selected]`. No picker opens on its own.
 - [ ] **A message needs a model.** Type "hello" and press Enter — the transcript says to choose a model with `/model`, and the draft stays.
@@ -56,6 +58,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **Send.** Press Enter — the message appears in the transcript as a `USER` box.
 - [ ] **A newline.** Paste a multi-line draft — the box grows to show every line; there is no newline key.
 - [ ] **A pasted path.** Copy a file path (or `file://` URL) and paste it — it becomes an `@` pin with the full path, and the chip row shows it.
+- [ ] **Grok-style keys.** Ctrl+Backspace deletes a word; Ctrl+Shift+V pastes raw text; Ctrl+V pastes a clipboard image as a pin under `state/pastes/`.
 - [ ] **The history.** Press Up — the last message you sent comes back. Press Down — it goes away again.
 - [ ] **The suggestions.** Type `/` — a list of the slash commands appears above the bar. Type `/mod` — the list narrows to `/model` and `/mode`.
 - [ ] **A backspace.** It deletes one character, not one byte: a character with an accent is gone in one press.
@@ -155,7 +158,7 @@ Every key of the specification, one by one.
 
 ## The sessions
 
-- [ ] **The sidebar.** Ctrl+B — the sessions are at the top, but only the last three are shown, with their title and how old they are. Up and Down select one, Enter resumes it.
+- [ ] **The sidebar.** Ctrl+B — the sessions are at the top, but only the last three are shown, with their title and how old they are. The first message lines up with "Sessions" inside the sidebar. Up and Down select one, Enter resumes it.
 - [ ] **All sessions.** `/sessions` (or `/history`) opens the full list; Enter resumes the selected one.
 - [ ] **A new session.** `/new` — the transcript is empty again.
 - [ ] **Resume.** `/resume` — the sidebar opens on the sessions. Move with Up and Down, press Enter — the conversation comes back.

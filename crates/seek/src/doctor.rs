@@ -21,6 +21,16 @@ pub fn doctor(home: &Path, providers: &ProvidersConfig) -> anyhow::Result<()> {
         }
     );
 
+    let system = home.join(seek_core::prompt::SYSTEM_FILE);
+    println!(
+        "SYSTEM.md       {}",
+        if system.exists() {
+            system.display().to_string()
+        } else {
+            "missing (built-in default in use)".to_string()
+        }
+    );
+
     let mut configured = 0;
     for (id, provider) in &providers.provider {
         let key = provider.api_key();

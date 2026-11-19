@@ -53,8 +53,10 @@ pub struct Runtime {
     pub live_context: Arc<std::sync::RwLock<String>>,
     /// The processes the tools have started.
     pub processes: Arc<seek_core::ProcessRegistry>,
-    /// The editable system prompt from `~/seek/SYSTEM.md`.
+    /// The editable system prompt from `~/seek/SYSTEM.md` or the project override.
     pub system_prompt: String,
+    /// The configuration with project overrides applied.
+    pub config: seek_core::Config,
     /// The instructions of the project: the AGENTS.md of the working directory.
     pub project_context: String,
     /// The external tools of `~/seek/tools`.
@@ -99,15 +101,12 @@ impl Runtime {
             }
         }
         let toggles = seek_core::Toggles::read(&state_dir.join("toggles.toml")).unwrap_or_default();
-        let system_prompt =
-            seek_core::prompt::system_prompt_from(&home.join(seek_core::prompt::SYSTEM_FILE));
+        let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let config = seek_core::filesys::config(home, &root);
+        let system_prompt = seek_core::filesys::system_prompt(home, &root);
 
         // The instructions of the project, if there are any (SPEC 9.5).
-        let project_context = std::env::current_dir()
-            .ok()
-            .map(|cwd| cwd.join("AGENTS.md"))
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .unwrap_or_default();
+        let project_context = std::fs::read_to_string(root.join("AGENTS.md")).unwrap_or_default();
 
         // The external tools of ~/seek/tools and the widgets of ~/seek/widgets.
         let external_tools = seek_core::external::scan(&home.join("tools"));
@@ -129,6 +128,7 @@ impl Runtime {
             skills,
             toggles: std::sync::RwLock::new(toggles),
             system_prompt,
+            config,
             tools: Arc::new(std::sync::RwLock::new(
                 seek_core::r#loop::ToolRegistry::default(),
             )),
@@ -145,7 +145,7 @@ impl Runtime {
                 &state_dir.join(seek_core::user::USER_FILE),
             )),
             state_dir,
-            root: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+            root,
         }
     }
 
@@ -385,7 +385,7 @@ impl Runtime {
                 .tool_enabled("fetch")
                 .then(seek_core::tools::FetchTool::new),
             web_search: toggles.tool_enabled("web_search").then(|| {
-                let config = load_config(&self.home);
+                let config = self.config.clone();
                 let auth =
                     seek_core::Auth::read(&self.home.join("state/auth.json")).unwrap_or_default();
                 seek_core::websearch::WebSearchTool::new(
@@ -474,6 +474,56 @@ impl Runtime {
     }
 }
 
+/// Read the clipboard as text, trying the common X11, Wayland and macOS tools.
+fn clipboard_text() -> Option<String> {
+    let commands: [(&str, &[&str]); 4] = [
+        ("pbpaste", &[]),
+        ("wl-paste", &[]),
+        ("xclip", &["-selection", "clipboard", "-o"]),
+        ("xsel", &["--clipboard", "--output"]),
+    ];
+    for (program, args) in commands {
+        if let Ok(output) = ProcessCommand::new(program).args(args).output()
+            && output.status.success()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).to_string();
+            if !text.is_empty() {
+                return Some(text);
+            }
+        }
+    }
+    None
+}
+
+/// Save a PNG from the clipboard and return its absolute path, like an OMP image paste.
+fn clipboard_image(home: &Path) -> Option<PathBuf> {
+    let commands: [(&str, &[&str]); 3] = [
+        ("pngpaste", &["-"]),
+        ("wl-paste", &["-t", "image/png", "-o"]),
+        (
+            "xclip",
+            &["-selection", "clipboard", "-t", "image/png", "-o"],
+        ),
+    ];
+    for (program, args) in commands {
+        if let Ok(output) = ProcessCommand::new(program).args(args).output()
+            && output.status.success()
+            && output.stdout.starts_with(&[0x89, b'P', b'N', b'G'])
+        {
+            let dir = home.join("state/pastes");
+            if std::fs::create_dir_all(&dir).is_err() {
+                return None;
+            }
+            let name = format!("paste-{}.png", seek_core::Session::new_id());
+            let path = dir.join(name);
+            if std::fs::write(&path, &output.stdout).is_ok() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
 /// The sidecar of a model.
 pub use seek_local::model::sidecar_path;
 
@@ -503,6 +553,20 @@ pub async fn agent_loop(
     while let Some(command) = commands.recv().await {
         match command {
             Command::Quit => break,
+            Command::Clipboard { image } => {
+                let home = runtime.home.clone();
+                if image {
+                    if let Some(path) = clipboard_image(&home) {
+                        let _ = widgets
+                            .send(seek_tui::app::UiMessage::PasteImage(path))
+                            .await;
+                    }
+                } else if let Some(text) = clipboard_text() {
+                    let _ = widgets
+                        .send(seek_tui::app::UiMessage::PasteText(text))
+                        .await;
+                }
+            }
             Command::SetToggles(toggles) => {
                 runtime.save_toggles(&toggles);
             }

@@ -184,6 +184,23 @@ impl Input {
         self.column += 1;
     }
 
+    /// Delete the word before the cursor, the way Ctrl+Backspace does in a shell.
+    pub fn delete_word_backward(&mut self) {
+        let line = &mut self.lines[self.row];
+        let chars: Vec<char> = line.chars().collect();
+        let mut start = self.column.min(chars.len());
+        while start > 0 && chars[start - 1].is_whitespace() {
+            start -= 1;
+        }
+        while start > 0 && !chars[start - 1].is_whitespace() {
+            start -= 1;
+        }
+        let from = byte_index(line, start);
+        let to = byte_index(line, self.column);
+        line.replace_range(from..to, "");
+        self.column = start;
+    }
+
     /// Insert text at the cursor, keeping its newlines. Used for bracketed pastes.
     pub fn insert_text(&mut self, text: &str) {
         for (index, part) in text.split('\n').enumerate() {

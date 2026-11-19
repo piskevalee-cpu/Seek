@@ -181,6 +181,11 @@ impl BashTool {
             }
             text.push_str(&errors);
         }
+        // A small model reads "(no output)" as "the command ran and said nothing". An empty
+        // result makes it re-run the command, because it cannot tell success from a lost result.
+        if text.trim().is_empty() {
+            text.push_str("(no output)");
+        }
         // A long line is wrapped instead of being cut, so the model sees all of it.
         let text = wrap_long_lines(&text, crate::truncate::WRAP_WIDTH);
         if output.status.success() {

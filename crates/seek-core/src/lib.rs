@@ -8,6 +8,7 @@ pub mod context;
 pub mod event;
 pub mod external;
 pub mod files;
+pub mod filesys;
 pub mod guard;
 pub mod r#loop;
 pub mod message;
