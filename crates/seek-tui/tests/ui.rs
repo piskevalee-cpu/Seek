@@ -480,20 +480,20 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
     let screen = render(&mut app, 100, 30);
     assert!(!screen.contains("secret background"), "{screen}");
     assert!(
-        screen.contains('╭'),
-        "the menu has a rounded border: {screen}"
+        screen.contains('┌'),
+        "the menu has a square border: {screen}"
     );
     assert!(
         screen.contains("models"),
         "the menu has its title: {screen}"
     );
     assert!(
-        screen.matches('╭').count() >= 2,
-        "the menu and the prompt box are both visible: {screen}"
+        screen.matches('╭').count() >= 1,
+        "the prompt box is visible: {screen}"
     );
 
     let small = render(&mut app, 90, 24);
-    assert!(small.contains('╭'), "the menu still fits: {small}");
+    assert!(small.contains('┌'), "the menu still fits: {small}");
 }
 
 #[test]

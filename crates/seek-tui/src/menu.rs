@@ -1,8 +1,8 @@
 //! The model selector and the settings menu (SPEC 10.3).
 //!
-//! Built in the style of the grok-build pager (Apache-2.0): a floating panel with a search row, a
-//! list on the left and a detail pane on the right. The picked row uses the directional blue
-//! gradient from `gradient`.
+//! Built from the grok-build pager (Apache-2.0): a wide centered modal with a square border, a
+//! bold title on the border, ` search: ` row, full-width divider, picker rows with a right-aligned
+//! label, and a centered footer of shortcuts. The picked row uses SEEK's directional blue gradient.
 
 use ratatui::widgets::{BorderType, Clear};
 use ratatui::{Frame, layout::Rect, style::Style, text::Line, text::Span};
@@ -17,8 +17,9 @@ pub struct MenuItem {
     pub label: String,
     pub value: String,
     pub detail: String,
+    pub right_label: String,
+    pub badge: String,
     pub group: Option<String>,
-    pub tag: Option<String>,
     pub options: Vec<String>,
     pub current: Option<String>,
 }
@@ -29,8 +30,9 @@ impl MenuItem {
             label: label.into(),
             value: value.into(),
             detail: String::new(),
+            right_label: String::new(),
+            badge: String::new(),
             group: None,
-            tag: None,
             options: Vec::new(),
             current: None,
         }
@@ -41,13 +43,18 @@ impl MenuItem {
         self
     }
 
-    pub fn with_group(mut self, group: impl Into<String>) -> Self {
-        self.group = Some(group.into());
+    pub fn with_right(mut self, right: impl Into<String>) -> Self {
+        self.right_label = right.into();
         self
     }
 
-    pub fn with_tag(mut self, tag: impl Into<String>) -> Self {
-        self.tag = Some(tag.into());
+    pub fn with_badge(mut self, badge: impl Into<String>) -> Self {
+        self.badge = badge.into();
+        self
+    }
+
+    pub fn with_group(mut self, group: impl Into<String>) -> Self {
+        self.group = Some(group.into());
         self
     }
 
@@ -65,7 +72,7 @@ pub enum MenuKind {
     Settings,
 }
 
-/// A floating menu with an optional detail pane.
+/// A grok-style floating menu.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Menu {
     pub title: String,
@@ -112,7 +119,6 @@ impl Menu {
             .collect()
     }
 
-    /// The selected item, if any.
     pub fn selected_item(&self) -> Option<&MenuItem> {
         let index = *self.visible_indices().get(self.selected)?;
         self.items.get(index)
@@ -150,154 +156,166 @@ impl Menu {
             area,
         );
 
-        let width = area.width.saturating_sub(4).clamp(40, 84).min(area.width);
-        let height = area.height.saturating_sub(3).clamp(10, 24).min(area.height);
+        // grok-build sizing: 90% width, generous vertical margin, wide minimum.
+        let max_width = area.width.saturating_sub(4).min(140);
+        let width = ((area.width as f32 * 0.9) as u16)
+            .min(max_width)
+            .max(60)
+            .min(area.width);
+        let height = area.height.saturating_sub(14).max(8).min(area.height);
         let rect = Rect::new(
             area.x + (area.width - width) / 2,
-            area.y + area.height - height,
+            area.y + (area.height - height) / 2,
             width,
             height,
         );
-        let block = ratatui::widgets::Block::bordered()
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(theme.accent))
+        let border_style = Style::new().fg(theme.dim).bg(theme.bg);
+        let title_style = Style::new().fg(theme.text).bg(theme.bg).bold();
+        let mut block = ratatui::widgets::Block::bordered()
+            .border_type(BorderType::Plain)
+            .border_style(border_style)
             .style(Style::new().bg(theme.bg))
-            .title(Span::styled(
-                format!(" {} ", self.title),
-                Style::new().fg(theme.accent).bold(),
-            ));
+            .title(Line::from(vec![
+                Span::styled("\u{2500} ", border_style),
+                Span::styled(self.title.clone(), title_style),
+                Span::styled(" \u{2500}", border_style),
+            ]));
+        // The close button sits on the top-right border, as in grok-build.
+        let close = "[✗]";
+        let close_x = rect.x + rect.width.saturating_sub(close.len() as u16 + 1);
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(Span::styled(
+                close,
+                Style::new().fg(theme.dim).bg(theme.bg),
+            )),
+            Rect::new(close_x, rect.y, close.len() as u16, 1),
+        );
+        if rect.width < 24 {
+            // Fall back to a plain title on very narrow terminals.
+            block = ratatui::widgets::Block::bordered()
+                .border_style(border_style)
+                .style(Style::new().bg(theme.bg))
+                .title(self.title.clone());
+        }
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
+        let content = Rect::new(
+            inner.x + 2,
+            inner.y + 2,
+            inner.width.saturating_sub(4),
+            inner.height.saturating_sub(4).max(1),
+        );
         let mut canvas: Vec<Line<'static>> = Vec::new();
-        let search = if self.filter.is_empty() {
-            "type to search".to_string()
-        } else {
-            self.filter.clone()
-        };
-        let search_style = if self.filter.is_empty() {
-            Style::new().fg(theme.dim).italic()
-        } else {
-            Style::new().fg(theme.cube_light)
-        };
-        canvas.push(Line::from(vec![
-            Span::styled("  ", Style::new()),
-            Span::styled("\u{276f} ", Style::new().fg(theme.accent)),
-            Span::styled(
-                truncate(&search, inner.width.saturating_sub(4) as usize),
-                search_style,
-            ),
-            Span::styled("\u{258c}", Style::new().fg(theme.accent)),
-        ]));
+
+        // Search row: the label is dim, the query is primary text, the caret is a block.
+        let label = " search: ";
+        let mut search_spans = vec![Span::styled(label, Style::new().fg(theme.dim).bg(theme.bg))];
+        let query_width = (content.width as usize).saturating_sub(label.len() + 1);
+        let mut query = truncate(&self.filter, query_width);
+        query.push('\u{258c}');
+        search_spans.push(Span::styled(
+            query,
+            Style::new().fg(theme.text).bg(theme.bg),
+        ));
+        canvas.push(Line::from(search_spans));
         canvas.push(Line::from(Span::styled(
-            "\u{2500}".repeat(inner.width as usize),
-            Style::new().fg(theme.cube_dark),
+            "\u{2500}".repeat(content.width as usize),
+            Style::new().fg(theme.dim).bg(theme.bg),
         )));
 
         let indices = self.visible_indices();
-        let preview = self.kind == MenuKind::Model && inner.width >= 60;
-        let list_width = if preview {
-            (inner.width as usize).saturating_mul(3) / 5
-        } else {
-            inner.width as usize
-        };
-        let chrome = 4usize; // search, separator, detail, hint
-        let list_height = (inner.height as usize).saturating_sub(chrome).max(1);
-
+        let reserved = canvas.len() + 2; // detail line + footer
+        let list_height = (content.height as usize).saturating_sub(reserved).max(1);
         let start = self
             .selected
             .saturating_add(1)
             .saturating_sub(list_height)
             .min(indices.len().saturating_sub(list_height));
-        let mut selected_line = None;
+        let mut selected_at = None;
+        let mut last_group: Option<String> = None;
         for (offset, index) in indices.iter().enumerate().skip(start).take(list_height) {
             let item = &self.items[*index];
+            if let Some(group) = &item.group
+                && last_group.as_deref() != Some(group.as_str())
+            {
+                last_group = Some(group.clone());
+                let label = format!("\u{2500}\u{2500} {group} ");
+                let dashes = content.width as usize - label.width().min(content.width as usize);
+                canvas.push(Line::from(Span::styled(
+                    format!("{label}{}", "\u{2500}".repeat(dashes)),
+                    Style::new().fg(theme.dim).bg(theme.bg),
+                )));
+            }
+            if offset == self.selected {
+                selected_at = Some(canvas.len());
+            }
             let picked = offset == self.selected;
+            let prefix = "\u{25c6} "; // ◆ — the grok-build fold indicator
+            let badge = if item.badge.is_empty() {
+                String::new()
+            } else {
+                format!("[{}] ", item.badge)
+            };
+            let right = truncate(&item.right_label, content.width as usize / 3);
+            let fixed = prefix.width() + badge.width() + right.width() + 2;
+            let label = truncate(&item.label, (content.width as usize).saturating_sub(fixed));
+            let pad = content.width as usize
+                - (prefix.width() + badge.width() + label.width() + right.width());
+            let mut spans = vec![
+                Span::styled(prefix.to_string(), Style::new().fg(theme.dim).bg(theme.bg)),
+                Span::styled(label, Style::new().fg(theme.text).bg(theme.bg)),
+                Span::styled(badge, Style::new().fg(theme.accent).bg(theme.bg)),
+                Span::styled(" ".repeat(pad), Style::new().bg(theme.bg)),
+                Span::styled(right, Style::new().fg(theme.dim).bg(theme.bg)),
+            ];
             if picked {
-                selected_line = Some(canvas.len());
-            }
-            let mut spans = vec![Span::styled(
-                if picked { "\u{276f} " } else { "  " }.to_string(),
-                Style::new().fg(if picked { theme.accent } else { theme.dim }),
-            )];
-            if let Some(tag) = &item.tag {
-                spans.push(Span::styled(
-                    format!("{tag} "),
-                    Style::new().fg(theme.accent),
-                ));
-            }
-            spans.push(Span::styled(
-                truncate(&item.label, list_width.saturating_sub(6)),
-                Style::new().fg(theme.text),
-            ));
-            if picked {
-                spans = gradient::paint(spans, list_width, from_left, theme);
+                spans = gradient::paint(spans, content.width as usize, from_left, theme);
+                for span in &mut spans {
+                    if span.style.add_modifier.is_empty() {
+                        *span = span.clone().style(span.style.bold());
+                    }
+                }
             }
             canvas.push(Line::from(spans));
         }
         if indices.is_empty() {
             canvas.push(Line::from(Span::styled(
                 "  nothing matches",
-                Style::new().fg(theme.dim).italic(),
+                Style::new().fg(theme.dim).italic().bg(theme.bg),
             )));
         }
 
-        let detail = self
-            .selected_item()
-            .map(|item| item.detail.clone())
-            .unwrap_or_default();
-        canvas.push(Line::from(Span::styled(
-            format!(
-                "  {}",
-                truncate(&detail, inner.width.saturating_sub(2) as usize)
-            ),
-            Style::new().fg(theme.dim),
-        )));
+        // The selected row's detail sits below the list, like an expanded picker row.
+        if let Some(detail) = self.selected_item().map(|item| item.detail.clone())
+            && !detail.is_empty()
+        {
+            canvas.push(Line::from(Span::styled(
+                format!("  {detail}"),
+                Style::new().fg(theme.dim).italic().bg(theme.bg),
+            )));
+        } else {
+            canvas.push(Line::from(""));
+        }
         let hint = self
             .hint
             .as_deref()
-            .unwrap_or("↑↓ choose · Enter select · Esc close");
+            .unwrap_or("↑↓ move  |  Enter use  |  Esc close");
         canvas.push(Line::from(Span::styled(
-            format!("  {hint}"),
-            Style::new().fg(theme.dim).italic(),
+            center(hint, content.width as usize),
+            Style::new().fg(theme.dim).italic().bg(theme.bg),
         )));
 
-        // The detail pane takes the right side of the list area.
-        let pane_x = inner.x + list_width as u16;
-        if preview {
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(Line::from(Span::styled(
-                    "\u{2502}",
-                    Style::new().fg(theme.cube_dark),
-                ))),
-                Rect::new(pane_x, inner.y + 2, 1, list_height as u16),
-            );
-        }
-        let _ = selected_line;
-
         for (index, line) in canvas.into_iter().enumerate() {
-            if index >= inner.height as usize {
+            if index >= content.height as usize {
                 break;
             }
             frame.render_widget(
                 ratatui::widgets::Paragraph::new(line),
-                Rect::new(inner.x, inner.y + index as u16, list_width as u16, 1),
+                Rect::new(content.x, content.y + index as u16, content.width, 1),
             );
         }
-
-        if preview && let Some(item) = self.selected_item() {
-            let pane_width = (inner.width as usize).saturating_sub(list_width + 1);
-            let lines = wrap(&item.detail, pane_width.saturating_sub(2));
-            for (index, line) in lines.into_iter().enumerate().take(list_height) {
-                frame.render_widget(
-                    ratatui::widgets::Paragraph::new(Span::styled(
-                        format!(" {line}"),
-                        Style::new().fg(theme.text_dim),
-                    )),
-                    Rect::new(pane_x + 1, inner.y + 2 + index as u16, pane_width as u16, 1),
-                );
-            }
-        }
+        let _ = selected_at;
     }
 }
 
@@ -316,23 +334,14 @@ fn truncate(text: &str, max: usize) -> String {
     out
 }
 
-/// Wrap plain text into lines of at most `width` display columns.
-fn wrap(text: &str, width: usize) -> Vec<String> {
-    let mut lines: Vec<String> = Vec::new();
-    for word in text.split_whitespace() {
-        let width = width.max(1);
-        match lines.last_mut() {
-            Some(line)
-                if UnicodeWidthStr::width(line.as_str()) + 1 + UnicodeWidthStr::width(word)
-                    <= width =>
-            {
-                line.push(' ');
-                line.push_str(word);
-            }
-            _ => lines.push(word.to_string()),
-        }
+/// Centered text of a given width.
+fn center(text: &str, width: usize) -> String {
+    let used = UnicodeWidthStr::width(text);
+    if used >= width {
+        return text.to_string();
     }
-    lines
+    let left = (width - used) / 2;
+    format!("{}{}", " ".repeat(left), text)
 }
 
 #[cfg(test)]
