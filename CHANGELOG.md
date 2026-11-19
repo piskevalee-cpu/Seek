@@ -8,6 +8,18 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.19] - 2026-11-19
+
+The menus now speak the same visual language as the sidebar.
+
+### Changed
+- Removed the `/model <model> [window] [effort]` line from the inline model picker; the typed filter
+  now appears dimmed after the `Models` header.
+- `/model`, `/settings` and the local model's launch-options editor are drawn with the sidebar's
+  vocabulary: dark-cube borders, dim titles, bold section headers, `cube_light` primary text, `dim`
+  secondary text and gradient-selected rows. The grok-build chrome (`[✗]`, ` search: `, `◆`,
+  centered shortcuts) is gone (D-030).
+
 ## [0.7.18] - 2026-11-19
 
 The model selector now matches the grok-code inline list.

@@ -20,7 +20,7 @@ use crate::completion::{self, Completion, Kind};
 use crate::footer::{Footer, ModelChip, PermissionMode, caption_path, footer_line};
 use crate::input::Input;
 use crate::logo;
-use crate::menu::{Menu, MenuItem, MenuKind};
+use crate::menu::{Menu, MenuItem, MenuKind, panel_block, section_header};
 use crate::metrics::Metrics;
 use crate::picker::{Picker, PickerItem};
 use crate::prompt_bar;
@@ -2763,29 +2763,34 @@ impl App {
             height,
         );
         frame.render_widget(ratatui::widgets::Clear, rect);
-        let block = ratatui::widgets::Block::bordered()
-            .border_style(Style::new().fg(self.theme.accent))
-            .style(Style::new().bg(self.theme.bg))
-            .title(Span::styled(
-                format!(" launch options: {name} "),
-                Style::new().fg(self.theme.accent).bold(),
-            ));
+        let block = panel_block(&format!("launch options: {name}"), &self.theme);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
         let lines = vec![
-            Line::from(Span::styled(prefix, Style::new().fg(self.theme.dim))),
             Line::from(Span::styled(
-                "the options above are set by SEEK",
-                Style::new().fg(self.theme.dim).italic(),
+                prefix,
+                Style::new().fg(self.theme.dim).bg(self.theme.bg),
             )),
+            section_header("Options", &self.theme),
             Line::from(vec![
-                Span::styled("> ", Style::new().fg(self.theme.accent).bold()),
-                Span::styled(input.text(), Style::new().fg(self.theme.cube_light)),
+                Span::styled("  ", Style::new().bg(self.theme.bg)),
+                Span::styled(
+                    "> ",
+                    Style::new().fg(self.theme.accent).bold().bg(self.theme.bg),
+                ),
+                Span::styled(
+                    input.text(),
+                    Style::new().fg(self.theme.cube_light).bg(self.theme.bg),
+                ),
             ]),
             Line::from(Span::styled(
-                "Enter saves, Esc returns",
-                Style::new().fg(self.theme.dim).italic(),
+                "  the options above are set by SEEK",
+                Style::new().fg(self.theme.dim).italic().bg(self.theme.bg),
+            )),
+            Line::from(Span::styled(
+                "  Enter saves, Esc returns",
+                Style::new().fg(self.theme.dim).bg(self.theme.bg),
             )),
         ];
         frame.render_widget(
