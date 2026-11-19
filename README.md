@@ -161,7 +161,7 @@ cloud catalog. The chosen model shows in the footer; the `LOCAL` tag is only in 
 * A path such as `src/`, `./`, `../`, `~/` or `/tmp/` completes the entries of that directory.
 * Typed `@` paths pin an existing file or directory for the turn: the chip row above the prompt
   shows them, and the agent gets their names and sizes, not their contents. It reads a pin with
-  `read` when it needs to, under the usual permissions.
+  `read` when it needs to, without asking: a read changes nothing.
 * `↑` / `↓` move the selection, `Tab` accepts it, `Enter` accepts and runs a command, `Esc`
   closes the list. A file path is inserted with a trailing space so the message can go on.
 
@@ -171,9 +171,10 @@ keys for Brave, Tavily, Exa, Jina, Kagi and Firecrawl are read from environment 
 `state/auth.json` (see [docs/SPEC.md](docs/SPEC.md) §9.3).
 
 **Stay in control.** The footer shows `READ`, `ASK` or `YOLO`; `Tab` cycles the mode when the
-sidebar is closed, or moves into it when it is open. In `ASK` mode a write, a command or a network
-call asks first. `Ctrl+B` opens the sidebar with sessions, processes and metrics; `/settings`
-moves it to the left or the right, and the transcript scrollbar takes the other side.
+sidebar is closed, or moves into it when it is open. In `ASK` mode a write, a command or a `fetch`
+asks first; `read` and `web_search` only read, so they never ask. `Ctrl+B` opens the sidebar with
+sessions, processes and metrics; `/settings` moves it to the left or the right, and the transcript
+scrollbar takes the other side.
 
 **Extend.** `/tools` and `/skills` are checklists. External tools live in `~/seek/tools/` and
 widgets in `~/seek/widgets/`; both are plain files.

@@ -178,8 +178,9 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   answers it with `Command::Permission { id, decision }`, and the binary hands the answer back.
   The App never talks to the agent directly.
 - The permission matrix lives in `seek-core::permission`: reading is **always** allowed, writing
-  and running are denied in `read` mode and asked in `ask` mode. A path outside the project root
-  is always asked in `ask` mode.
+  and running are denied in `read` mode and asked in `ask` mode. A read is never asked, even
+  outside the project root; a write or a command that touches a path outside it is asked in `ask`
+  mode. `web_search` carries `Risk::Read` (D-026).
 - The local server is asked for a context of 32768 tokens (D-009): the default of a model can
   be a key and value cache of several gigabytes.
 - The context accounting is in `seek-core::context`: the window, the used tokens (the usage of

@@ -8,6 +8,11 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+### Changed
+- `read` no longer asks for confirmation, even for a path outside the project root, and
+  `web_search` is now a read-only tool: both run in every mode without a permission question.
+  `write`, `edit`, `bash` and `fetch` keep the matrix (D-026).
+
 ## [0.7.11] - 2026-11-18
 
 A small spacing correction in the footer.
