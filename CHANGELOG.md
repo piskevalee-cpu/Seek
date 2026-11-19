@@ -8,6 +8,13 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.13] - 2026-11-19
+
+The prompt box keeps long pasted text inside its borders.
+
+### Fixed
+- The prompt borders now span the full box width; a long paste no longer draws past the right edge.
+
 ## [0.7.12] - 2026-11-19
 
 Bracketed paste and PR #4's read-only permission change.
