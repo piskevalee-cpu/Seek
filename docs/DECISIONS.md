@@ -725,3 +725,24 @@ area were adjusted by one row so the gap survives long drafts and menus. A UI te
 row above the box is blank.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-034 — An animated, dry-runnable installer for Linux and macOS
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+The installer already sheened the logo on an interactive terminal, but the long steps were silent
+and there was no way to preview the changes. The owner asked for animations on Linux and for the
+script to work just as well on macOS, with a `--dry-run` to test it.
+
+`install.sh` now detects `uname -s` and names the platform, animates the logo and runs a braille
+spinner for the download and the source build when stdout is a TTY without `NO_COLOR`, `CI` or
+`TERM=dumb`. Everything is POSIX `sh`: the help uses `awk` instead of a BSD-sensitive `sed`
+interval, and `TMPDIR` is stripped of a trailing slash so macOS paths are clean. The release asset
+uses `aarch64-apple-darwin` / `x86_64-apple-darwin` on Darwin. `--dry-run` reports the would-be
+steps and the asset without creating folders, copying files, downloading or building. The download
+and build helpers chain their commands with `&&`, because a command in a `||` list disables
+`set -e` inside a shell function and a failed download would otherwise look successful.
+
+CI runs `sh -n`, the help check and a dry run in the `build` job on both ubuntu and macOS.
+
+**Status:** accepted. The specification and changelog were updated.

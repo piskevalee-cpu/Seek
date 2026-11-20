@@ -211,6 +211,12 @@ Every key of the specification, one by one.
 - [ ] **The server is stopped.** After quitting, `pgrep -af "llama serve"` finds nothing: SEEK stopped the server it started.
 - [ ] **Ctrl+C twice** — the same.
 
+## The installer
+
+- [ ] **Dry run.** `./install.sh --dry-run` — the logo, `SEEK on Linux` (or `macOS`), and every step with `would create` / `would copy` / `would download`; nothing is written. Check `~/seek` is unchanged.
+- [ ] **The animation.** Run it in a terminal: the logo sheens, then the binary step shows a spinning glyph and a `✓` when done. With `NO_COLOR=1` or piped output both are plain.
+- [ ] **macOS.** The same dry run on a Mac names `arm64-apple-darwin` (or `x86_64-apple-darwin`) and keeps `TMPDIR` paths with one slash. CI checks the syntax and a dry run on both Linux and macOS.
+
 ## Looking at the interface as a picture
 
 - [ ] **Dump a screen.** `cargo run -p seek-tui --example dump_screen -- home > /tmp/home.json` and `python3 tools/screen_to_png.py /tmp/home.json /tmp/home.png` — the home screen as a picture. Do the same with `chat` and `permission`.
