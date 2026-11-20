@@ -6,9 +6,13 @@
 # and checks what SEEK needs.
 #
 # Usage:
-#   ./install.sh              install the binary and the folders
+#   ./install.sh                install the binary and the folders
 #   ./install.sh --from-source  build and install the binary from the source
 #   ./install.sh --no-binary    only the folders and the built-in files
+#   ./install.sh --dry-run      show what would happen, change nothing
+#
+# On Linux and macOS an interactive terminal gets the sweeping logo and a spinner for the long
+# steps. Piped output, NO_COLOR, CI or TERM=dumb give the plain, quiet path.
 
 set -eu
 
@@ -17,13 +21,35 @@ BIN_DIR="$HOME/.local/bin"
 REPO_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 FROM_SOURCE=0
 INSTALL_BINARY=1
+DRY_RUN=0
+
+# Strip the trailing slash macOS puts on TMPDIR, so the paths below never have a double one.
+TMP_ROOT="${TMPDIR:-/tmp}"
+TMP_ROOT="${TMP_ROOT%/}"
+
+# The logo and the spinner are plain on a pipe, in CI, with NO_COLOR, or on a dumb terminal.
+OS_NAME=$(uname -s)
+case "$OS_NAME" in
+Linux) PLATFORM="Linux" ;;
+Darwin) PLATFORM="macOS" ;;
+*) PLATFORM="$OS_NAME" ;;
+esac
+ANIMATE=0
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ -z "${CI:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+	ANIMATE=1
+fi
+
+usage() {
+	awk 'NR >= 3 && NR <= 15 { sub(/^# ?/, ""); print }' "$0"
+}
 
 for argument in "$@"; do
 	case "$argument" in
 	--from-source) FROM_SOURCE=1 ;;
 	--no-binary) INSTALL_BINARY=0 ;;
+	--dry-run) DRY_RUN=1 ;;
 	-h | --help)
-		sed -n '3,12p' "$0" | sed 's/^# \{0,1\}//'
+		usage
 		exit 0
 		;;
 	*)
@@ -38,20 +64,25 @@ say() {
 }
 
 # The script resolves the repository from its own path, so it works from any working directory.
-# A piped or copied script has no repository beside it: fail early with a useful message.
+# A piped or copied script has no repository beside it: clone it and re-run there.
+repo_url="${SEEK_INSTALL_REPO:-https://github.com/piskevalee-cpu/Seek.git}"
 if [ ! -f "$REPO_DIR/crates/seek/Cargo.toml" ]; then
 	if [ "${SEEK_INSTALL_CLONED:-0}" = "1" ]; then
 		echo "error: the cloned repository has no crates/seek" >&2
 		exit 1
 	fi
+	if [ "$DRY_RUN" = "1" ]; then
+		say "==> dry run: would clone $repo_url and re-run the installer there"
+		say "==> dry run: nothing was changed"
+		exit 0
+	fi
 	if ! command -v git >/dev/null 2>&1; then
 		echo "error: git is needed to fetch the SEEK repository." >&2
 		exit 1
 	fi
-	clone_dir="${TMPDIR:-/tmp}/seek-install-$$"
-	repo_url="${SEEK_INSTALL_REPO:-https://github.com/piskevalee-cpu/Seek.git}"
+	clone_dir="$TMP_ROOT/seek-install-$$"
 	rm -rf "$clone_dir"
-	say "==> the installer was run without the repository; cloning it"
+	say "==> the installer was run without the repository; cloning it on $PLATFORM"
 	if ! git clone --depth 1 "$repo_url" "$clone_dir"; then
 		echo "error: could not clone $repo_url" >&2
 		exit 1
@@ -109,19 +140,19 @@ print_logo_frame() {
 	}
 	' <<'LOGO'
     .
-  .
- .  # .   ### ### ### # #
-   ### .  #   #   #   # #
-  #####.  ### ### ### ##
-   ###      # #   #   # #
-.   #     ### ### ### # #
-  ...
-      ..
+   .
+  .  # .   ### ### ### # #
+    ### .  #   #   #   # #
+   #####.  ### ### ### ##
+    ###      # #   #   # #
+ .   #     ### ### ### # #
+   ...
+       ..
 LOGO
 }
 
 banner() {
-	if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ -z "${CI:-}" ]; then
+	if [ "$ANIMATE" = "1" ]; then
 		frame=0
 		while [ "$frame" -lt 5 ]; do
 			if [ "$frame" -gt 0 ]; then
@@ -136,15 +167,59 @@ banner() {
 	fi
 }
 
+# Run a step, with a spinner while it works on an interactive terminal. The child's output is
+# kept and shown only when the step fails, so the spinner never gets smeared by a build log.
+spin() {
+	label=$1
+	shift
+	if [ "$ANIMATE" = "1" ]; then
+		log="$TMP_ROOT/seek-install-spin-$$"
+		(
+			while :; do
+				for glyph in '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏'; do
+					printf '\r  %s %s' "$glyph" "$label"
+					sleep 0.08
+				done
+			done
+		) &
+		spinner_pid=$!
+		status=0
+		"$@" >"$log" 2>&1 || status=$?
+		kill "$spinner_pid" 2>/dev/null || true
+		wait "$spinner_pid" 2>/dev/null || true
+		if [ "$status" = "0" ]; then
+			printf '\r  ✓ %s\n' "$label"
+		else
+			printf '\r  ! %s\n' "$label"
+			cat "$log" >&2
+		fi
+		rm -f "$log"
+		return "$status"
+	fi
+	say "  $label"
+	status=0
+	"$@" || status=$?
+	return "$status"
+}
+
 banner
+say ""
+say "==> SEEK on $PLATFORM"
+if [ "$DRY_RUN" = "1" ]; then
+	say "    dry run: no files will be changed"
+fi
 say ""
 
 # ---------------------------------------------------------------- the folders
 
 say "==> the folders of $SEEK_HOME"
 for folder in skills tools models widgets state; do
-	mkdir -p "$SEEK_HOME/$folder"
-	say "    $SEEK_HOME/$folder"
+	if [ "$DRY_RUN" = "1" ]; then
+		say "    would create $SEEK_HOME/$folder"
+	else
+		mkdir -p "$SEEK_HOME/$folder"
+		say "    $SEEK_HOME/$folder"
+	fi
 done
 
 # ------------------------------------------------------- the built-in files
@@ -157,6 +232,10 @@ copy_if_absent() {
 		return
 	fi
 	if [ ! -e "$source" ]; then
+		return
+	fi
+	if [ "$DRY_RUN" = "1" ]; then
+		say "    would copy $target"
 		return
 	fi
 	mkdir -p "$(dirname -- "$target")"
@@ -177,41 +256,65 @@ done
 
 # ----------------------------------------------------------------- the binary
 
+build_binary() {
+	cargo install --path "$REPO_DIR/crates/seek" --root "$HOME/.cargo" --force &&
+		cp "$HOME/.cargo/bin/seek" "$BIN_DIR/seek"
+}
+
+download_binary() {
+	curl -fsSL "$url" -o "$archive" &&
+		tar -xzf "$archive" -C "$TMP_ROOT" &&
+		cp "$TMP_ROOT/$staging/seek" "$BIN_DIR/seek" &&
+		rm -rf "$archive" "$TMP_ROOT/$staging"
+}
+
 if [ "$INSTALL_BINARY" = "1" ]; then
 	say "==> the binary"
-	mkdir -p "$BIN_DIR"
-	if [ "$FROM_SOURCE" = "1" ]; then
-		say "    building from the source"
-		cargo install --path "$REPO_DIR/crates/seek" --root "$HOME/.cargo" --force
-		cp "$HOME/.cargo/bin/seek" "$BIN_DIR/seek"
-	else
-		# The release of the platform, when there is one; the source build is the fallback.
-		version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
-		case "$(uname -m)" in
+	if [ "$DRY_RUN" = "1" ]; then
+		if [ "$FROM_SOURCE" = "1" ]; then
+			say "    would build the source and install $BIN_DIR/seek"
+		else
+			version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
+			case "$(uname -m)" in
 			x86_64 | amd64) arch=x86_64 ;;
 			aarch64 | arm64) arch=aarch64 ;;
 			*) arch=$(uname -m) ;;
-		esac
-		case "$(uname -s)" in
+			esac
+			case "$OS_NAME" in
 			Linux) target="${arch}-unknown-linux-gnu" ;;
 			Darwin) target="${arch}-apple-darwin" ;;
-			*) target="${arch}-$(uname -s | tr '[:upper:]' '[:lower:]')" ;;
-		esac
-		staging="seek-v${version}-${target}"
-		asset="${staging}.tar.gz"
-		url="https://github.com/piskevalee-cpu/Seek/releases/download/v${version}/${asset}"
-		if command -v curl >/dev/null 2>&1 && curl -fsSL "$url" -o "/tmp/$asset" 2>/dev/null; then
-			tar -xzf "/tmp/$asset" -C /tmp
-			cp "/tmp/$staging/seek" "$BIN_DIR/seek"
-			rm -rf "/tmp/$asset" "/tmp/$staging"
-		else
-			say "    no release for this platform, building from the source"
-			cargo install --path "$REPO_DIR/crates/seek" --root "$HOME/.cargo" --force
-			cp "$HOME/.cargo/bin/seek" "$BIN_DIR/seek"
+			*) target="${arch}-$(printf '%s' "$OS_NAME" | tr '[:upper:]' '[:lower:]')" ;;
+			esac
+			say "    would download seek-v${version}-${target}.tar.gz to $BIN_DIR/seek"
+			say "    falling back to a source build if that release is missing"
 		fi
+	else
+		mkdir -p "$BIN_DIR"
+		if [ "$FROM_SOURCE" = "1" ]; then
+			spin "build from the source" build_binary
+		else
+			version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
+			case "$(uname -m)" in
+			x86_64 | amd64) arch=x86_64 ;;
+			aarch64 | arm64) arch=aarch64 ;;
+			*) arch=$(uname -m) ;;
+			esac
+			case "$OS_NAME" in
+			Linux) target="${arch}-unknown-linux-gnu" ;;
+			Darwin) target="${arch}-apple-darwin" ;;
+			*) target="${arch}-$(printf '%s' "$OS_NAME" | tr '[:upper:]' '[:lower:]')" ;;
+			esac
+			staging="seek-v${version}-${target}"
+			archive="$TMP_ROOT/${staging}.tar.gz"
+			url="https://github.com/piskevalee-cpu/Seek/releases/download/v${version}/${staging}.tar.gz"
+			if ! spin "download the release for $target" download_binary; then
+				say "    no release for this platform, building from the source"
+				spin "build from the source" build_binary
+			fi
+		fi
+		chmod +x "$BIN_DIR/seek"
+		say "    $BIN_DIR/seek"
 	fi
-	chmod +x "$BIN_DIR/seek"
-	say "    $BIN_DIR/seek"
 fi
 
 # ------------------------------------------------------------------- the checks
@@ -245,11 +348,15 @@ fi
 # ----------------------------------------------------------------- the next step
 
 say ""
-say "SEEK is installed. Next:"
-say "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-say "    seek"
-say ""
-say "The configuration lives in $SEEK_HOME."
-if [ "$missing" = "1" ]; then
-	say "Some programs are missing; see the list above."
+if [ "$DRY_RUN" = "1" ]; then
+	say "Dry run complete. Nothing was changed."
+else
+	say "SEEK is installed on $PLATFORM. Next:"
+	say "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+	say "    seek"
+	say ""
+	say "The configuration lives in $SEEK_HOME."
+	if [ "$missing" = "1" ]; then
+		say "Some programs are missing; see the list above."
+	fi
 fi

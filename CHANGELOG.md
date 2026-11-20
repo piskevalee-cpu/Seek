@@ -8,6 +8,19 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.23] - 2026-11-20
+
+The installer animates on Linux and macOS, and can be tested without changing anything.
+
+### Added
+- `install.sh --dry-run` prints the folders, built-in files and the release asset it would fetch,
+  and makes no changes. CI checks a dry run on both Linux and macOS.
+- The detected platform is named at the start; long steps carry a spinner on interactive terminals.
+
+### Fixed
+- `TMPDIR` with a trailing slash (macOS) no longer yields double-slash paths; the download and the
+  source-build steps now propagate failures so the release-to-source fallback actually runs.
+
 ## [0.7.22] - 2026-11-20
 
 A little breathing room above the prompt.
