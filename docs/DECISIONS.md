@@ -791,3 +791,18 @@ installer's heredoc now uses the exact nine rows from the generated file, and CI
 before running the installer checks. The generated file stays the single source of truth.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-038 — The piped install asks, and one URL everywhere
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+The one-command install pipes `install.sh` into `sh`, so stdin is the script, not a keyboard. With
+the menu reading stdin it was silently skipped and the user could not choose a dry run or a full
+install. The menu now opens `/dev/tty` on fd 3 for key input, which exists whenever there is a
+controlling terminal even when the script itself came from a pipe. CI and headless runs have no
+`/dev/tty` and go straight to the steps.
+
+The landing page pointed at the `develop` raw URL while `README.md` pointed at `main`. Both now use
+`https://raw.githubusercontent.com/piskevalee-cpu/Seek/main/install.sh`, the release branch.
+
+**Status:** accepted. The specification and changelog were updated.

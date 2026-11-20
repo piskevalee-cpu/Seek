@@ -131,16 +131,17 @@ LOGO
 
 # ---------------------------------------------------------------- the menu
 
-# Read one key, turning escape sequences into names. Works in the POSIX sh of Linux and macOS.
+# Read one key from fd 3, the controlling terminal. The script itself may have arrived on a pipe
+# (curl | sh), so stdin is not a keyboard — /dev/tty is. Works in POSIX sh on Linux and macOS.
 read_key() {
-	old_stty=$(stty -g 2>/dev/null) || return 0
-	stty -echo -icanon min 1 time 0 2>/dev/null || {
-		stty "$old_stty" 2>/dev/null || true
+	old_stty=$(stty -g <&3 2>/dev/null) || return 0
+	stty -echo -icanon min 1 time 0 <&3 2>/dev/null || {
+		stty "$old_stty" <&3 2>/dev/null || true
 		return 0
 	}
-	key=$(dd bs=1 count=1 2>/dev/null) || key=''
+	key=$(dd bs=1 count=1 <&3 2>/dev/null) || key=''
 	if [ "$key" = "$(printf '\033')" ]; then
-		rest=$(dd bs=1 count=2 2>/dev/null) || rest=''
+		rest=$(dd bs=1 count=2 <&3 2>/dev/null) || rest=''
 		case "$rest" in
 		'[A') key=UP ;;
 		'[B') key=DOWN ;;
@@ -148,7 +149,7 @@ read_key() {
 		'[D') key=LEFT ;;
 		esac
 	fi
-	stty "$old_stty" 2>/dev/null || true
+	stty "$old_stty" <&3 2>/dev/null || true
 	printf '%s' "$key"
 }
 
@@ -161,6 +162,8 @@ elif [ "$INSTALL_BINARY" = "0" ]; then
 fi
 
 menu() {
+	# fd 3 is the keyboard even when the script is piped in from curl.
+	exec 3</dev/tty || return 1
 	labels=$(printf '%s\n' \
 		"Full install (folders, files and binary)" \
 		"Folders and built-in files only" \
@@ -217,14 +220,20 @@ menu() {
 	3) MODE=binary ;;
 	4) MODE=dry; DRY_RUN=1 ;;
 	5)
+		exec 3<&- 2>/dev/null || true
 		say "Cancelled. Nothing was changed."
 		exit 0
 		;;
 	esac
+	exec 3<&- 2>/dev/null || true
 }
 
-# The menu is for a person at a keyboard; flags, pipes and CI go straight to the steps.
-if [ -t 0 ] && [ -z "${CI:-}" ]; then
+# The keyboard is /dev/tty, not stdin: `curl ... | sh` still gets the menu. CI has no terminal.
+INTERACTIVE=0
+if [ -z "${CI:-}" ] && (exec 3</dev/tty) 2>/dev/null; then
+	INTERACTIVE=1
+fi
+if [ "$INTERACTIVE" = "1" ]; then
 	print_logo "$( [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ] && echo 0 || echo 1 )"
 	say ""
 	menu

@@ -8,6 +8,16 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.27] - 2026-11-20
+
+The one-command install offers the menu, and the site and README agree.
+
+### Fixed
+- The arrow-key menu reads the controlling terminal (`/dev/tty`) instead of stdin, so
+  `curl -fsSL .../install.sh | sh` lets you choose dry run or a full install before anything is
+  written. CI and headless runs still skip the menu.
+- The website now uses the same `main` install URL as `README.md` (D-038).
+
 ## [0.7.26] - 2026-11-20
 
 The installer prints the whole logo.
