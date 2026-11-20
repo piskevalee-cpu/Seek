@@ -4,11 +4,10 @@
 //! `accent` section headers, `cube_light` primary text, `dim` secondary text, and the directional
 //! blue gradient on the selected row. Grouped rows mirror the sidebar's Sessions/Processes.
 
-use ratatui::widgets::{BorderType, Clear};
+use ratatui::widgets::Clear;
 use ratatui::{Frame, layout::Rect, style::Style, text::Line, text::Span};
-use unicode_width::UnicodeWidthStr;
 
-use crate::gradient;
+use crate::panel;
 use crate::theme::Theme;
 
 /// One row of a menu. `options` makes it a selector; `current` is the active option.
@@ -83,28 +82,6 @@ pub struct Menu {
     pub hint: Option<String>,
 }
 
-/// A bordered block that matches the sidebar: dark-cube border, dim title with spaces.
-pub(crate) fn panel_block(title: &str, theme: &Theme) -> ratatui::widgets::Block<'static> {
-    // The sidebar paints no background either: the terminal shows through. `Clear` has already
-    // erased what was behind the panel, so no fill is needed — and a fill would make the panel
-    // look brighter than the sidebar.
-    ratatui::widgets::Block::bordered()
-        .border_type(BorderType::Plain)
-        .border_style(Style::new().fg(theme.cube_dark))
-        .title(Line::from(Span::styled(
-            format!(" {title} "),
-            Style::new().fg(theme.dim),
-        )))
-}
-
-/// A section header, like `Sessions` in the sidebar.
-pub(crate) fn section_header(text: &str, theme: &Theme) -> Line<'static> {
-    Line::from(Span::styled(
-        text.to_string(),
-        Style::new().fg(theme.accent).bold(),
-    ))
-}
-
 /// One list row: two-space indent, a cursor, the label, optional badge and a right-aligned
 /// value. The selected row gets the directional gradient.
 fn row_line(
@@ -115,35 +92,22 @@ fn row_line(
     from_left: bool,
     theme: &Theme,
 ) -> Line<'static> {
-    let indent = "  ";
     let cursor = if picked { "\u{276f}" } else { " " };
     let badge = if item.badge.is_empty() {
         String::new()
     } else {
         format!("[{}]", item.badge)
     };
-    let prefix_width = indent.width() + cursor.width() + 1;
-    let fixed = prefix_width + badge.width() + right.width() + 1;
-    let label = truncate(&item.label, width.saturating_sub(fixed));
-    let pad = width.saturating_sub(prefix_width + label.width() + badge.width() + right.width());
-    let mut spans = vec![
-        Span::styled(indent, Style::new()),
-        Span::styled(cursor, Style::new().fg(theme.accent)),
-        Span::styled(" ", Style::new()),
-        Span::styled(label, Style::new().fg(theme.cube_light)),
-        Span::styled(badge, Style::new().fg(theme.accent)),
-        Span::styled(" ".repeat(pad), Style::new()),
-        Span::styled(right.to_string(), Style::new().fg(theme.dim)),
-    ];
-    if picked {
-        spans = gradient::paint(spans, width, from_left, theme);
-        for span in &mut spans {
-            if span.style.add_modifier.is_empty() {
-                *span = span.clone().style(span.style.bold());
-            }
-        }
-    }
-    Line::from(spans)
+    panel::row(
+        cursor,
+        &item.label,
+        &badge,
+        right,
+        picked,
+        width,
+        from_left,
+        theme,
+    )
 }
 
 /// A line of a grouped list: a section header, an item, or the empty state.
@@ -260,7 +224,7 @@ impl Menu {
     ) {
         match row {
             InlineRow::Group(group) => {
-                frame.render_widget(section_header(group, theme), rect);
+                frame.render_widget(panel::section_header(group, theme), rect);
             }
             InlineRow::Item(item, offset) => {
                 let right = if item.right_label.is_empty() {
@@ -268,7 +232,7 @@ impl Menu {
                 } else {
                     &item.right_label
                 };
-                let right = truncate(right, rect.width as usize / 3);
+                let right = panel::truncate(right, rect.width as usize / 3);
                 frame.render_widget(
                     row_line(
                         item,
@@ -314,7 +278,7 @@ impl Menu {
         } else {
             format!("{}: {}", self.title, self.filter)
         };
-        let block = panel_block(&title, theme);
+        let block = panel::panel_block(&title, theme);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
         for (i, row) in self
@@ -367,7 +331,7 @@ impl Menu {
         } else {
             format!("{}: {}", self.title, self.filter)
         };
-        let block = panel_block(&title, theme);
+        let block = panel::panel_block(&title, theme);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
@@ -405,21 +369,6 @@ fn capitalize(text: &str) -> String {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
     }
-}
-
-/// Trim a string to a display width.
-fn truncate(text: &str, max: usize) -> String {
-    let mut out = String::new();
-    let mut used = 0usize;
-    for ch in text.chars() {
-        let width = UnicodeWidthStr::width(ch.to_string().as_str());
-        if used + width > max {
-            break;
-        }
-        out.push(ch);
-        used += width;
-    }
-    out
 }
 
 #[cfg(test)]

@@ -828,3 +828,36 @@ every location still uses the same `SKILL.md` format, and the resolved absolute 
 catalog so the model can read the body.
 
 **Status:** accepted. The specification, README, checklist and changelog were updated.
+
+## D-040 — Drag to copy with OSC 52 and OMP notifications
+
+**Date:** 2026-11-20 · **Affects:** SPEC 9.4, 10.3
+
+The terminal has mouse capture on, so dragging never selected text for native copy. Following
+grok-build, a left-button gesture over the transcript now selects visible lines, highlights them,
+and on release reconstructs the text and copies it with OSC 52 (`ESC ] 52 ; c ; <base64> BEL`),
+which works over SSH without xclip. A toast appears in the TUI and a terminal notification follows
+the protocol of oh-my-pi: OSC 777, OSC 99 on Kitty, a Windows toast in Windows Terminal. The
+existing clipboard keys are unchanged; this is additive.
+
+## D-041 — One panel design, a global collapse key, and the log gap
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.3
+
+`Ctrl+O` used to expand the selected tool row. It now collapses or shows **all** reasoning and
+command output at once, with per-row expand moved to `Ctrl+E`. All overlays share the sidebar-style
+panel of the model and settings menus through a new `seek_tui::panel` module. Finally, the one blank
+row moved from below the yellow server log to above it: the log keeps its place just over the
+prompt, and the output above it gets the spacing.
+
+## D-042 — `seek update`
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+A new subcommand reads the version from the manifest of `main`, compares it with the running
+version and, unless `--check` is given, downloads the matching GitHub Release, unpacks it with
+`tar` and atomically renames it over the running binary. It sends an OMP notification when done.
+The release target is derived the same way as in `install.sh`; version comparison and target naming
+are pure functions with tests.
+
+**Status:** accepted. The specification, README, checklist and changelog were updated.

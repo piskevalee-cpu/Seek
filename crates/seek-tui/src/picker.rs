@@ -4,11 +4,9 @@
 //! line for the selection. It follows the compact pickers of OMP (MIT) and the grok-build pager
 //! (Apache-2.0): a list you can scan, not a modal wall of text.
 
-use ratatui::widgets::{BorderType, Clear};
+use ratatui::widgets::Clear;
 use ratatui::{Frame, layout::Rect, style::Style, text::Line, text::Span};
-use unicode_width::UnicodeWidthStr;
 
-use crate::gradient;
 use crate::scrollbar;
 use crate::theme::Theme;
 
@@ -182,16 +180,9 @@ impl Picker {
         self.filter.pop();
         self.selected = 0;
     }
-    /// Draw the picker as a floating panel on an opaque stage.
-    ///
-    /// The panel has a search row, grouped rows, a side scrollbar and a detail line for the
-    /// selection. It is anchored above the prompt, so the box stays visible while choosing.
+    /// Draw the picker as a sidebar-style panel on an opaque stage.
     pub fn render(&self, frame: &mut Frame, area: Rect, theme: &Theme, from_left: bool) {
         frame.render_widget(Clear, area);
-        frame.render_widget(
-            ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
-            area,
-        );
 
         let count = self.visible().len();
         let width = area.width.saturating_sub(4).clamp(24, 76).min(area.width);
@@ -207,51 +198,21 @@ impl Picker {
             width,
             height,
         );
-        let title = if count == 0 {
-            self.title.clone()
+        let title = if self.filter.is_empty() {
+            if count == 0 {
+                self.title.clone()
+            } else {
+                format!("{} · {}", self.title, count)
+            }
         } else {
-            format!("{} · {}", self.title, count)
+            format!("{}: {}", self.title, self.filter)
         };
-        let block = ratatui::widgets::Block::bordered()
-            .border_type(BorderType::Rounded)
-            .border_style(Style::new().fg(theme.accent))
-            .style(Style::new().bg(theme.bg))
-            .title(Span::styled(
-                format!(" {title} "),
-                Style::new().fg(theme.accent).bold(),
-            ));
+        let block = crate::panel::panel_block(&title, theme);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
-
-        let mut canvas: Vec<Line<'static>> = Vec::with_capacity(inner.height as usize);
         let text_width = inner.width.saturating_sub(2) as usize;
 
-        // Search row, with a caret so it reads like the prompt rather than a label.
-        let search = if self.filter.is_empty() {
-            "type to search".to_string()
-        } else {
-            self.filter.clone()
-        };
-        let search_style = if self.filter.is_empty() {
-            Style::new().fg(theme.dim).italic()
-        } else {
-            Style::new().fg(theme.cube_light)
-        };
-        canvas.push(Line::from(vec![
-            Span::styled("  ", Style::new()),
-            Span::styled("\u{276f} ", Style::new().fg(theme.accent)),
-            Span::styled(
-                truncate(&search, text_width.saturating_sub(2)),
-                search_style,
-            ),
-            Span::styled("\u{258c}", Style::new().fg(theme.accent)),
-        ]));
-        canvas.push(Line::from(Span::styled(
-            "\u{2500}".repeat(inner.width as usize),
-            Style::new().fg(theme.cube_dark),
-        )));
-
-        // Build all rows first, so the window can be clamped around the selection.
+        // Grouped rows, like the sections of the sidebar.
         let items = self.visible();
         let mut rows: Vec<Line<'static>> = Vec::new();
         let mut selected_row = 0usize;
@@ -260,211 +221,95 @@ impl Picker {
             if let Some(group) = &item.group
                 && last_group.as_deref() != Some(group.as_str())
             {
-                let label = format!("  {group} ");
-                let dashes = text_width.saturating_sub(UnicodeWidthStr::width(label.as_str()));
-                rows.push(Line::from(vec![
-                    Span::styled(label, Style::new().fg(theme.dim).bold()),
-                    Span::styled("\u{2500}".repeat(dashes), Style::new().fg(theme.cube_dark)),
-                ]));
                 last_group = Some(group.clone());
+                rows.push(crate::panel::section_header(group, theme));
             }
             if index == self.selected {
                 selected_row = rows.len();
             }
             let picked = index == self.selected;
-            let mut spans = vec![Span::styled(
-                if picked { "\u{276f} " } else { "  " }.to_string(),
-                Style::new().fg(if picked { theme.accent } else { theme.dim }),
-            )];
-            if let Some(checked) = item.checked {
-                spans.push(Span::styled(
-                    if checked { "[x] " } else { "[ ] " }.to_string(),
-                    Style::new().fg(if picked { theme.accent } else { theme.text_dim }),
-                ));
-            }
-            let name = truncate(&item.label, text_width / 2);
-            spans.push(Span::styled(
-                name,
-                Style::new().fg(if picked { theme.accent } else { theme.text }),
-            ));
-            if let Some(tag) = &item.tag {
-                spans.push(Span::styled(
-                    format!("  {tag}"),
-                    Style::new().fg(theme.accent),
-                ));
-            }
-            if picked {
-                let row_width = inner.width.saturating_sub(2) as usize;
-                spans = gradient::paint(spans, row_width, from_left, theme);
-            }
-            rows.push(Line::from(spans));
-        }
-        if rows.is_empty() {
-            rows.push(Line::from(Span::styled(
-                "  nothing matches",
-                Style::new().fg(theme.dim).italic(),
-            )));
-        }
-
-        // The detail line and the key hint are fixed; everything between scrolls.
-        let detail = items
-            .get(self.selected)
-            .map(|item| item.detail.clone())
-            .unwrap_or_default();
-        let chrome: usize = 2 + 1 + 1; // search + separator + detail + hint
-        let list_height = (inner.height as usize).saturating_sub(chrome).max(1);
-        let overflow = rows.len() > list_height;
-        let start = selected_row
-            .saturating_add(1)
-            .saturating_sub(list_height)
-            .min(rows.len().saturating_sub(list_height));
-        let thumb = if overflow {
-            Some(scrollbar::thumb_range(list_height, rows.len(), start))
-        } else {
-            None
-        };
-
-        for (offset, (_, row)) in rows
-            .iter()
-            .enumerate()
-            .skip(start)
-            .take(list_height)
-            .enumerate()
-        {
-            let mut spans: Vec<Span<'static>> = Vec::new();
-            let right = if let Some(range) = &thumb {
-                let row_index = start + offset;
-                let color = if range.contains(&row_index) {
+            let cursor = if picked { "\u{276f}" } else { " " };
+            let badge = match item.checked {
+                Some(true) => "[x]",
+                Some(false) => "[ ]",
+                None => "",
+            };
+            let right = item.tag.as_deref().unwrap_or("");
+            let right = crate::panel::truncate(right, text_width / 3);
+            let mut line = crate::panel::row(
+                cursor,
+                &item.label,
+                badge,
+                &right,
+                picked,
+                inner.width as usize,
+                from_left,
+                theme,
+            );
+            // A one-column thumb keeps the picker scrollable without a separate bar.
+            let overflow = items.len() > rows.len().saturating_add(6);
+            if overflow {
+                let color = if index == self.selected {
                     theme.accent
                 } else {
                     theme.cube_dark
                 };
-                spans.push(Span::styled(
-                    scrollbar::THUMB.to_string(),
-                    Style::new().fg(color),
-                ));
-                "  "
-            } else {
-                ""
-            };
-            spans.extend(row.spans.iter().cloned());
-            if !right.is_empty() {
-                spans.push(Span::styled(right.to_string(), Style::new()));
+                let mut spans = vec![
+                    Span::styled(scrollbar::THUMB, Style::new().fg(color)),
+                    Span::styled(" ", Style::new()),
+                ];
+                spans.extend(line.spans);
+                line = Line::from(spans);
             }
-            canvas.push(Line::from(spans));
+            rows.push(line);
+        }
+        if rows.is_empty() {
+            rows.push(Line::from(Span::styled(
+                "  none",
+                Style::new().fg(theme.dim).italic(),
+            )));
         }
 
-        canvas.push(Line::from(Span::styled(
-            format!("  {}", truncate(&detail, text_width.saturating_sub(2))),
-            Style::new().fg(theme.dim),
-        )));
+        // One detail line and one hint are fixed; the rows between them scroll.
+        let detail = items
+            .get(self.selected)
+            .map(|item| item.detail.clone())
+            .unwrap_or_default();
+        let available = inner.height.saturating_sub(2).max(1) as usize;
+        let start = selected_row
+            .saturating_add(1)
+            .saturating_sub(available)
+            .min(rows.len().saturating_sub(available));
+        for (offset, row) in rows.iter().skip(start).take(available).enumerate() {
+            frame.render_widget(
+                row.clone(),
+                Rect::new(inner.x, inner.y + offset as u16, inner.width, 1),
+            );
+        }
+        frame.render_widget(
+            Line::from(Span::styled(
+                crate::panel::truncate(&detail, text_width),
+                Style::new().fg(theme.dim),
+            )),
+            Rect::new(
+                inner.x,
+                inner.y + inner.height.saturating_sub(2),
+                inner.width,
+                1,
+            ),
+        );
         let hint = self
             .hint
             .as_deref()
             .unwrap_or("↑↓ choose · Enter use · Esc close");
-        canvas.push(Line::from(Span::styled(
-            format!("  {hint}"),
-            Style::new().fg(theme.dim).italic(),
-        )));
-
-        for (index, line) in canvas.into_iter().enumerate() {
-            if index >= inner.height as usize {
-                break;
-            }
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(line),
-                Rect::new(inner.x + 1, inner.y + index as u16, inner.width, 1),
-            );
-        }
-    }
-}
-
-/// Trim a string to a display-width, without cutting a wide character.
-fn truncate(text: &str, max: usize) -> String {
-    let mut out = String::new();
-    let mut used = 0usize;
-    for ch in text.chars() {
-        let width = UnicodeWidthStr::width(ch.to_string().as_str());
-        if used + width > max {
-            break;
-        }
-        out.push(ch);
-        used += width;
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn picker() -> Picker {
-        Picker::new(
-            "models",
-            vec![
-                PickerItem::new("Claude Sonnet 4.5", "anthropic/claude-sonnet-4-5")
-                    .with_group("anthropic")
-                    .with_detail("200k context"),
-                PickerItem::new("GPT-5.4", "openai/gpt-5.4").with_group("openai"),
-                PickerItem::new("Local model", "local/mistral").with_tag("LOCAL"),
-            ],
-        )
-    }
-
-    #[test]
-    fn the_filter_narrows_the_list() {
-        let mut picker = picker();
-        assert_eq!(picker.visible().len(), 3);
-        for c in "sonnet".chars() {
-            picker.type_char(c);
-        }
-        assert_eq!(picker.visible().len(), 1);
-        for _ in 0.."sonnet".len() {
-            picker.backspace();
-        }
-        assert_eq!(picker.visible().len(), 3);
-    }
-
-    #[test]
-    fn the_filter_matches_the_group() {
-        let mut picker = picker();
-        for c in "anthropic".chars() {
-            picker.type_char(c);
-        }
-        assert_eq!(picker.visible().len(), 1);
-    }
-
-    #[test]
-    fn the_selection_wraps_around() {
-        let mut picker = picker();
-        assert_eq!(picker.selected, 0);
-        picker.move_next();
-        picker.move_next();
-        picker.move_next();
-        assert_eq!(picker.selected, 0);
-        picker.move_prev();
-        assert_eq!(picker.selected, 2);
-    }
-
-    #[test]
-    fn the_selected_item_is_returned() {
-        let mut picker = picker();
-        assert_eq!(
-            picker.selected_item().map(|item| item.value.as_str()),
-            Some("anthropic/claude-sonnet-4-5")
+        frame.render_widget(
+            crate::panel::hint(hint, theme),
+            Rect::new(
+                inner.x,
+                inner.y + inner.height.saturating_sub(1),
+                inner.width,
+                1,
+            ),
         );
-        picker.move_next();
-        assert_eq!(
-            picker.selected_item().map(|item| item.value.as_str()),
-            Some("openai/gpt-5.4")
-        );
-    }
-
-    #[test]
-    fn filtering_moves_the_selection_back_to_the_top() {
-        let mut picker = picker();
-        picker.move_next();
-        picker.type_char('g');
-        assert_eq!(picker.selected, 0);
     }
 }

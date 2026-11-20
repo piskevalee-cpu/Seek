@@ -5,6 +5,7 @@
 //! commands.
 
 pub mod app;
+pub mod clipboard;
 pub mod completion;
 pub mod footer;
 pub mod gradient;
@@ -13,6 +14,8 @@ pub mod logo;
 pub mod logo_bitmap;
 pub mod menu;
 pub mod metrics;
+pub mod notify;
+pub mod panel;
 pub mod picker;
 pub mod prompt_bar;
 pub mod run;

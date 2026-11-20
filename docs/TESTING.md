@@ -104,12 +104,19 @@ Every key of the specification, one by one.
 - [ ] **Esc** — closes an overlay. With a turn running, it stops the turn.
 - [ ] **Shift+Tab** — cycles the mode: `READ`, `ASK`, `YOLO`. The chip in the footer changes colour with it.
 - [ ] **Ctrl+B** — opens and closes the sidebar.
-- [ ] **Ctrl+O** — expands the selected tool row, and collapses it again.
+- [ ] **Ctrl+O** — collapses every thought to a `reasoning` row and every tool to its one-line summary; again brings them all back.
+- [ ] **Ctrl+E** — expands and collapses the selected tool row.
+- [ ] **Drag to copy.** Drag the mouse over an answer: the selection is highlighted, and on release the text goes to the clipboard (OSC 52, works over SSH) with a `✓ Copied` toast and an OMP terminal notification.
 - [ ] **Ctrl+C** — clears the input. Press it twice on an empty input — SEEK quits.
 - [ ] **Ctrl+T** — cycles the reasoning level of the model: `off`, `low`, `medium`, `high`, `max`. The chip next to the model name shows it. A model without levels says that reasoning is not configurable for it.
 - [ ] **Alt+T** — shows and hides the reasoning.
 - [ ] **PageUp / PageDown** — scroll the transcript.
 - [ ] **Tab** — with the sidebar open, moves the focus into it. Press Tab again to get back.
+
+## Update
+
+- [ ] **`seek update --check`.** Reports the current and the latest version from `main`.
+- [ ] **`seek update`.** Downloads the release for this platform and replaces the binary; `seek --version` shows the new version and a terminal notification appears.
 
 ## The permissions
 

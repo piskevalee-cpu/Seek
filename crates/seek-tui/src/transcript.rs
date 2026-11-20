@@ -62,6 +62,7 @@ pub fn transcript_lines(
     rows: &[Row],
     theme: &Theme,
     show_reasoning: bool,
+    show_output: bool,
     width: usize,
 ) -> Vec<(usize, Line<'static>)> {
     let mut lines = Vec::new();
@@ -110,7 +111,10 @@ pub fn transcript_lines(
                     index,
                     tool_line(name, intent.as_deref(), command, status, *duration, theme),
                 ));
-                if *expanded && let Some(detail) = detail {
+                if show_output
+                    && *expanded
+                    && let Some(detail) = detail
+                {
                     for line in detail.lines() {
                         lines.push((
                             index,
@@ -461,7 +465,7 @@ mod tests {
     #[test]
     fn a_user_message_is_a_band_with_an_arrow() {
         let theme = Theme::default();
-        let lines = transcript_lines(&[Row::User("hi".into())], &theme, true, 80);
+        let lines = transcript_lines(&[Row::User("hi".into())], &theme, true, true, 80);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].0, 0, "the line knows its row");
         assert!(lines[0].1.to_string().contains(PROMPT_ARROW));
@@ -487,7 +491,7 @@ mod tests {
                 expanded: false,
             },
         ];
-        for line in transcript_lines(&rows, &theme, true, 80) {
+        for line in transcript_lines(&rows, &theme, true, true, 80) {
             // The blank line between the blocks has no rail.
             if line.1.spans.is_empty() {
                 continue;
@@ -504,7 +508,7 @@ mod tests {
     fn a_blank_line_sits_between_the_blocks() {
         let theme = Theme::default();
         let rows = [Row::User("hi".into()), Row::Assistant("hello".into())];
-        let lines = transcript_lines(&rows, &theme, true, 80);
+        let lines = transcript_lines(&rows, &theme, true, true, 80);
         // The message, the blank line, the answer.
         assert_eq!(lines.len(), 3);
         assert_eq!(lines[1].1.to_string(), "", "the blocks breathe");
@@ -513,7 +517,7 @@ mod tests {
     #[test]
     fn the_answer_of_the_model_is_plain_text() {
         let theme = Theme::default();
-        let lines = transcript_lines(&[Row::Assistant("hello".into())], &theme, true, 80);
+        let lines = transcript_lines(&[Row::Assistant("hello".into())], &theme, true, true, 80);
         assert_eq!(lines.len(), 1);
         assert!(!lines[0].1.to_string().contains(PROMPT_ARROW));
     }
@@ -522,8 +526,8 @@ mod tests {
     fn hidden_reasoning_collapses_to_one_row() {
         let theme = Theme::default();
         let rows = [Row::Reasoning("secret".into())];
-        let shown = transcript_lines(&rows, &theme, true, 80);
-        let hidden = transcript_lines(&rows, &theme, false, 80);
+        let shown = transcript_lines(&rows, &theme, true, true, 80);
+        let hidden = transcript_lines(&rows, &theme, false, true, 80);
         assert_eq!(shown.len(), 1);
         assert_eq!(hidden.len(), 1);
         assert!(hidden[0].1.to_string().contains("reasoning"));
@@ -533,7 +537,7 @@ mod tests {
     #[test]
     fn pending_rows_are_tagged() {
         let theme = Theme::default();
-        let lines = transcript_lines(&[Row::Pending("later".into())], &theme, true, 80);
+        let lines = transcript_lines(&[Row::Pending("later".into())], &theme, true, true, 80);
         assert!(lines[0].1.to_string().contains("queued"));
     }
 
@@ -550,7 +554,7 @@ mod tests {
             detail: None,
             expanded: false,
         }];
-        let lines = transcript_lines(&rows, &theme, true, 80);
+        let lines = transcript_lines(&rows, &theme, true, true, 80);
         assert_eq!(lines.len(), 1);
         assert!(lines[0].1.to_string().contains("cargo test"));
         assert!(lines[0].1.to_string().contains("1.2s"));
@@ -561,7 +565,7 @@ mod tests {
         use ratatui::style::Modifier;
         let theme = Theme::default();
         let text = "**bold** and `code`\n> quoted";
-        let lines = transcript_lines(&[Row::Assistant(text.into())], &theme, true, 60);
+        let lines = transcript_lines(&[Row::Assistant(text.into())], &theme, true, true, 60);
         let spans: Vec<&Span<'static>> = lines
             .iter()
             .flat_map(|(_, line)| line.spans.iter())
@@ -592,7 +596,7 @@ mod tests {
     fn a_long_message_is_wrapped() {
         let theme = Theme::default();
         let text = "word ".repeat(60);
-        let lines = transcript_lines(&[Row::Assistant(text)], &theme, true, 40);
+        let lines = transcript_lines(&[Row::Assistant(text)], &theme, true, true, 40);
         // The label, then the wrapped text.
         assert!(
             lines.len() > 3,
