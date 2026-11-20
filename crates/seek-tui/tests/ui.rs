@@ -7,7 +7,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use seek_core::AgentEvent;
-use seek_tui::app::{App, Command, Message, Overlay};
+use seek_tui::app::{App, Command, Message, MouseAction, Overlay};
 use seek_tui::theme::Theme;
 use seek_tui::transcript::Row;
 
@@ -135,6 +135,100 @@ fn a_blank_row_separates_the_transcript_from_the_prompt_box() {
         box_line > 0 && lines[box_line - 1].trim().is_empty(),
         "one blank row sits between the transcript and the box: {lines:?}"
     );
+}
+
+#[test]
+fn the_blank_row_sits_above_the_server_log() {
+    use seek_local::logs::{LogBuffer, LogLine};
+    use std::sync::{Arc, Mutex};
+
+    let mut app = app();
+    app.rows.push(Row::Assistant("an answer".into()));
+    let logs = Arc::new(Mutex::new(LogBuffer::new(16)));
+    logs.lock()
+        .unwrap()
+        .push(LogLine::new("yellow log line", false));
+    app.logs = Some(logs);
+
+    let lines = render_lines(&mut app, 100, 30);
+    let log = lines
+        .iter()
+        .position(|line| line.contains("yellow log line"))
+        .expect("the log strip is drawn");
+    assert!(
+        lines[log - 1].trim().is_empty(),
+        "gap above the log: {lines:?}"
+    );
+    let prompt = lines
+        .iter()
+        .position(|line| line.starts_with('╭'))
+        .expect("the prompt box is drawn");
+    assert_eq!(prompt, log + 1, "the log stays just above the box");
+}
+
+#[test]
+fn dragging_over_the_transcript_copies_text() {
+    let mut app = app();
+    app.rows.push(Row::Assistant("hello world".into()));
+    // Draw once so the visible transcript and its screen area are known.
+    let _ = render_lines(&mut app, 100, 30);
+
+    assert_eq!(
+        app.update(Message::Mouse {
+            row: 0,
+            col: 2,
+            action: MouseAction::Down,
+        }),
+        None
+    );
+    app.update(Message::Mouse {
+        row: 0,
+        col: 7,
+        action: MouseAction::Drag,
+    });
+    let command = app.update(Message::Mouse {
+        row: 0,
+        col: 7,
+        action: MouseAction::Up,
+    });
+    match command {
+        Some(Command::CopyText(text)) => assert_eq!(text, "hello"),
+        other => panic!("expected copied text, got {other:?}"),
+    }
+}
+
+#[test]
+fn ctrl_o_collapses_all_thoughts_and_output() {
+    let mut app = app();
+    app.rows.push(Row::Reasoning("a long thought".into()));
+    app.rows.push(Row::Tool {
+        id: "t".into(),
+        intent: None,
+        name: "bash".into(),
+        command: "echo hi".into(),
+        status: "ok".into(),
+        duration: None,
+        detail: Some("the full command output".into()),
+        expanded: true,
+    });
+    let before = render(&mut app, 100, 30);
+    assert!(before.contains("the full command output"));
+
+    app.update(Message::Key(KeyEvent::new(
+        KeyCode::Char('o'),
+        KeyModifiers::CONTROL,
+    )));
+    assert!(app.compact);
+    let after = render(&mut app, 100, 30);
+    assert!(!after.contains("the full command output"));
+    assert!(after.contains("reasoning"));
+
+    app.update(Message::Key(KeyEvent::new(
+        KeyCode::Char('o'),
+        KeyModifiers::CONTROL,
+    )));
+    assert!(!app.compact);
+    assert!(render(&mut app, 100, 30).contains("the full command output"));
 }
 
 #[test]

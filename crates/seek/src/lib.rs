@@ -19,6 +19,7 @@ use seek_tui::app::Command;
 use tokio::sync::mpsc;
 
 pub mod doctor;
+pub mod update;
 
 pub use seek_local::model::LocalModel;
 pub use seek_local::options::LaunchOptions;
@@ -569,6 +570,12 @@ pub async fn agent_loop(
                         .send(seek_tui::app::UiMessage::PasteText(text))
                         .await;
                 }
+            }
+            Command::CopyText(text) => {
+                // OSC 52 works over SSH and without xclip; the OMP notification tells the user it
+                // landed even when the terminal has no visible toast area.
+                seek_tui::clipboard::copy(&text);
+                seek_tui::notify::notify("SEEK", "Text copied to clipboard");
             }
             Command::SetToggles(toggles) => {
                 runtime.save_toggles(&toggles);

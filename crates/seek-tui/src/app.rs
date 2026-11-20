@@ -20,8 +20,9 @@ use crate::completion::{self, Completion, Kind};
 use crate::footer::{Footer, ModelChip, PermissionMode, caption_path, footer_line};
 use crate::input::Input;
 use crate::logo;
-use crate::menu::{Menu, MenuItem, MenuKind, panel_block, section_header};
+use crate::menu::{Menu, MenuItem, MenuKind};
 use crate::metrics::Metrics;
+use crate::panel::{panel_block, section_header};
 use crate::picker::{Picker, PickerItem};
 use crate::prompt_bar;
 use crate::scrollbar;
@@ -159,6 +160,21 @@ pub enum UiMessage {
     PasteImage(std::path::PathBuf),
 }
 
+/// A left-button mouse gesture, used for the scrollbar and for text selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseAction {
+    Down,
+    Drag,
+    Up,
+}
+
+/// A selection over the visible transcript, in display cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Selection {
+    pub start: (usize, usize),
+    pub end: (usize, usize),
+}
+
 /// Everything that can happen to the application.
 #[derive(Debug)]
 pub enum Message {
@@ -171,11 +187,11 @@ pub enum Message {
     PasteImage(std::path::PathBuf),
     /// The wheel of the mouse: a positive number scrolls up.
     Scroll(isize),
-    /// A click or drag on the side scrollbar; `row` is a terminal row, `col` a terminal column.
-    BarClick {
+    /// A press, drag or release of the left mouse button over the terminal.
+    Mouse {
         row: u16,
         col: u16,
-        drag: bool,
+        action: MouseAction,
     },
     Resize(u16, u16),
     Tick,
@@ -197,6 +213,8 @@ pub enum Message {
 pub enum Command {
     /// Read the clipboard: raw text (Ctrl+Shift+V) or an image file (Ctrl+V).
     Clipboard { image: bool },
+    /// Copy selected text to the terminal clipboard and notify the user.
+    CopyText(String),
     /// Hand a message to the agent, with the permission mode the user chose.
     Submit { text: String, mode: PermissionMode },
     /// Answer a permission request.
@@ -310,6 +328,8 @@ pub struct App {
     pub input: Input,
     pub sidebar: Sidebar,
     pub show_reasoning: bool,
+    /// Ctrl+O collapses all reasoning and all command output to one line each.
+    pub compact: bool,
     pub spinner: Spinner,
     pub status: Status,
     /// Messages typed while the agent is working.
@@ -327,6 +347,14 @@ pub struct App {
     pub sidebar_side: seek_core::user::Side,
     /// Where the scrollbar was drawn on the last frame, for mouse hit testing.
     bar_area: Rect,
+    /// Where the visible transcript lines were drawn, for mouse hit testing.
+    transcript_view_area: Rect,
+    /// The text of the visible transcript lines, used to copy a selection.
+    transcript_view: Vec<String>,
+    /// The current drag selection over the visible transcript.
+    selection: Option<Selection>,
+    /// A short-lived status message, drawn just above the prompt.
+    toast: Option<(String, std::time::Instant)>,
     /// How many lines the transcript has, from the last draw.
     pub transcript_total: usize,
     /// How many lines the window of the transcript is high.
@@ -423,6 +451,7 @@ impl App {
             input: Input::new(),
             sidebar: Sidebar::default(),
             show_reasoning: true,
+            compact: false,
             spinner: Spinner::new(),
             status: Status::Idle,
             queued: Vec::new(),
@@ -430,6 +459,10 @@ impl App {
             follow_tail: true,
             sidebar_side: seek_core::user::Side::Left,
             bar_area: Rect::ZERO,
+            transcript_view_area: Rect::ZERO,
+            transcript_view: Vec::new(),
+            selection: None,
+            toast: None,
             transcript_total: 0,
             transcript_height: 0,
             selected: None,
@@ -510,10 +543,7 @@ impl App {
                 self.scroll_by(-delta);
                 None
             }
-            Message::BarClick { row, col, drag } => {
-                self.on_bar_click(row, col, drag);
-                None
-            }
+            Message::Mouse { row, col, action } => self.on_mouse(row, col, action),
             Message::Resize(_, _) => None,
             Message::Tick => {
                 if self.status != Status::Idle {
@@ -522,6 +552,14 @@ impl App {
                 // The vitals are sampled once a second (SPEC 8).
                 if self.vitals.is_due() {
                     self.metrics.vitals = Some(self.vitals.sample());
+                }
+                // A toast lives for three seconds.
+                if self
+                    .toast
+                    .as_ref()
+                    .is_some_and(|(_, at)| at.elapsed() > std::time::Duration::from_secs(3))
+                {
+                    self.toast = None;
                 }
                 None
             }
@@ -796,6 +834,12 @@ impl App {
                 None
             }
             KeyCode::Char('o') => {
+                // One keypress collapses or expands every thought and every command output.
+                self.compact = !self.compact;
+                self.selection = None;
+                None
+            }
+            KeyCode::Char('e') => {
                 self.toggle_selected_row();
                 None
             }
@@ -905,6 +949,8 @@ impl App {
     /// A manual scroll stops following the tail: new rows will then leave the line the user is
     /// reading where it is. Reaching the bottom starts following again.
     fn set_scroll_offset(&mut self, offset: usize) {
+        // A selection belongs to the rows it was made on; scrolling invalidates its coordinates.
+        self.selection = None;
         let max = scrollbar::max_offset(self.transcript_total, self.transcript_height);
         self.scroll_offset = offset.min(max);
         self.follow_tail = self.scroll_offset >= max;
@@ -929,7 +975,48 @@ impl App {
     /// The transcript rows. The thinking animation has its own line above the prompt, so the
     /// conversation is never interrupted by a moving indicator.
     fn transcript_rows(&self, width: usize) -> Vec<(usize, Line<'static>)> {
-        transcript_lines(&self.rows, &self.theme, self.show_reasoning, width)
+        transcript_lines(
+            &self.rows,
+            &self.theme,
+            self.show_reasoning && !self.compact,
+            !self.compact,
+            width,
+        )
+    }
+
+    /// A left-button gesture: the scrollbar first, then text selection over the transcript.
+    fn on_mouse(&mut self, row: u16, col: u16, action: MouseAction) -> Option<Command> {
+        if action == MouseAction::Up {
+            return self.finish_selection().map(|text| {
+                self.toast = Some(("Copied to clipboard".into(), std::time::Instant::now()));
+                Command::CopyText(text)
+            });
+        }
+        let bar = self.bar_area;
+        if bar != Rect::ZERO && col == bar.x && row >= bar.y && row < bar.y + bar.height {
+            self.selection = None;
+            self.on_bar_click(row, col, action == MouseAction::Drag);
+            return None;
+        }
+        let area = self.transcript_view_area;
+        if area == Rect::ZERO
+            || row < area.y
+            || row >= area.y + area.height
+            || col < area.x
+            || col >= area.x + area.width
+        {
+            return None;
+        }
+        let point = ((row - area.y) as usize, (col - area.x) as usize);
+        if action == MouseAction::Down {
+            self.selection = Some(Selection {
+                start: point,
+                end: point,
+            });
+        } else if let Some(selection) = &mut self.selection {
+            selection.end = point;
+        }
+        None
     }
 
     /// A click or a drag on the scrollbar column.
@@ -949,6 +1036,36 @@ impl App {
         } else {
             self.scroll_by(self.transcript_height.max(1) as isize);
         }
+    }
+
+    /// The text under a finished drag, or `None` for a click. A single line is sliced by column;
+    /// several lines keep their line breaks.
+    fn finish_selection(&mut self) -> Option<String> {
+        let selection = self.selection.take()?;
+        let lines = &self.transcript_view;
+        let (first, last) = if selection.start <= selection.end {
+            (selection.start, selection.end)
+        } else {
+            (selection.end, selection.start)
+        };
+        let text = |index: usize| lines.get(index).map(|line| line.as_str()).unwrap_or("");
+        if first.0 == last.0 {
+            let chars: Vec<char> = text(first.0).chars().collect();
+            let from = first.1.min(chars.len());
+            let to = last.1.min(chars.len()).max(from);
+            return (from < to).then(|| chars[from..to].iter().collect());
+        }
+        let mut out = String::new();
+        let head: Vec<char> = text(first.0).chars().collect();
+        out.extend(head[first.1.min(head.len())..].iter());
+        out.push('\n');
+        for index in first.0 + 1..last.0 {
+            out.push_str(text(index));
+            out.push('\n');
+        }
+        let tail: Vec<char> = text(last.0).chars().collect();
+        out.extend(tail[..last.1.min(tail.len())].iter());
+        Some(out)
     }
 
     /// Handle a key while the prompt bar asks for a permission.
@@ -2108,6 +2225,7 @@ impl App {
 
     /// Handle an event from the agent.
     fn on_agent_event(&mut self, event: AgentEvent) -> Option<Command> {
+        self.selection = None;
         match event {
             AgentEvent::TurnStarted => {
                 self.status = Status::Thinking;
@@ -2420,19 +2538,22 @@ impl App {
 
         let [
             transcript_area,
+            _gap_area,
             log_area,
             pinned_area,
             suggestions_area,
-            _gap_area,
+            toast_area,
             prompt_area,
             footer_area,
         ] = Layout::vertical([
             Constraint::Min(3),
+            // One blank row between the transcript and the yellow server log; the log stays
+            // just above the prompt box, where it was before.
+            Constraint::Length(1),
             Constraint::Length(log_lines.len() as u16),
             Constraint::Length(pinned.len() as u16),
             Constraint::Length(suggestions.len() as u16),
-            // One blank row between the transcript and the prompt box.
-            Constraint::Length(1),
+            Constraint::Length(if self.toast.is_some() { 1 } else { 0 }),
             Constraint::Length(prompt_height),
             Constraint::Length(1),
         ])
@@ -2449,6 +2570,15 @@ impl App {
             frame.render_widget(
                 ratatui::widgets::Paragraph::new(suggestions),
                 suggestions_area,
+            );
+        }
+        if let Some((message, _)) = &self.toast {
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(Line::from(vec![
+                    Span::styled("  ✓ ", Style::new().fg(self.theme.accent).bold()),
+                    Span::styled(message.clone(), Style::new().fg(self.theme.cube_light)),
+                ])),
+                toast_area,
             );
         }
 
@@ -2596,7 +2726,36 @@ impl App {
         }
         let start = self.scroll_start();
         let end = start.saturating_add(height).min(total);
-        let visible: Vec<Line> = lines[start..end].to_vec();
+        let selection = self.selection;
+        let theme = self.theme;
+        let visible: Vec<Line> = lines[start..end]
+            .iter()
+            .cloned()
+            .enumerate()
+            .map(|(row, line)| match selection {
+                Some(selection) => {
+                    let (a, b) = if selection.start <= selection.end {
+                        (selection.start, selection.end)
+                    } else {
+                        (selection.end, selection.start)
+                    };
+                    let (from, to) = if a.0 == b.0 {
+                        (a.1, b.1)
+                    } else if row == a.0 {
+                        (a.1, line.to_string().len())
+                    } else if row == b.0 {
+                        (0, b.1)
+                    } else if row > a.0 && row < b.0 {
+                        (0, line.to_string().len())
+                    } else {
+                        (0, 0)
+                    };
+                    highlight_line(line, from, to, &theme)
+                }
+                None => line,
+            })
+            .collect();
+        self.transcript_view = visible.iter().map(Line::to_string).collect();
 
         if show_bar {
             let bar_x = match self.bar_side(frame.area()) {
@@ -2612,10 +2771,12 @@ impl App {
                     Rect::new(area.x + 2, area.y, area.width - 2, area.height)
                 }
             };
+            self.transcript_view_area = text_area;
             frame.render_widget(ratatui::widgets::Paragraph::new(visible), text_area);
             scrollbar::render(frame, self.bar_area, &self.theme, total, self.scroll_offset);
         } else {
             self.bar_area = Rect::ZERO;
+            self.transcript_view_area = area;
             frame.render_widget(ratatui::widgets::Paragraph::new(visible), area);
         }
 
@@ -2721,13 +2882,7 @@ impl App {
             height,
         );
         frame.render_widget(ratatui::widgets::Clear, rect);
-        let block = ratatui::widgets::Block::bordered()
-            .border_style(Style::new().fg(self.theme.accent))
-            .style(Style::new().bg(self.theme.bg))
-            .title(Span::styled(
-                " add a provider ",
-                Style::new().fg(self.theme.accent).bold(),
-            ));
+        let block = panel_block("add a provider", &self.theme);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
@@ -2809,10 +2964,7 @@ impl App {
             height,
         );
         frame.render_widget(ratatui::widgets::Clear, rect);
-        let block = ratatui::widgets::Block::bordered()
-            .border_style(Style::new().fg(self.theme.accent))
-            .style(Style::new().bg(self.theme.bg))
-            .title(Span::styled(" Keys ", Style::new().fg(self.theme.accent)));
+        let block = panel_block("Keys", &self.theme);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
@@ -2824,7 +2976,8 @@ impl App {
             ("Esc", "interrupt / close"),
             ("Shift+Tab", "cycle permission mode"),
             ("Ctrl+B", "toggle sidebar"),
-            ("Ctrl+O", "expand a tool row"),
+            ("Ctrl+O", "collapse or show thinking and output"),
+            ("Ctrl+E", "expand the selected tool row"),
             ("Ctrl+C", "clear input, twice to quit"),
             ("PgUp / PgDn", "scroll the transcript"),
             ("Alt+T", "show or hide reasoning"),
@@ -2844,6 +2997,34 @@ impl App {
             Rect::new(inner.x, inner.y, inner.width, inner.height),
         );
     }
+}
+
+/// Highlight the selected columns of a line with the inverse of the accent colour.
+fn highlight_line(line: Line<'static>, from: usize, to: usize, theme: &Theme) -> Line<'static> {
+    if from >= to {
+        return line;
+    }
+    let selected = Style::new().fg(theme.bg).bg(theme.accent);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut column = 0usize;
+    for span in line.spans {
+        for ch in span.content.chars() {
+            let style = if column >= from && column < to {
+                selected
+            } else {
+                span.style
+            };
+            if let Some(last) = spans.last_mut()
+                && last.style == style
+            {
+                last.content.to_mut().push(ch);
+            } else {
+                spans.push(Span::styled(ch.to_string(), style));
+            }
+            column += 1;
+        }
+    }
+    Line::from(spans)
 }
 
 /// A one-line summary of a tool call.
@@ -3203,12 +3384,12 @@ mod tests {
             expanded: false,
         });
         app.update(Message::Key(key(KeyCode::Down)));
-        app.update(Message::Key(control('o')));
+        app.update(Message::Key(control('e')));
         match &app.rows[0] {
             Row::Tool { expanded, .. } => assert!(*expanded),
             other => panic!("expected a tool row, got {other:?}"),
         }
-        app.update(Message::Key(control('o')));
+        app.update(Message::Key(control('e')));
         match &app.rows[0] {
             Row::Tool { expanded, .. } => assert!(!*expanded),
             other => panic!("expected a tool row, got {other:?}"),

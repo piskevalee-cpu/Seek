@@ -95,15 +95,26 @@ pub async fn run(
                         crossterm::event::MouseEventKind::ScrollDown => {
                             Some(Message::Scroll(-MOUSE_SCROLL))
                         }
-                        kind @ (crossterm::event::MouseEventKind::Down(
+                        crossterm::event::MouseEventKind::Down(
                             crossterm::event::MouseButton::Left,
-                        )
-                        | crossterm::event::MouseEventKind::Drag(
-                            crossterm::event::MouseButton::Left,
-                        )) => Some(Message::BarClick {
+                        ) => Some(Message::Mouse {
                             row: mouse.row,
                             col: mouse.column,
-                            drag: matches!(kind, crossterm::event::MouseEventKind::Drag(_)),
+                            action: crate::app::MouseAction::Down,
+                        }),
+                        crossterm::event::MouseEventKind::Drag(
+                            crossterm::event::MouseButton::Left,
+                        ) => Some(Message::Mouse {
+                            row: mouse.row,
+                            col: mouse.column,
+                            action: crate::app::MouseAction::Drag,
+                        }),
+                        crossterm::event::MouseEventKind::Up(
+                            crossterm::event::MouseButton::Left,
+                        ) => Some(Message::Mouse {
+                            row: mouse.row,
+                            col: mouse.column,
+                            action: crate::app::MouseAction::Up,
                         }),
                         _ => None,
                     },

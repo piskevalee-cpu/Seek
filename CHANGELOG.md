@@ -8,6 +8,25 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.29] - 2026-11-20
+
+Drag-to-copy, a global collapse key, one menu design and a self-updater.
+
+### Added
+- Dragging over the transcript selects text and copies it on release with OSC 52 (the grok
+  protocol), with an in-app toast and an OMP terminal notification (OSC 777 / OSC 99 / Windows
+  toast). The clipboard and notification encoders are unit tested (D-040).
+- `Ctrl+O` collapses or shows all reasoning and all command output at once; per-row expand moves to
+  `Ctrl+E` (D-041).
+- `seek update` installs the latest release of `main` over the running binary; `--check` only
+  reports (D-042).
+- Every overlay — pickers, help, launch options and the provider form — now uses the same panel
+  design as the model and settings menus (D-041).
+
+### Fixed
+- The blank row now sits between the transcript and the yellow server log, which stays directly
+  above the prompt box (D-041).
+
 ## [0.7.28] - 2026-11-20
 
 Skills are discovered in the folders of the other harnesses too.

@@ -29,11 +29,29 @@ struct Cli {
     /// Resume the last session of this directory, with its messages and model.
     #[arg(long, global = true)]
     continue_: bool,
+
+    #[command(subcommand)]
+    action: Option<Action>,
+}
+
+/// Commands that do their work without opening the TUI.
+#[derive(Debug, clap::Subcommand)]
+enum Action {
+    /// Update SEEK to the latest release of main.
+    Update {
+        /// Only report whether a newer release exists.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if let Some(Action::Update { check }) = cli.action {
+        return seek::update::run(check).await;
+    }
 
     let home = seek_core::seek_home();
     let providers = seek::load_providers(&home);

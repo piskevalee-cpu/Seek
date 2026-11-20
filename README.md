@@ -140,6 +140,13 @@ Or from a clone:
    # then type /model and press Enter
    ```
 
+## Update
+
+```sh
+seek update --check   # report the latest release of main
+seek update           # download it and replace the running binary
+```
+
 The first run asks for your name so the model can address you by it. No model picker is put in
 front of the chat: the transcript is there from the first frame, with `[no model selected]` in the
 footer and in the prompt border.
