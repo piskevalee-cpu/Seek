@@ -8,6 +8,15 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.26] - 2026-11-20
+
+The installer prints the whole logo.
+
+### Fixed
+- The installer's copy of the 25 x 9 bitmap was shifted one column right, cutting off the final
+  column of the K. It now matches `crates/seek-tui/src/logo_bitmap.rs` exactly, and CI diffs the
+  two so they cannot drift again (D-037).
+
 ## [0.7.25] - 2026-11-20
 
 The installer asks what to do instead of animating.
