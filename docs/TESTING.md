@@ -185,6 +185,7 @@ Every key of the specification, one by one.
 - [ ] **Run a skill.** Type `/init` and press Enter — the instructions of the skill fill the prompt, and the model follows them.
 - [ ] **Turn one off.** `/skills`, Space on a skill, close the picker — it is gone from the prompt.
 - [ ] **The catalog.** The prompt that reaches the model carries the name, the description and the path of every enabled skill, and nothing else.
+- [ ] **Other harnesses.** Put a `SKILL.md` in `.claude/skills/<name>/` in the project and in `~/.codex/skills/<name>/` (or `~/.hermes/skills/<category>/<name>/`) — both show up in `/skills` after a restart, with the project copy winning on a name clash.
 
 ## The providers
 

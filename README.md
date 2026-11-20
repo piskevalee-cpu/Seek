@@ -177,7 +177,10 @@ sessions, processes and metrics; `/settings` moves it to the left or the right, 
 scrollbar takes the other side.
 
 **Extend.** `/tools` and `/skills` are checklists. External tools live in `~/seek/tools/` and
-widgets in `~/seek/widgets/`; both are plain files.
+widgets in `~/seek/widgets/`; both are plain files. Skills are found in `~/seek/skills/` and in
+the `skills/` folders of the other harnesses (`.claude`, `.codex`, `.hermes`, `.agents`,
+`.opencode`, …) or any other hidden folder with a `skills/` child, at project and user scope;
+SEEK's own folders win on a name clash (D-028).
 
 For the full list of keys and screens, see [docs/TESTING.md](docs/TESTING.md).
 
