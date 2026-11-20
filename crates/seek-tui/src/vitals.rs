@@ -13,6 +13,10 @@ pub const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 pub struct Vitals {
     /// The load of the CPU, in percent.
     pub cpu: Option<f32>,
+    /// The load of every core, in percent, as htop shows them.
+    pub cores: Vec<f32>,
+    /// The temperature sensors: a label and a value in Celsius.
+    pub temps: Vec<(String, f32)>,
     /// The used memory, in bytes.
     pub ram_used: Option<u64>,
     /// The total memory, in bytes.
@@ -81,6 +85,7 @@ pub fn format_bytes(bytes: u64) -> String {
 #[derive(Debug)]
 pub struct VitalsSampler {
     system: Option<sysinfo::System>,
+    components: Option<sysinfo::Components>,
     #[cfg(feature = "nvml")]
     gpu: Option<Gpu>,
     last: Option<std::time::Instant>,
@@ -135,11 +140,14 @@ impl VitalsSampler {
     pub fn new() -> Self {
         let mut system = sysinfo::System::new().ok();
         if let Some(system) = system.as_mut() {
+            system.refresh_cpu_list(sysinfo::CpuRefreshKind::everything());
             system.refresh_cpu_usage();
             system.refresh_memory();
         }
+        let components = sysinfo::Components::new_with_refreshed_list().ok();
         VitalsSampler {
             system,
+            components,
             #[cfg(feature = "nvml")]
             gpu: Gpu::open(),
             last: None,
@@ -161,6 +169,23 @@ impl VitalsSampler {
         };
         system.refresh_cpu_usage();
         system.refresh_memory();
+        let cores: Vec<f32> = system.cpus().iter().map(|cpu| cpu.usage()).collect();
+        let temps: Vec<(String, f32)> = self
+            .components
+            .as_mut()
+            .map(|components| {
+                components.refresh(false);
+                components
+                    .iter()
+                    .filter_map(|component| {
+                        component
+                            .temperature()
+                            .filter(|value| value.is_finite() && *value > 0.0)
+                            .map(|value| (component.label().to_string(), value))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
 
         #[cfg(feature = "nvml")]
         let (gpu, vram_used, vram_total) = match &self.gpu {
@@ -172,6 +197,8 @@ impl VitalsSampler {
 
         Vitals {
             cpu: Some(system.global_cpu_usage()),
+            cores,
+            temps,
             ram_used: Some(system.used_memory()),
             ram_total: Some(system.total_memory()),
             gpu,
@@ -204,6 +231,8 @@ mod tests {
     fn the_values_are_readable() {
         let vitals = Vitals {
             cpu: Some(42.0),
+            cores: vec![42.0, 17.0],
+            temps: vec![("CPU".into(), 52.0)],
             ram_used: Some(2 * 1024 * 1024 * 1024),
             ram_total: Some(8 * 1024 * 1024 * 1024),
             gpu: Some(7.0),

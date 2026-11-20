@@ -151,6 +151,8 @@ async fn main() -> Result<()> {
                 _ = hangup.recv() => {}
             }
             runtime.stop_servers().await;
+            let user = runtime.user.lock().await;
+            let _ = user.write(&runtime.state_dir.join(seek_core::user::USER_FILE));
             std::process::exit(0);
         });
     }
@@ -176,6 +178,8 @@ async fn main() -> Result<()> {
     // The name of the user: the first run asks for it (SPEC 9.5).
     app.user_name = Some(runtime.user.lock().await.name.clone());
     app.sidebar_side = runtime.user.lock().await.sidebar_side;
+    app.sidebar_blocks = runtime.user.lock().await.sidebar_blocks.clone();
+    app.sidebar.open = runtime.user.lock().await.sidebar_open;
     app.toggles = runtime
         .toggles
         .read()

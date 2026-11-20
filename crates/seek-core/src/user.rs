@@ -10,6 +10,64 @@ use serde::{Deserialize, Serialize};
 /// The file the settings live in, inside the state of the SEEK home.
 pub const USER_FILE: &str = "user.toml";
 
+/// The block types a sidebar slot can hold.
+pub const SIDEBAR_BLOCKS: [&str; 5] = ["sessions", "hardware", "processes", "widgets", "none"];
+
+/// The three stacked blocks of the sidebar.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SidebarLayout {
+    /// The top block.
+    #[serde(default = "default_block_1")]
+    pub block1: String,
+    /// The middle block.
+    #[serde(default = "default_block_2")]
+    pub block2: String,
+    /// The bottom block.
+    #[serde(default = "default_block_3")]
+    pub block3: String,
+}
+
+fn default_block_1() -> String {
+    "sessions".to_string()
+}
+
+fn default_block_2() -> String {
+    "hardware".to_string()
+}
+
+fn default_block_3() -> String {
+    "processes".to_string()
+}
+
+impl Default for SidebarLayout {
+    fn default() -> Self {
+        SidebarLayout {
+            block1: default_block_1(),
+            block2: default_block_2(),
+            block3: default_block_3(),
+        }
+    }
+}
+
+impl SidebarLayout {
+    /// The three blocks, top to bottom.
+    pub fn blocks(&self) -> [&str; 3] {
+        [&self.block1, &self.block2, &self.block3]
+    }
+
+    /// Set a slot, ignoring an unknown block name.
+    pub fn set(&mut self, slot: usize, block: &str) {
+        if !SIDEBAR_BLOCKS.contains(&block) || slot > 2 {
+            return;
+        }
+        match slot {
+            0 => self.block1 = block.to_string(),
+            1 => self.block2 = block.to_string(),
+            _ => self.block3 = block.to_string(),
+        }
+    }
+}
+
 /// The settings of the user.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserSettings {
@@ -22,6 +80,12 @@ pub struct UserSettings {
     /// Which side of the screen the sidebar sits on. The scrollbar is opposite (SPEC 10.3).
     #[serde(default)]
     pub sidebar_side: Side,
+    /// Which blocks the three stacked sidebar slots show (SPEC 10.3).
+    #[serde(default)]
+    pub sidebar_blocks: SidebarLayout,
+    /// Whether the sidebar was open at shutdown, restored on the next start.
+    #[serde(default)]
+    pub sidebar_open: bool,
 }
 
 /// The schema version of the settings.
@@ -75,6 +139,8 @@ impl Default for UserSettings {
             schema: 1,
             name: String::new(),
             sidebar_side: Side::Left,
+            sidebar_blocks: SidebarLayout::default(),
+            sidebar_open: false,
         }
     }
 }
@@ -140,6 +206,8 @@ mod tests {
             schema: 1,
             name: "Ada".into(),
             sidebar_side: Side::Right,
+            sidebar_blocks: SidebarLayout::default(),
+            sidebar_open: false,
         };
         settings.write(&path).expect("written");
         let read = UserSettings::read(&path);
@@ -168,6 +236,8 @@ mod tests {
             schema: 1,
             name: "Ada".into(),
             sidebar_side: Side::Left,
+            sidebar_blocks: SidebarLayout::default(),
+            sidebar_open: false,
         };
         let line = settings.prompt_line().expect("a line");
         assert!(line.contains("Ada"), "{line}");

@@ -646,6 +646,20 @@ pub async fn agent_loop(
                 user.sidebar_side = side;
                 let _ = user.write(&runtime.state_dir.join(seek_core::user::USER_FILE));
             }
+            Command::SetSidebarBlock { slot, block } => {
+                let mut user = runtime.user.lock().await;
+                user.sidebar_blocks.set(slot, &block);
+                let _ = user.write(&runtime.state_dir.join(seek_core::user::USER_FILE));
+            }
+            Command::DeleteSession(id) => {
+                let path = runtime.sessions_dir().join(format!("{id}.jsonl"));
+                let _ = std::fs::remove_file(path);
+            }
+            Command::SetSidebarOpen(open) => {
+                let mut user = runtime.user.lock().await;
+                user.sidebar_open = open;
+                let _ = user.write(&runtime.state_dir.join(seek_core::user::USER_FILE));
+            }
             Command::SetMode(mode) => {
                 // The mode is read at every tool call: it applies to the turn that runs now
                 // (SPEC 9.4). `/mode` changes this session only.

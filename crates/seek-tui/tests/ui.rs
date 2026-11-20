@@ -232,6 +232,49 @@ fn ctrl_o_collapses_all_thoughts_and_output() {
 }
 
 #[test]
+fn ctrl_arrows_move_the_sidebar_selection() {
+    let mut app = app();
+    app.sidebar.open = true;
+    app.sessions = vec![
+        seek_core::SessionInfo {
+            id: "a".into(),
+            title: "first".into(),
+            cwd: "/home/valerio/one".into(),
+            created: "2026-11-11T12:00:00Z".into(),
+            messages: 2,
+            model: "local/demo".into(),
+        },
+        seek_core::SessionInfo {
+            id: "b".into(),
+            title: "second".into(),
+            cwd: "/home/valerio/two".into(),
+            created: "2026-11-12T12:00:00Z".into(),
+            messages: 2,
+            model: "local/demo".into(),
+        },
+    ];
+    app.update(Message::Key(KeyEvent::new(
+        KeyCode::Down,
+        KeyModifiers::CONTROL,
+    )));
+    assert_eq!(app.session_selected, 1);
+}
+
+#[test]
+fn deleting_a_session_needs_confirmation() {
+    let mut app = app();
+    for c in "/sessions".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    app.update(Message::Key(key(KeyCode::Enter)));
+    app.update(Message::Key(key(KeyCode::Char('d'))));
+    assert_eq!(app.update(Message::Key(key(KeyCode::Char('n')))), None);
+    app.update(Message::Key(key(KeyCode::Char('d'))));
+    // No session is selected in an empty list, so nothing is deleted.
+    assert_eq!(app.update(Message::Key(key(KeyCode::Char('y')))), None);
+}
+
+#[test]
 fn the_settings_command_asks_for_the_name_again() {
     let mut app = app();
     app.user_name = Some("Ada".into());
@@ -613,6 +656,8 @@ fn the_sessions_command_opens_the_picker() {
         title: "a past question".into(),
         cwd: "/home/valerio/project".into(),
         created: "2026-11-11T12:00:00Z".into(),
+        messages: 2,
+        model: "local/demo".into(),
     }];
     for c in "/sessions".chars() {
         app.update(Message::Key(key(KeyCode::Char(c))));
@@ -630,6 +675,8 @@ fn the_history_command_lists_and_resumes_past_sessions() {
         title: "a past question".into(),
         cwd: "/home/valerio/project".into(),
         created: "2026-11-11T12:00:00Z".into(),
+        messages: 2,
+        model: "local/demo".into(),
     }];
     for c in "/history".chars() {
         app.update(Message::Key(key(KeyCode::Char(c))));
@@ -1245,6 +1292,8 @@ fn the_sidebar_shows_only_the_last_three_sessions() {
             title: format!("past question {index}"),
             cwd: "/home/valerio/project".into(),
             created: "2026-11-11T12:00:00Z".into(),
+            messages: 2,
+            model: "local/demo".into(),
         })
         .collect();
     let screen = render(&mut app, 120, 30);
@@ -1263,12 +1312,16 @@ fn sessions_can_be_picked_with_arrows_in_the_open_sidebar() {
             title: "first".into(),
             cwd: "/home/valerio/project".into(),
             created: "2026-11-11T12:00:00Z".into(),
+            messages: 2,
+            model: "local/demo".into(),
         },
         seek_core::SessionInfo {
             id: "b".into(),
             title: "second".into(),
             cwd: "/home/valerio/project".into(),
             created: "2026-11-12T12:00:00Z".into(),
+            messages: 2,
+            model: "local/demo".into(),
         },
     ];
     app.update(Message::Key(key(KeyCode::Down)));
@@ -1286,6 +1339,8 @@ fn the_sidebar_lists_the_sessions() {
         title: "the first question".into(),
         cwd: "/home/valerio/project".into(),
         created: "2026-11-11T12:00:00Z".into(),
+        messages: 2,
+        model: "local/demo".into(),
     }];
 
     let screen = render(&mut app, 120, 30);

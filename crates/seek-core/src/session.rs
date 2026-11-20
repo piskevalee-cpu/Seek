@@ -61,6 +61,10 @@ pub struct SessionInfo {
     pub cwd: String,
     /// When the session was created.
     pub created: String,
+    /// How many messages the session holds.
+    pub messages: usize,
+    /// The model of the last turn, or a dash when the session has none.
+    pub model: String,
 }
 
 impl SessionInfo {
@@ -276,11 +280,23 @@ impl Session {
             .filter_map(|entry| {
                 let path = entry.path();
                 let session = Session::open(&path).ok()?;
+                let messages = session
+                    .replay()
+                    .map(|history| history.messages.len())
+                    .unwrap_or(0);
+                let model = session
+                    .model_history()
+                    .ok()
+                    .and_then(|tags| tags.into_iter().flatten().last())
+                    .map(|tag| tag.model)
+                    .unwrap_or_else(|| "-".to_string());
                 Some(SessionInfo {
                     id: session.header().id.clone(),
                     title: session.title(),
                     cwd: session.header().cwd.clone(),
                     created: session.header().created.clone(),
+                    messages,
+                    model,
                 })
             })
             .collect();

@@ -189,6 +189,8 @@ the `skills/` folders of the other harnesses (`.claude`, `.codex`, `.hermes`, `.
 `.opencode`, …) or any other hidden folder with a `skills/` child, at project and user scope;
 SEEK's own folders win on a name clash (D-039).
 
+**Sidebar.** `/settings` assigns sessions, hardware, processes or widgets to each of the three stacked blocks. Ctrl+B toggles the sidebar and its state is remembered across restarts, including Ctrl+C. With it open, the context bar, thinking and tokens per second sit under the prompt box.
+
 For the full list of keys and screens, see [docs/TESTING.md](docs/TESTING.md).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>

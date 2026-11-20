@@ -113,6 +113,19 @@ Every key of the specification, one by one.
 - [ ] **PageUp / PageDown** — scroll the transcript.
 - [ ] **Tab** — with the sidebar open, moves the focus into it. Press Tab again to get back.
 
+## Sidebar and sessions
+
+- [ ] **Blocks.** `/settings` assigns each of the three sidebar slots to sessions, hardware, processes or widgets; the layout survives a restart.
+- [ ] **Hardware.** The middle block shows a bar per core that fills with a gradient, memory, temperature and GPU.
+- [ ] **Running state.** With the sidebar open, the context bar, thinking animation and t/s sit on a line under the prompt box, not in a block.
+- [ ] **Ctrl+↑ / Ctrl+↓** move the sidebar selection.
+- [ ] **Persistence.** Close the sidebar, press Ctrl+C twice and start SEEK: it opens closed again.
+- [ ] **Sessions.** `/sessions` groups by repository with the current project first and shows message count, model and age. `d` then `y` deletes the selected session after confirmation.
+
+## Web search
+
+- [ ] **A query works.** Ask the model to search the web: Parallel answers without a key, with sources. No captcha or bot-challenge failure.
+
 ## Update
 
 - [ ] **`seek update --check`.** Reports the current and the latest version from `main`.
