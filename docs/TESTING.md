@@ -41,7 +41,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 
 ## The prompt bar
 
-- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one.
+- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one. The vertical borders are dim: the block cursor is the only bright vertical mark in the input, never two cursors.
 - [ ] **Command completion.** Type `/th` — the list above the bar holds `/think` and `/thoughts`. Down moves to the second, Tab takes it, Esc closes the list and typing brings it back.
 - [ ] **File completion.** Type "read src/ma" — the list shows `src/main.rs`; Tab inserts it and keeps the prose before it.
 - [ ] **Reference completion.** Type "look at @model" in the project root — the list finds `src/model.rs` anywhere below it; Enter inserts a file path without sending the message.
@@ -78,6 +78,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The keys.** Shift+Up and Shift+Down move five lines, PgUp/PgDn a page, Home/End the ends when the prompt is empty.
 - [ ] **The mouse bar.** Click above or below the thumb to page; click the thumb and drag it — the transcript follows.
 - [ ] **Move the sidebar.** `/settings` → "Sidebar side" → press → to change it to right. The sidebar moves to the right and the scrollbar moves to the left at once. Restart SEEK: the choice is kept in `state/user.toml`.
+- [ ] **The default permission level.** `/settings` → "Default permission level" → press → through READ, ASK and YOLO. The footer chip changes at once. Pick READ and restart SEEK: the footer starts on READ, and `~/seek/config.toml` now carries `default_mode = 'read'`. `/mode` still changes only the current session.
 
 ## The conversation
 

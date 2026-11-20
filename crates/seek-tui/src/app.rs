@@ -204,8 +204,10 @@ pub enum Command {
         id: u64,
         decision: PermissionDecision,
     },
-    /// Change the permission mode.
+    /// Change the permission mode for this session.
     SetMode(PermissionMode),
+    /// Change the permission level SEEK starts with, and remember it.
+    SetDefaultMode(PermissionMode),
     /// Change the name of the user.
     SetUserName(String),
     /// Move the sidebar to the other side. The scrollbar follows it (SPEC 10.3).
@@ -1272,7 +1274,7 @@ impl App {
             "settings:mode" => {
                 if let Some(mode) = PermissionMode::parse(&value) {
                     self.mode = mode;
-                    self.pending_settings.push(Command::SetMode(mode));
+                    self.pending_settings.push(Command::SetDefaultMode(mode));
                 }
             }
             "settings:reasoning" => self.show_reasoning = value == "on",
@@ -1634,7 +1636,7 @@ impl App {
                     .with_badge(item.tag.unwrap_or_default())
             })
             .collect();
-        Menu::new("models", MenuKind::Model, items)
+        Menu::new("Models", MenuKind::Model, items)
             .with_hint("↑↓ models · type to search · Enter use · Esc close")
     }
 
@@ -1665,13 +1667,13 @@ impl App {
                 .with_right(&motion)
                 .with_group("interface")
                 .selecting(&["on", "off"], &motion),
-            MenuItem::new("Permission mode", "settings:mode")
-                .with_detail("Read only, ask for writes, or allow everything")
+            MenuItem::new("Default permission level", "settings:mode")
+                .with_detail("The level SEEK starts with: read only, ask, or allow everything")
                 .with_right(&mode)
                 .with_group("security")
                 .selecting(&["READ", "ASK", "YOLO"], &mode),
         ];
-        Menu::new("settings", MenuKind::Settings, items)
+        Menu::new("Settings", MenuKind::Settings, items)
             .with_hint("↑↓ setting · ←→ change · Enter apply · Esc close")
     }
 
@@ -2770,29 +2772,20 @@ impl App {
         frame.render_widget(block, rect);
 
         let lines = vec![
-            Line::from(Span::styled(
-                prefix,
-                Style::new().fg(self.theme.dim).bg(self.theme.bg),
-            )),
+            Line::from(Span::styled(prefix, Style::new().fg(self.theme.dim))),
             section_header("Options", &self.theme),
             Line::from(vec![
-                Span::styled("  ", Style::new().bg(self.theme.bg)),
-                Span::styled(
-                    "> ",
-                    Style::new().fg(self.theme.accent).bold().bg(self.theme.bg),
-                ),
-                Span::styled(
-                    input.text(),
-                    Style::new().fg(self.theme.cube_light).bg(self.theme.bg),
-                ),
+                Span::styled("  ", Style::new()),
+                Span::styled("> ", Style::new().fg(self.theme.accent).bold()),
+                Span::styled(input.text(), Style::new().fg(self.theme.cube_light)),
             ]),
             Line::from(Span::styled(
                 "  the options above are set by SEEK",
-                Style::new().fg(self.theme.dim).italic().bg(self.theme.bg),
+                Style::new().fg(self.theme.dim).italic(),
             )),
             Line::from(Span::styled(
                 "  Enter saves, Esc returns",
-                Style::new().fg(self.theme.dim).bg(self.theme.bg),
+                Style::new().fg(self.theme.dim),
             )),
         ];
         frame.render_widget(
@@ -3052,6 +3045,22 @@ mod tests {
         assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
         app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Read);
+    }
+
+    #[test]
+    fn changing_the_default_permission_level_is_persisted() {
+        let mut app = App::new(Theme::default());
+        for c in "/settings".chars() {
+            app.update(Message::Key(key(KeyCode::Char(c))));
+        }
+        app.update(Message::Key(key(KeyCode::Enter)));
+        // The permission level is the last setting; Right cycles ASK to YOLO.
+        for _ in 0..4 {
+            app.update(Message::Key(key(KeyCode::Down)));
+        }
+        let command = app.update(Message::Key(key(KeyCode::Right)));
+        assert_eq!(command, Some(Command::SetDefaultMode(PermissionMode::Yolo)));
+        assert_eq!(app.mode, PermissionMode::Yolo);
     }
 
     #[test]

@@ -138,6 +138,13 @@ async fn main() -> Result<()> {
     }
 
     let mut app = App::new(Theme::for_terminal());
+    // The default permission level is a startup setting: the footer shows it from the first frame.
+    app.mode = runtime
+        .config
+        .default_mode
+        .as_deref()
+        .and_then(seek_core::PermissionMode::parse)
+        .unwrap_or(seek_core::PermissionMode::Ask);
     app.cwd = std::env::current_dir()
         .map(|path| path.display().to_string())
         .unwrap_or_default();
