@@ -779,3 +779,15 @@ row, and a pipe or CI skips the menu so automation keeps working. The `--no-bina
 `--from-source`, idempotency and platform logic are unchanged.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-037 — One logo bitmap
+
+**Date:** 2026-11-20 · **Affects:** SPEC 12, 13
+
+A screenshot of the installer showed the K of SEEK missing its last column: the copy of the 25 x 9
+bitmap in `install.sh` was shifted one column right compared with the generated
+`crates/seek-tui/src/logo_bitmap.rs`, so the rightmost lit cell fell outside the 25-cell row. The
+installer's heredoc now uses the exact nine rows from the generated file, and CI diffs the two
+before running the installer checks. The generated file stays the single source of truth.
+
+**Status:** accepted. The specification and changelog were updated.

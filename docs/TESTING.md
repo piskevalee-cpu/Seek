@@ -214,7 +214,7 @@ Every key of the specification, one by one.
 ## The installer
 
 - [ ] **Dry run.** `./install.sh --dry-run` — the logo, `SEEK on Linux` (or `macOS`), and every step with `would create` / `would copy` / `would download`; nothing is written. Check `~/seek` is unchanged.
-- [ ] **The menu.** Run it in a terminal: the complete SEEK logo prints once, then five options appear. ↑/↓ move the `❯`, Enter runs the choice, `q` cancels. A flag preselects its row (e.g. `--dry-run` starts on Dry run); piping the script or setting `CI` skips the menu and runs the steps directly.
+- [ ] **The menu.** Run it in a terminal: the complete SEEK logo prints once — all four letters, including the last column of the K — then five options appear. ↑/↓ move the `❯`, Enter runs the choice, `q` cancels. A flag preselects its row (e.g. `--dry-run` starts on Dry run); piping the script or setting `CI` skips the menu and runs the steps directly. CI also diffs the installer's bitmap against the generated one.
 - [ ] **macOS.** The same dry run on a Mac names `arm64-apple-darwin` (or `x86_64-apple-darwin`) and keeps `TMPDIR` paths with one slash. CI checks the syntax and a dry run on both Linux and macOS.
 
 ## Looking at the interface as a picture
