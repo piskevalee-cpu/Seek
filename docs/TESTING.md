@@ -41,7 +41,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 
 ## The prompt bar
 
-- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one. The vertical borders are dim: the block cursor is the only bright vertical mark in the input, never two cursors.
+- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one. The vertical borders are dim: the block cursor is the only bright vertical mark in the input, never two cursors. One blank row separates the last line of the answer from the top border of the box.
 - [ ] **Command completion.** Type `/th` — the list above the bar holds `/think` and `/thoughts`. Down moves to the second, Tab takes it, Esc closes the list and typing brings it back.
 - [ ] **File completion.** Type "read src/ma" — the list shows `src/main.rs`; Tab inserts it and keeps the prose before it.
 - [ ] **Reference completion.** Type "look at @model" in the project root — the list finds `src/model.rs` anywhere below it; Enter inserts a file path without sending the message.

@@ -8,6 +8,14 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.22] - 2026-11-20
+
+A little breathing room above the prompt.
+
+### Fixed
+- One blank row now separates the transcript from the top border of the prompt box; overlays end
+  above that row so the spacing stays while a menu is open (D-033).
+
 ## [0.7.21] - 2026-11-20
 
 The menus now match the sidebar exactly, and the startup permission level is configurable.
