@@ -480,7 +480,7 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
     let screen = render(&mut app, 100, 30);
     // The model selector is inline: the transcript stays visible around it.
     assert!(
-        screen.contains("┌ models "),
+        screen.contains("┌ Models "),
         "the sidebar-style model panel is open: {screen}"
     );
     assert!(screen.contains('╭'), "the prompt box is visible: {screen}");
@@ -490,7 +490,7 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
     );
 
     let small = render(&mut app, 90, 24);
-    assert!(small.contains("┌ models "), "the panel still fits: {small}");
+    assert!(small.contains("┌ Models "), "the panel still fits: {small}");
 }
 
 #[test]

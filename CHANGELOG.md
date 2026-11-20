@@ -8,6 +8,20 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.21] - 2026-11-20
+
+The menus now match the sidebar exactly, and the startup permission level is configurable.
+
+### Changed
+- Menu panels no longer paint a background: like the sidebar, the terminal shows through, with
+  capitalized titles and section headers. The model list still sits in the main column beside the
+  sidebar.
+- `/settings` now has a **Default permission level** instead of a session-only permission mode.
+  Changing it writes `default_mode` to `config.toml` and sets the level SEEK starts with; `/mode`
+  keeps changing only the current session (D-032).
+- The prompt box's vertical borders are dim, so the block cursor is the only bright vertical mark
+  in the input — no more double cursor.
+
 ## [0.7.20] - 2026-11-20
 
 The menus now use the sidebar's panel and stay clear of it.

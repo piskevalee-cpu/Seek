@@ -85,10 +85,12 @@ pub struct Menu {
 
 /// A bordered block that matches the sidebar: dark-cube border, dim title with spaces.
 pub(crate) fn panel_block(title: &str, theme: &Theme) -> ratatui::widgets::Block<'static> {
+    // The sidebar paints no background either: the terminal shows through. `Clear` has already
+    // erased what was behind the panel, so no fill is needed — and a fill would make the panel
+    // look brighter than the sidebar.
     ratatui::widgets::Block::bordered()
         .border_type(BorderType::Plain)
-        .border_style(Style::new().fg(theme.cube_dark).bg(theme.bg))
-        .style(Style::new().bg(theme.bg))
+        .border_style(Style::new().fg(theme.cube_dark))
         .title(Line::from(Span::styled(
             format!(" {title} "),
             Style::new().fg(theme.dim),
@@ -99,7 +101,7 @@ pub(crate) fn panel_block(title: &str, theme: &Theme) -> ratatui::widgets::Block
 pub(crate) fn section_header(text: &str, theme: &Theme) -> Line<'static> {
     Line::from(Span::styled(
         text.to_string(),
-        Style::new().fg(theme.accent).bold().bg(theme.bg),
+        Style::new().fg(theme.accent).bold(),
     ))
 }
 
@@ -125,13 +127,13 @@ fn row_line(
     let label = truncate(&item.label, width.saturating_sub(fixed));
     let pad = width.saturating_sub(prefix_width + label.width() + badge.width() + right.width());
     let mut spans = vec![
-        Span::styled(indent, Style::new().bg(theme.bg)),
-        Span::styled(cursor, Style::new().fg(theme.accent).bg(theme.bg)),
-        Span::styled(" ", Style::new().bg(theme.bg)),
-        Span::styled(label, Style::new().fg(theme.cube_light).bg(theme.bg)),
-        Span::styled(badge, Style::new().fg(theme.accent).bg(theme.bg)),
-        Span::styled(" ".repeat(pad), Style::new().bg(theme.bg)),
-        Span::styled(right.to_string(), Style::new().fg(theme.dim).bg(theme.bg)),
+        Span::styled(indent, Style::new()),
+        Span::styled(cursor, Style::new().fg(theme.accent)),
+        Span::styled(" ", Style::new()),
+        Span::styled(label, Style::new().fg(theme.cube_light)),
+        Span::styled(badge, Style::new().fg(theme.accent)),
+        Span::styled(" ".repeat(pad), Style::new()),
+        Span::styled(right.to_string(), Style::new().fg(theme.dim)),
     ];
     if picked {
         spans = gradient::paint(spans, width, from_left, theme);
@@ -226,7 +228,7 @@ impl Menu {
                 && last_group != Some(group)
             {
                 last_group = Some(group);
-                rows.push(InlineRow::Group(group.to_string()));
+                rows.push(InlineRow::Group(capitalize(group)));
             }
             rows.push(InlineRow::Item(item, offset));
         }
@@ -283,7 +285,7 @@ impl Menu {
                 frame.render_widget(
                     ratatui::widgets::Paragraph::new(Span::styled(
                         "  none",
-                        Style::new().fg(theme.dim).italic().bg(theme.bg),
+                        Style::new().fg(theme.dim).italic(),
                     )),
                     rect,
                 );
@@ -340,10 +342,6 @@ impl Menu {
             return;
         }
         frame.render_widget(Clear, area);
-        frame.render_widget(
-            ratatui::widgets::Block::default().style(Style::new().bg(theme.bg)),
-            area,
-        );
 
         let indices = self.visible_indices();
         let rows = self.grouped_rows(&indices);
@@ -388,7 +386,7 @@ impl Menu {
         frame.render_widget(
             ratatui::widgets::Paragraph::new(Span::styled(
                 format!("  {hint}"),
-                Style::new().fg(theme.dim).bg(theme.bg),
+                Style::new().fg(theme.dim),
             )),
             Rect::new(
                 inner.x,
@@ -397,6 +395,15 @@ impl Menu {
                 1,
             ),
         );
+    }
+}
+
+/// Capitalize the first letter, as the sidebar capitalizes `Sessions` and `Processes`.
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }
 

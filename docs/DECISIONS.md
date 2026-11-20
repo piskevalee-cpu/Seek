@@ -694,3 +694,22 @@ the full screen, so they occupy the column beside the sidebar; the directional g
 following the sidebar's side. Settings were reordered so each group header appears once.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-032 — A default permission level, and menus that match the sidebar
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.2, 10.3
+
+A screenshot showed the model panel filled with `theme.bg` while the sidebar is transparent, so
+the two panels looked different despite sharing the border and row styles. Menu panels now paint no
+background of their own: `Clear` erases the transcript behind them and the terminal shows through,
+exactly like the sidebar. Titles and group headers are capitalized to match `SEEK` and `Sessions`.
+
+`Config.default_mode` already existed but nothing read it: `App` and `Runtime` both started in
+`ASK`. The `/settings` row called "Permission mode" only changed the live session. It is now called
+"Default permission level" and writes `default_mode` to `config.toml`; both the app and the agent
+read that value at startup. `/mode` (Shift+Tab) remains session-only.
+
+Finally, the bright vertical borders of the prompt box sat beside the block cursor and read as a
+second cursor. They now use the dim `border` colour, leaving one bright vertical mark.
+
+**Status:** accepted. The specification and changelog were updated.
