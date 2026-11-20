@@ -637,27 +637,6 @@ which system prompt file is in use.
 
 **Status:** accepted. The specification, changelog and manual checklist were updated.
 
-## D-028 — Skills are discovered in every harness's folder
-
-**Date:** 2026-11-19 · **Affects:** SPEC 9.5
-
-Skills were only discovered in `~/seek/skills` and in the built-in folder. The owner asked for the
-folders used by the other harnesses (`.claude`, `.codex`, `.hermes`, and the rest) so a `SKILL.md`
-written for one agent works in SEEK without copying it.
-
-`seek_core::skill::discover` now scans, in order: project `.seek/skills`, project `.agents/skills`
-and the other harness folders, `~/seek/skills`, the same harness folders under the user's home,
-then the built-ins. Project beats user, SEEK's own folder beats another harness, and installed
-skills beat built-ins. First name wins: a duplicate keeps the higher-precedence body, so a skill
-has one toggle and one `/<name>` target. The scan walks a few levels down to find category folders
-(as Hermes and OpenCode use), skips `.git`, `node_modules`, `.hub`, `__pycache__`, `.venv` and
-`target`, stops at a folder with a `SKILL.md`, and caps the catalog at 100 skills to bound the
-prompt. Any other hidden folder with a `skills/` child is scanned too, so a harness added after
-this list still works. Ancestors of the project root are not scanned. No contract file changes:
-every location still uses the same `SKILL.md` format, and the resolved absolute path goes into the
-catalog so the model can read the body.
-
-**Status:** accepted. The specification, README, checklist and changelog were updated.
 ## D-028 — Port the grok-build modal chrome into the menus
 
 **Date:** 2026-11-19 · **Affects:** SPEC 10.3
@@ -827,3 +806,25 @@ The landing page pointed at the `develop` raw URL while `README.md` pointed at `
 `https://raw.githubusercontent.com/piskevalee-cpu/Seek/main/install.sh`, the release branch.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-039 — Skills are discovered in every harness's folder
+
+**Date:** 2026-11-20 · **Affects:** SPEC 9.5
+
+Skills were only discovered in `~/seek/skills` and in the built-in folder. The owner asked for the
+folders used by the other harnesses (`.claude`, `.codex`, `.hermes`, and the rest) so a `SKILL.md`
+written for one agent works in SEEK without copying it.
+
+`seek_core::skill::discover` now scans, in order: project `.seek/skills`, project `.agents/skills`
+and the other harness folders, `~/seek/skills`, the same harness folders under the user's home,
+then the built-ins. Project beats user, SEEK's own folder beats another harness, and installed
+skills beat built-ins. First name wins: a duplicate keeps the higher-precedence body, so a skill
+has one toggle and one `/<name>` target. The scan walks a few levels down to find category folders
+(as Hermes and OpenCode use), skips `.git`, `node_modules`, `.hub`, `__pycache__`, `.venv` and
+`target`, stops at a folder with a `SKILL.md`, and caps the catalog at 100 skills to bound the
+prompt. Any other hidden folder with a `skills/` child is scanned too, so a harness added after
+this list still works. Ancestors of the project root are not scanned. No contract file changes:
+every location still uses the same `SKILL.md` format, and the resolved absolute path goes into the
+catalog so the model can read the body.
+
+**Status:** accepted. The specification, README, checklist and changelog were updated.

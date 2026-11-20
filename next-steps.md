@@ -206,7 +206,7 @@ one branch from `develop`, squash PR, release tag after CI.
 - Should `--continue` always resume the last session of the current directory, or the globally
   last one?
 - ~~Which cross-client skill paths must be supported in v1 (`.agents/skills` only, or also
-  `.claude/skills`)?~~ Resolved by D-028: all of the harness folders listed in SPEC 9.5 are
+  `.claude/skills`)?~~ Resolved by D-039: all of the harness folders listed in SPEC 9.5 are
   scanned, project scope before user scope. Still open: the remaining parts of proposal §1
   (live inventory refresh, lenient frontmatter and `allowed-tools` enforcement).
 - Desktop notifications: in-band escapes only, or also `notify-send` on Linux?

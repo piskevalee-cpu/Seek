@@ -95,7 +95,7 @@ impl Runtime {
 
         let root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         // Skills from the project, the SEEK home, the other harnesses and the built-ins; a name
-        // resolves to the highest-precedence copy (D-028).
+        // resolves to the highest-precedence copy (D-039).
         let user_home = seek_core::skill::user_home().unwrap_or_else(|| PathBuf::from("."));
         let skills = seek_core::skill::discover(&root, home, &user_home, &builtin_skills());
         let toggles = seek_core::Toggles::read(&state_dir.join("toggles.toml")).unwrap_or_default();

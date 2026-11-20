@@ -180,7 +180,7 @@ scrollbar takes the other side.
 widgets in `~/seek/widgets/`; both are plain files. Skills are found in `~/seek/skills/` and in
 the `skills/` folders of the other harnesses (`.claude`, `.codex`, `.hermes`, `.agents`,
 `.opencode`, …) or any other hidden folder with a `skills/` child, at project and user scope;
-SEEK's own folders win on a name clash (D-028).
+SEEK's own folders win on a name clash (D-039).
 
 For the full list of keys and screens, see [docs/TESTING.md](docs/TESTING.md).
 

@@ -193,7 +193,7 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   specification) and the toggles in `seek-core::toggles`. Only the name, the description and the
   path of a skill go into the prompt; the body is loaded when the skill runs. `skill::discover`
   scans the `skills/` folders of SEEK and of the other harnesses at project and user scope
-  (D-028): project wins over user, SEEK's folders win over other harnesses, installed wins over
+  (D-039): project wins over user, SEEK's folders win over other harnesses, installed wins over
   built-in, and the first name wins. Any other hidden folder with a `skills/` child is scanned as
   a fallback. The walk handles category folders, skips VCS/dependency folders and caps the catalog
   at 100 skills.
