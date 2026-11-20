@@ -191,10 +191,15 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   it the GPU and the video memory show a dash.
 - The skills are in `seek-core::skill` (the `SKILL.md` format of the Agent Skills
   specification) and the toggles in `seek-core::toggles`. Only the name, the description and the
-  path of a skill go into the prompt; the body is loaded when the skill runs.
+  path of a skill go into the prompt; the body is loaded when the skill runs. `skill::discover`
+  scans the `skills/` folders of SEEK and of the other harnesses at project and user scope
+  (D-039): project wins over user, SEEK's folders win over other harnesses, installed wins over
+  built-in, and the first name wins. Any other hidden folder with a `skills/` child is scanned as
+  a fallback. The walk handles category folders, skips VCS/dependency folders and caps the catalog
+  at 100 skills.
 - A skill runs with `/<name> <prompt>`; the body of the skill is inserted into that turn. The
-  built-in `init` skill lives in `builtin/init/SKILL.md` and is loaded from there when it is not
-  installed in `~/seek/skills`.
+  built-in `init` skill lives in `builtin/skills/init/SKILL.md` and is loaded from there when it is
+  not installed in `~/seek/skills`.
 - The external tools are in `seek-core::external`: `tool.toml`, `schema.json` and a `run`
   executable that gets the arguments as JSON on stdin.
 - The widgets are in `seek-core::widget`: `widget.toml` and a `run` executable that prints up to
