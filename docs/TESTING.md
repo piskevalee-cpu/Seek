@@ -87,7 +87,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **Your message is a band.** The prompt of the user is a band across the width with the arrow in front of it. The answer of the model is plain text, without a band.
 - [ ] **Every block has a rail.** A one-column rail on the left of every block: blue for your message, magenta for the answer, grey for the reasoning and the tools.
 - [ ] **The blocks breathe.** A blank line sits between the blocks, and a gap of two columns sits between the sidebar and the messages.
-- [ ] **The metrics.** While the model answers, the footer line shows the context (`1.6k / 32.8k`), the percentage, the speed in tokens per second, the think time and the vitals (cpu, ram).
+- [ ] **The metrics.** While the model answers, the footer line shows the context (`1.6k / 32.8k`), the percentage, the speed in tokens per second, the thought time and the vitals (cpu, ram).
 - [ ] **The animation.** While the model works, a line of dark cells shows at the tail of the transcript, with a streak of brightness going through them. It is one line, eight cells, and the streak wraps around: a new one starts at the left when the old one reaches the right.
 - [ ] **A long answer.** Ask for a long text — the transcript scrolls, and the view stays at the bottom.
 - [ ] **Scroll up.** Press PageUp — the transcript scrolls up, and the newest lines are no longer glued to the bottom. PageDown scrolls back.
@@ -249,3 +249,7 @@ Every key of the specification, one by one.
 - [ ] **The log.** `~/seek/state/logs/` holds the log of the local server.
 - [ ] **The doctor.** `seek --doctor` says what SEEK found and what is missing.
 - [ ] **The session.** `~/seek/state/sessions/*.jsonl` shows exactly what was said.
+
+## Authoring widgets
+
+- [ ] **The widget skill.** `/widget` — the skill explains `widget.toml`, the `run` executable, the eight-line/forty-column cap and the 500 ms budget, with a working example. Ask SEEK to add a widget and verify it shows in the sidebar's widget block.

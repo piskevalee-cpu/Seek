@@ -901,3 +901,14 @@ quit and on a signal, so it is restored even after Ctrl+C.
 The session picker now groups by repository with the current project first, shows the message count,
 model and age, and supports `d` → `y` to delete a session after confirmation. The append-only JSONL
 contract is unchanged: only the list view and the file removal were added.
+
+## D-047 — Footer metrics, "thought", and the widget skill
+
+**Date:** 2026-11-20 · **Affects:** SPEC 9.5, 10.2, 10.3
+
+The run metrics were on a line above the footer while the sidebar was open. They now sit in the
+footer itself, immediately to the right of the permission chip and the model name; the vitals remain
+in the sidebar hardware block when it is open so no fact has two homes. The time label is "thought"
+rather than "think", in the speed line and the reasoning chip. The sidebar block is named `widget`
+in the singular; settings files written with the plural are normalized when read. A built-in skill
+named `widget` teaches the widget contract and is copied to `~/seek/skills/widget/` on install.

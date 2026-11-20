@@ -1,6 +1,6 @@
 //! The METRICS block (SPEC 10.2, 10.3).
 //!
-//! The rows are, in this order: the context bar with the counts; the speed and the think time;
+//! The rows are, in this order: the context bar with the counts; the speed and the thought time;
 //! the rate limit, if the provider reported one; and the CPU, the memory, the GPU and the video
 //! memory.
 //!
@@ -90,7 +90,7 @@ impl Metrics {
         )];
         if let Some(think) = self.stats.think_time_text() {
             spans.push(Span::styled(
-                format!("  think {think}"),
+                format!("  thought {think}"),
                 Style::new().fg(theme.dim),
             ));
         }
@@ -152,6 +152,32 @@ impl Metrics {
         }
         lines.push(self.vitals_line(theme));
         lines
+    }
+
+    /// The form beside the mode chip and the model name in the footer: the context bar, the
+    /// counts, the thought time and the speed, dropping the speed when there is no room.
+    pub fn footer_line(&self, theme: &Theme, width: usize, vitals: bool) -> Line<'static> {
+        let mut spans = self.context_line(theme).spans;
+        let parts = [
+            self.speed_line(theme),
+            self.rate_limit_line(theme).unwrap_or_default(),
+            if vitals {
+                self.vitals_short(theme)
+            } else {
+                Line::default()
+            },
+        ];
+        let used: usize = spans.iter().map(|span| span.width()).sum();
+        let mut room = width.saturating_sub(used);
+        for part in parts {
+            let size: usize = part.spans.iter().map(|span| span.width()).sum();
+            if size == 0 || size > room {
+                continue;
+            }
+            spans.extend(part.spans);
+            room -= size;
+        }
+        Line::from(spans)
     }
 
     /// The short form, for the footer line.
@@ -306,7 +332,7 @@ mod tests {
         let theme = Theme::default();
         let line = metrics().speed_line(&theme).to_string();
         assert!(line.contains("60.0 t/s"));
-        assert!(line.contains("think 0.4s"));
+        assert!(line.contains("thought 0.4s"));
     }
 
     #[test]

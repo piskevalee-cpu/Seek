@@ -8,6 +8,21 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.31] - 2026-11-20
+
+Footer layout, wording and a widget-authoring skill.
+
+### Changed
+- The context bar, thought time and speed now sit in the footer beside the permission chip and the
+  model name, in one line. Vitals stay in the sidebar hardware block when it is open.
+- "think" is named "thought" in the metrics line and in the reasoning chip.
+- The sidebar block option is the singular `widget`; older settings with `widgets` are migrated on
+  read (D-047).
+
+### Added
+- The built-in `widget` skill explains how to author a widget (`widget.toml`, `run`, the 8x40 cap
+  and the 500 ms budget), with a working example.
+
 ## [0.7.30] - 2026-11-20
 
 Web search that works, a configurable sidebar, and a model that acts.

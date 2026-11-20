@@ -189,7 +189,7 @@ the `skills/` folders of the other harnesses (`.claude`, `.codex`, `.hermes`, `.
 `.opencode`, …) or any other hidden folder with a `skills/` child, at project and user scope;
 SEEK's own folders win on a name clash (D-039).
 
-**Sidebar.** `/settings` assigns sessions, hardware, processes or widgets to each of the three stacked blocks. Ctrl+B toggles the sidebar and its state is remembered across restarts, including Ctrl+C. With it open, the context bar, thinking and tokens per second sit under the prompt box.
+**Sidebar.** `/settings` assigns sessions, hardware, processes or `widget` to each of the three stacked blocks. Ctrl+B toggles the sidebar and its state is remembered across restarts, including Ctrl+C. The context bar, thinking and tokens per second sit in the footer beside the permission chip and the model name.
 
 For the full list of keys and screens, see [docs/TESTING.md](docs/TESTING.md).
 
@@ -283,3 +283,5 @@ Questions and bugs: [GitHub Issues](https://github.com/piskevalee-cpu/Seek/issue
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
+
+The built-in `widget` skill teaches SEEK how to write new sidebar widgets (`/widget`).
