@@ -765,3 +765,17 @@ dropped the `--no-binary` guard; it is back. The plain path (pipe, `NO_COLOR`, `
 still prints the same quiet log and the platform line.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-036 — A static logo and an arrow-key menu
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+The frame-based TUI of D-035 was the wrong direction: the owner asked to drop the animation and
+make the installer interactive in a simpler way. `install.sh` now prints the complete 25 x 9 logo
+once, at full highlight, and presents five choices — full install, folders and files, binary only,
+dry run, cancel. ↑/↓ move the `❯` and Enter selects; `q` cancels. Key reading uses `stty` and `dd`
+with escape sequences, which works in the POSIX `sh` of both Linux and macOS. A flag preselects its
+row, and a pipe or CI skips the menu so automation keeps working. The `--no-binary`, `--dry-run`,
+`--from-source`, idempotency and platform logic are unchanged.
+
+**Status:** accepted. The specification and changelog were updated.

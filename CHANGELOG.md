@@ -8,6 +8,16 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.25] - 2026-11-20
+
+The installer asks what to do instead of animating.
+
+### Changed
+- Dropped the animated frame-based TUI. The complete SEEK logo is printed once, then an arrow-key
+  menu lets you pick a full install, folders and files only, binary only, a dry run, or cancel
+  (↑/↓ move, Enter select, `q` cancel). A flag preselects the matching row; a pipe or CI skips the
+  menu and runs directly (D-036).
+
 ## [0.7.24] - 2026-11-20
 
 The installer is now a small TUI instead of a log with an animated header.
