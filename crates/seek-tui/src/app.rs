@@ -2637,9 +2637,9 @@ impl App {
             None
         };
 
-        // The metrics have exactly one home: the bottom of the sidebar when it is open, the
-        // footer line otherwise. Never both (SPEC 10.2).
-        let metrics_in_footer = !(self.sidebar.open && sidebar_area != Rect::ZERO);
+        // The run metrics sit in the footer beside the mode chip and the model, whether or not the
+        // sidebar is open. The vitals have one home: the hardware block when it is open, the footer
+        // otherwise (SPEC 10.2).
 
         let [
             transcript_area,
@@ -2649,7 +2649,6 @@ impl App {
             suggestions_area,
             toast_area,
             prompt_area,
-            metrics_area,
             footer_area,
         ] = Layout::vertical([
             Constraint::Min(3),
@@ -2661,8 +2660,6 @@ impl App {
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(if self.toast.is_some() { 1 } else { 0 }),
             Constraint::Length(prompt_height),
-            // With the sidebar open the context, thinking and speed move under the prompt.
-            Constraint::Length(if sidebar_area != Rect::ZERO { 1 } else { 0 }),
             Constraint::Length(1),
         ])
         .areas(main_area);
@@ -2719,46 +2716,15 @@ impl App {
             },
         );
 
-        // When the sidebar is open, its blocks do not hold the run metrics: the context bar,
-        // the thinking animation and the speed sit on their own line under the prompt box.
-        if sidebar_area != Rect::ZERO {
-            let mut spans = self.metrics.context_line(&self.theme).spans;
-            if self.status == Status::Thinking {
-                spans.push(Span::styled(
-                    "  thinking ",
-                    Style::new().fg(self.theme.dim).italic(),
-                ));
-                if self.reduce_motion {
-                    spans.push(Span::styled("░░░░", Style::new().fg(self.theme.cube_dark)));
-                } else {
-                    spans.extend(self.spinner.cells_line(&self.theme));
-                }
-            }
-            spans.push(Span::styled("  ", Style::new()));
-            spans.extend(self.metrics.speed_line(&self.theme).spans);
-            frame.render_widget(
-                ratatui::widgets::Paragraph::new(Line::from(spans)),
-                metrics_area,
-            );
-        }
-
-        // The metrics have exactly one home: under the prompt when the sidebar is open, the
-        // footer line otherwise. Never both (SPEC 10.2).
+        // The metrics have exactly one home: in the footer, beside the mode chip and the model.
         let footer = Footer {
             mode: self.mode,
             model: self.model.clone(),
             reasoning: self.reasoning.clone(),
             branch: self.branch.clone(),
-            thinking: if metrics_in_footer {
-                footer_thinking
-            } else {
-                None
-            },
-            metrics: match metrics_in_footer {
-                // The metrics are in the footer when the sidebar is closed.
-                true => Some(self.metrics.clone()),
-                false => None,
-            },
+            thinking: footer_thinking,
+            vitals_in_footer: sidebar_area == Rect::ZERO,
+            metrics: Some(self.metrics.clone()),
         };
         frame.render_widget(
             ratatui::widgets::Paragraph::new(footer_line(&footer, &self.theme, footer_area.width)),

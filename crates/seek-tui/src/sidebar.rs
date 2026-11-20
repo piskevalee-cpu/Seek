@@ -148,7 +148,7 @@ fn block_lines(
                 }
             }
         }
-        "widgets" => {
+        "widget" => {
             lines.push(header("Widgets", theme));
             if widgets.is_empty() {
                 lines.push(empty("none", theme));
@@ -213,7 +213,7 @@ mod tests {
             ("sessions", "Sessions"),
             ("hardware", "Hardware"),
             ("processes", "Processes"),
-            ("widgets", "Widgets"),
+            ("widget", "Widgets"),
         ] {
             let lines = block_lines(name, &sidebar, &theme, &[], 0, true, &[], &vitals);
             assert_eq!(lines[0].to_string(), title);

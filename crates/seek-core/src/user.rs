@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub const USER_FILE: &str = "user.toml";
 
 /// The block types a sidebar slot can hold.
-pub const SIDEBAR_BLOCKS: [&str; 5] = ["sessions", "hardware", "processes", "widgets", "none"];
+pub const SIDEBAR_BLOCKS: [&str; 5] = ["sessions", "hardware", "processes", "widget", "none"];
 
 /// The three stacked blocks of the sidebar.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,7 +151,18 @@ impl UserSettings {
         let Ok(text) = std::fs::read_to_string(path) else {
             return UserSettings::default();
         };
-        toml::from_str(&text).unwrap_or_default()
+        let mut settings: Self = toml::from_str(&text).unwrap_or_default();
+        // Older files used the plural; the setting is now the singular widget name.
+        for block in [
+            &mut settings.sidebar_blocks.block1,
+            &mut settings.sidebar_blocks.block2,
+            &mut settings.sidebar_blocks.block3,
+        ] {
+            if block == "widgets" {
+                *block = "widget".to_string();
+            }
+        }
+        settings
     }
 
     /// Write the settings.

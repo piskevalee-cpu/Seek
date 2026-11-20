@@ -49,8 +49,10 @@ pub struct Footer {
     pub branch: Option<String>,
     /// The metrics of the session, when the sidebar does not show them.
     pub metrics: Option<crate::metrics::Metrics>,
-    /// The thinking animation and label, when the model works and the sidebar is closed.
+    /// The thinking animation and label, when the model works.
     pub thinking: Option<Line<'static>>,
+    /// Whether the vitals belong here rather than in the sidebar's hardware block.
+    pub vitals_in_footer: bool,
 }
 
 /// Build the footer line.
@@ -82,7 +84,7 @@ pub fn footer_line(footer: &Footer, theme: &Theme, width: u16) -> Line<'static> 
 
     if let Some(reasoning) = &footer.reasoning {
         spans.push(Span::styled(
-            format!(" think: {reasoning}"),
+            format!(" thought: {reasoning}"),
             Style::new().fg(theme.dim),
         ));
     }
@@ -103,7 +105,15 @@ pub fn footer_line(footer: &Footer, theme: &Theme, width: u16) -> Line<'static> 
         if used < width {
             let room = width - used;
             spans.push(Span::styled(" ", Style::new()));
-            spans.extend(metrics.compact_line(theme, room.saturating_sub(1)).spans);
+            spans.extend(
+                metrics
+                    .footer_line(
+                        theme,
+                        room.saturating_sub(1) as usize,
+                        footer.vitals_in_footer,
+                    )
+                    .spans,
+            );
         }
     }
     // The thinking animation sits just after the vitals, like a small status word.
@@ -171,6 +181,7 @@ mod tests {
             },
             reasoning: None,
             thinking: None,
+            vitals_in_footer: true,
             branch: Some("develop".into()),
             metrics: None,
         }
@@ -209,7 +220,7 @@ mod tests {
         assert!(
             footer_line(&footer, &theme, 200)
                 .to_string()
-                .contains("think: high")
+                .contains("thought: high")
         );
     }
 
