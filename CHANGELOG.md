@@ -8,6 +8,28 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.25] - 2026-11-20
+
+The installer asks what to do instead of animating.
+
+### Changed
+- Dropped the animated frame-based TUI. The complete SEEK logo is printed once, then an arrow-key
+  menu lets you pick a full install, folders and files only, binary only, a dry run, or cancel
+  (↑/↓ move, Enter select, `q` cancel). A flag preselects the matching row; a pipe or CI skips the
+  menu and runs directly (D-036).
+
+## [0.7.24] - 2026-11-20
+
+The installer is now a small TUI instead of a log with an animated header.
+
+### Changed
+- The logo sheen keeps running for the whole install, including during a download or build; the
+  final frame paints the completed logo at full highlight.
+- Five step rows light up from `○` to an animated glyph to `●`, with a step counter and the latest
+  detail lines. The 0.12 s frame pace is deliberately slower so the animation can be followed.
+- Fixed a variable collision between the renderer and the step runner, and restored the
+  `--no-binary` guard lost in the refactor (D-035).
+
 ## [0.7.23] - 2026-11-20
 
 The installer animates on Linux and macOS, and can be tested without changing anything.

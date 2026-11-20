@@ -11,8 +11,8 @@
 #   ./install.sh --no-binary    only the folders and the built-in files
 #   ./install.sh --dry-run      show what would happen, change nothing
 #
-# On Linux and macOS an interactive terminal gets the sweeping logo and a spinner for the long
-# steps. Piped output, NO_COLOR, CI or TERM=dumb give the plain, quiet path.
+# On an interactive Linux or macOS terminal the installer prints the SEEK logo and asks what to
+# do with a menu you navigate with the arrow keys. With a flag, or on a pipe, it just runs.
 
 set -eu
 
@@ -27,17 +27,12 @@ DRY_RUN=0
 TMP_ROOT="${TMPDIR:-/tmp}"
 TMP_ROOT="${TMP_ROOT%/}"
 
-# The logo and the spinner are plain on a pipe, in CI, with NO_COLOR, or on a dumb terminal.
 OS_NAME=$(uname -s)
 case "$OS_NAME" in
 Linux) PLATFORM="Linux" ;;
 Darwin) PLATFORM="macOS" ;;
 *) PLATFORM="$OS_NAME" ;;
 esac
-ANIMATE=0
-if [ -t 1 ] && [ -z "${NO_COLOR:-}" ] && [ -z "${CI:-}" ] && [ "${TERM:-}" != "dumb" ]; then
-	ANIMATE=1
-fi
 
 usage() {
 	awk 'NR >= 3 && NR <= 15 { sub(/^# ?/, ""); print }' "$0"
@@ -93,46 +88,29 @@ if [ ! -f "$REPO_DIR/crates/seek/Cargo.toml" ]; then
 	exit "$status"
 fi
 
-# The same 25 x 9 bitmap the TUI draws. A short diagonal sweep runs from the top right to the
-# low left, the way the startup logo does; a non-interactive install gets the resting frame.
-print_logo_frame() {
-	awk -v frame="$1" -v plain="${2:-0}" '
+# ---------------------------------------------------------------- the logo
+
+# The complete 25 x 9 bitmap the TUI draws, in the terminal palette. No animation: the logo is
+# printed once, with every lit cell at the highlight colour.
+print_logo() {
+	awk -v plain="${1:-0}" '
 	{
 		rows[NR] = $0
 		while (length(rows[NR]) < 25) rows[NR] = rows[NR] " "
 	}
 	END {
 		esc = sprintf("%c", 27)
-		head = 1 - frame / 5
 		for (r = 1; r <= NR; r++) {
 			line = ""
 			for (c = 1; c <= 25; c++) {
 				ch = substr(rows[r], c, 1)
 				if (ch == " ") { line = line "  "; continue }
-				d = ((c - 1) + (9 - r)) / 34
-				forward = d - head
-				while (forward < 0) forward += 1
-				backward = head - d
-				while (backward < 0) backward += 1
-				dist = (forward < backward ? forward : backward) * 34
-				shine = dist < 4 ? (1 - dist / 4) ^ 2 : 0
-				if (ch == "#") {
-					br = 120; bg = 116; bb = 133
-					hr = 214; hg = 193; hb = 240
-					t = 0.55 + 0.45 * shine
-				} else {
-					br = 47; bg = 43; bb = 60
-					hr = 160; hg = 154; hb = 176
-					t = 0.6 * shine
-				}
-				if (t > 1) t = 1
-				rr = int(br + (hr - br) * t + 0.5)
-				gg = int(bg + (hg - bg) * t + 0.5)
-				b2 = int(bb + (hb - bb) * t + 0.5)
+				if (ch == "#") { rr = 214; gg = 193; bb = 240 }
+				else { rr = 47; gg = 43; bb = 60 }
 				if (plain) {
 					line = line (ch == "#" ? "██" : "░░")
 				} else {
-					line = line esc "[38;2;" rr ";" gg ";" b2 "m██"
+					line = line esc "[38;2;" rr ";" gg ";" bb "m██"
 				}
 			}
 			print line (plain ? "" : esc "[0m")
@@ -151,78 +129,120 @@ print_logo_frame() {
 LOGO
 }
 
-banner() {
-	if [ "$ANIMATE" = "1" ]; then
-		frame=0
-		while [ "$frame" -lt 5 ]; do
-			if [ "$frame" -gt 0 ]; then
-				printf '\033[9A'
-			fi
-			print_logo_frame "$frame"
-			sleep 0.07
-			frame=$((frame + 1))
-		done
-	else
-		print_logo_frame 5 1
+# ---------------------------------------------------------------- the menu
+
+# Read one key, turning escape sequences into names. Works in the POSIX sh of Linux and macOS.
+read_key() {
+	old_stty=$(stty -g 2>/dev/null) || return 0
+	stty -echo -icanon min 1 time 0 2>/dev/null || {
+		stty "$old_stty" 2>/dev/null || true
+		return 0
+	}
+	key=$(dd bs=1 count=1 2>/dev/null) || key=''
+	if [ "$key" = "$(printf '\033')" ]; then
+		rest=$(dd bs=1 count=2 2>/dev/null) || rest=''
+		case "$rest" in
+		'[A') key=UP ;;
+		'[B') key=DOWN ;;
+		'[C') key=RIGHT ;;
+		'[D') key=LEFT ;;
+		esac
 	fi
+	stty "$old_stty" 2>/dev/null || true
+	printf '%s' "$key"
 }
 
-# Run a step, with a spinner while it works on an interactive terminal. The child's output is
-# kept and shown only when the step fails, so the spinner never gets smeared by a build log.
-spin() {
-	label=$1
-	shift
-	if [ "$ANIMATE" = "1" ]; then
-		log="$TMP_ROOT/seek-install-spin-$$"
-		(
-			while :; do
-				for glyph in '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏'; do
-					printf '\r  %s %s' "$glyph" "$label"
-					sleep 0.08
-				done
-			done
-		) &
-		spinner_pid=$!
-		status=0
-		"$@" >"$log" 2>&1 || status=$?
-		kill "$spinner_pid" 2>/dev/null || true
-		wait "$spinner_pid" 2>/dev/null || true
-		if [ "$status" = "0" ]; then
-			printf '\r  ✓ %s\n' "$label"
-		else
-			printf '\r  ! %s\n' "$label"
-			cat "$log" >&2
-		fi
-		rm -f "$log"
-		return "$status"
-	fi
-	say "  $label"
-	status=0
-	"$@" || status=$?
-	return "$status"
-}
-
-banner
-say ""
-say "==> SEEK on $PLATFORM"
+# A mode is one of all, files, binary, dry. A flag on the command line preselects it.
+MODE=all
 if [ "$DRY_RUN" = "1" ]; then
-	say "    dry run: no files will be changed"
+	MODE=dry
+elif [ "$INSTALL_BINARY" = "0" ]; then
+	MODE=files
 fi
-say ""
 
-# ---------------------------------------------------------------- the folders
+menu() {
+	labels=$(printf '%s\n' \
+		"Full install (folders, files and binary)" \
+		"Folders and built-in files only" \
+		"Binary only" \
+		"Dry run (change nothing)" \
+		"Cancel")
+	case "$MODE" in
+	dry) selected=4 ;;
+	files) selected=2 ;;
+	binary) selected=3 ;;
+	*) selected=1 ;;
+	esac
+	count=5
+	say "==> what should SEEK do on $PLATFORM?"
+	say ""
+	while :; do
+		index=1
+		while [ "$index" -le "$count" ]; do
+			label=$(printf '%s\n' "$labels" | sed -n "${index}p")
+			if [ "$index" = "$selected" ]; then
+				say "  ❯ $label"
+			else
+				say "    $label"
+			fi
+			index=$((index + 1))
+		done
+		say ""
+		say "  ↑↓ move   ·   Enter select"
+		key=$(read_key)
+		case "$key" in
+		UP)
+			selected=$((selected - 1))
+			[ "$selected" -lt 1 ] && selected=$count
+			;;
+		DOWN)
+			selected=$((selected + 1))
+			[ "$selected" -gt "$count" ] && selected=1
+			;;
+		'')
+			break
+			;;
+		q | Q)
+			selected=5
+			break
+			;;
+		*) continue ;;
+		esac
+		printf '\033[%sA' $((count + 2))
+	done
+	say ""
+	case "$selected" in
+	1) MODE=all ;;
+	2) MODE=files; INSTALL_BINARY=0 ;;
+	3) MODE=binary ;;
+	4) MODE=dry; DRY_RUN=1 ;;
+	5)
+		say "Cancelled. Nothing was changed."
+		exit 0
+		;;
+	esac
+}
 
-say "==> the folders of $SEEK_HOME"
-for folder in skills tools models widgets state; do
-	if [ "$DRY_RUN" = "1" ]; then
-		say "    would create $SEEK_HOME/$folder"
+# The menu is for a person at a keyboard; flags, pipes and CI go straight to the steps.
+if [ -t 0 ] && [ -z "${CI:-}" ]; then
+	print_logo "$( [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ] && echo 0 || echo 1 )"
+	say ""
+	menu
+else
+	if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+		print_logo
 	else
-		mkdir -p "$SEEK_HOME/$folder"
-		say "    $SEEK_HOME/$folder"
+		print_logo 1
 	fi
-done
+	say ""
+	say "==> SEEK on $PLATFORM"
+	if [ "$DRY_RUN" = "1" ]; then
+		say "    dry run: no files will be changed"
+	fi
+	say ""
+fi
 
-# ------------------------------------------------------- the built-in files
+# ---------------------------------------------------------------- the steps
 
 copy_if_absent() {
 	source="$1"
@@ -243,18 +263,28 @@ copy_if_absent() {
 	say "    copied $target"
 }
 
-say "==> the built-in skills and widgets"
-copy_if_absent "$REPO_DIR/builtin/SYSTEM.md" "$SEEK_HOME/SYSTEM.md"
-for skill in "$REPO_DIR"/builtin/skills/*; do
-	[ -d "$skill" ] || continue
-	copy_if_absent "$skill" "$SEEK_HOME/skills/$(basename -- "$skill")"
-done
-for widget in "$REPO_DIR"/builtin/widgets/*; do
-	[ -d "$widget" ] || continue
-	copy_if_absent "$widget" "$SEEK_HOME/widgets/$(basename -- "$widget")"
-done
+if [ "$MODE" != "binary" ]; then
+	say "==> the folders of $SEEK_HOME"
+	for folder in skills tools models widgets state; do
+		if [ "$DRY_RUN" = "1" ]; then
+			say "    would create $SEEK_HOME/$folder"
+		else
+			mkdir -p "$SEEK_HOME/$folder"
+			say "    $SEEK_HOME/$folder"
+		fi
+	done
 
-# ----------------------------------------------------------------- the binary
+	say "==> the built-in skills and widgets"
+	copy_if_absent "$REPO_DIR/builtin/SYSTEM.md" "$SEEK_HOME/SYSTEM.md"
+	for skill in "$REPO_DIR"/builtin/skills/*; do
+		[ -d "$skill" ] || continue
+		copy_if_absent "$skill" "$SEEK_HOME/skills/$(basename -- "$skill")"
+	done
+	for widget in "$REPO_DIR"/builtin/widgets/*; do
+		[ -d "$widget" ] || continue
+		copy_if_absent "$widget" "$SEEK_HOME/widgets/$(basename -- "$widget")"
+	done
+fi
 
 build_binary() {
 	cargo install --path "$REPO_DIR/crates/seek" --root "$HOME/.cargo" --force &&
@@ -291,7 +321,7 @@ if [ "$INSTALL_BINARY" = "1" ]; then
 	else
 		mkdir -p "$BIN_DIR"
 		if [ "$FROM_SOURCE" = "1" ]; then
-			spin "build from the source" build_binary
+			build_binary || { echo "error: the source build failed" >&2; exit 1; }
 		else
 			version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
 			case "$(uname -m)" in
@@ -307,9 +337,9 @@ if [ "$INSTALL_BINARY" = "1" ]; then
 			staging="seek-v${version}-${target}"
 			archive="$TMP_ROOT/${staging}.tar.gz"
 			url="https://github.com/piskevalee-cpu/Seek/releases/download/v${version}/${staging}.tar.gz"
-			if ! spin "download the release for $target" download_binary; then
+			if ! download_binary; then
 				say "    no release for this platform, building from the source"
-				spin "build from the source" build_binary
+				build_binary || { echo "error: the source build failed" >&2; exit 1; }
 			fi
 		fi
 		chmod +x "$BIN_DIR/seek"
@@ -317,35 +347,32 @@ if [ "$INSTALL_BINARY" = "1" ]; then
 	fi
 fi
 
-# ------------------------------------------------------------------- the checks
-
-say "==> what SEEK needs"
-missing=0
-
-if command -v git >/dev/null 2>&1; then
-	say "    git      $(command -v git)"
-else
-	say "    git      MISSING - install git to see the repository in the widgets"
-	missing=1
+if [ "$MODE" != "binary" ]; then
+	say "==> what SEEK needs"
+	missing=0
+	if command -v git >/dev/null 2>&1; then
+		say "    git      $(command -v git)"
+	else
+		say "    git      MISSING - install git to see the repository in the widgets"
+		missing=1
+	fi
+	if command -v llama >/dev/null 2>&1; then
+		say "    llama    $(command -v llama)"
+	elif command -v llama-server >/dev/null 2>&1; then
+		say "    llama    $(command -v llama-server)"
+	else
+		say "    llama    MISSING - install llama.cpp to run local models"
+		say "             https://github.com/ggml-org/llama.cpp"
+		missing=1
+	fi
+	if [ -d "$SEEK_HOME/models" ] && [ -n "$(ls -A "$SEEK_HOME/models" 2>/dev/null)" ]; then
+		say "    models   $(ls "$SEEK_HOME/models" | head -3 | tr '\n' ' ')"
+	else
+		say "    models   none yet - put a .gguf file in $SEEK_HOME/models"
+	fi
 fi
 
-if command -v llama >/dev/null 2>&1; then
-	say "    llama    $(command -v llama)"
-elif command -v llama-server >/dev/null 2>&1; then
-	say "    llama    $(command -v llama-server)"
-else
-	say "    llama    MISSING - install llama.cpp to run local models"
-	say "             https://github.com/ggml-org/llama.cpp"
-	missing=1
-fi
-
-if [ -d "$SEEK_HOME/models" ] && [ -n "$(ls -A "$SEEK_HOME/models" 2>/dev/null)" ]; then
-	say "    models   $(ls "$SEEK_HOME/models" | head -3 | tr '\n' ' ')"
-else
-	say "    models   none yet - put a .gguf file in $SEEK_HOME/models"
-fi
-
-# ----------------------------------------------------------------- the next step
+# ----------------------------------------------------------------- the end
 
 say ""
 if [ "$DRY_RUN" = "1" ]; then
@@ -356,7 +383,7 @@ else
 	say "    seek"
 	say ""
 	say "The configuration lives in $SEEK_HOME."
-	if [ "$missing" = "1" ]; then
+	if [ "${missing:-0}" = "1" ]; then
 		say "Some programs are missing; see the list above."
 	fi
 fi

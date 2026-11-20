@@ -746,3 +746,36 @@ and build helpers chain their commands with `&&`, because a command in a `||` li
 CI runs `sh -n`, the help check and a dry run in the `build` job on both ubuntu and macOS.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-035 — The installer is a frame-based TUI
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+A dry run showed the logo sweeping for five frames and then a static log of steps. The owner asked
+for the animation to continue, to finish on a complete logo, and for a slower, more interactive
+feel. The animated path now redraws a whole frame at 0.12 s intervals: the logo sheen loops for the
+entire run, five step rows move from pending to active to done, and the last frame paints every lit
+pixel at full highlight. A background animator redraws while the step command runs in the foreground
+with its output captured — a first attempt ran the command itself in the background and hung under
+a PTY because the status file was never written.
+
+POSIX `sh` has no local variables: the renderer's row counter collided with the step runner's index
+and kept every row marked active, so the two functions now use distinct names. The refactor also
+dropped the `--no-binary` guard; it is back. The plain path (pipe, `NO_COLOR`, `CI`, `TERM=dumb`)
+still prints the same quiet log and the platform line.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-036 — A static logo and an arrow-key menu
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+The frame-based TUI of D-035 was the wrong direction: the owner asked to drop the animation and
+make the installer interactive in a simpler way. `install.sh` now prints the complete 25 x 9 logo
+once, at full highlight, and presents five choices — full install, folders and files, binary only,
+dry run, cancel. ↑/↓ move the `❯` and Enter selects; `q` cancels. Key reading uses `stty` and `dd`
+with escape sequences, which works in the POSIX `sh` of both Linux and macOS. A flag preselects its
+row, and a pipe or CI skips the menu so automation keeps working. The `--no-binary`, `--dry-run`,
+`--from-source`, idempotency and platform logic are unchanged.
+
+**Status:** accepted. The specification and changelog were updated.
