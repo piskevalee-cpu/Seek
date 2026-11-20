@@ -861,3 +861,43 @@ The release target is derived the same way as in `install.sh`; version compariso
 are pure functions with tests.
 
 **Status:** accepted. The specification, README, checklist and changelog were updated.
+
+## D-043 — Parallel first in the search chain
+
+**Date:** 2026-11-20 · **Affects:** SPEC 9.3
+
+The HTML scrapers that used to start the chain now answer with bot challenges. The reference harness
+starts with Parallel's keyless public MCP (`https://search.parallel.ai/mcp`), which returns
+LLM-friendly results without a browser or a key. A new `websearch::providers::parallel` speaks
+JSON-RPC to that endpoint and leads the default chain; the scrapers remain as fallbacks. Verified
+with a live query.
+
+## D-044 — Act, do not ruminate
+
+**Date:** 2026-11-20 · **Affects:** SPEC 9.2
+
+A build task could end as a long essay instead of a first file. An appended `<act>` section in the
+system prompt — completion is the only reason to stop, issue the tool call instead of describing it,
+keep plans executable, create the first file this turn, stop once verified, never narrate effort —
+closes the gap the reference harness solves with `<critical>` blocks and a thinking watchdog. It adds
+about 150 tokens; the budget test reports 1050/1500. The prefix stays append-only. The installed
+`~/seek/SYSTEM.md` was updated too, preserving the user's own lines.
+
+## D-045 — Configurable sidebar, hardware block and running metrics
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.3
+
+The sidebar is three stacked blocks. `/settings` assigns sessions, hardware, processes or widgets to
+each slot and the choice persists in `state/user.toml`. Hardware is an htop-like view: every core gets
+a bar with a gradual gradient fill, plus memory, temperature and GPU. The context bar, thinking
+animation and speed moved out of the blocks to a line under the prompt while the sidebar is open.
+Ctrl+↑/Ctrl+↓ drive the sidebar selection. The open/closed state is also persisted at toggle time, on
+quit and on a signal, so it is restored even after Ctrl+C.
+
+## D-046 — Session management in the shape of grok
+
+**Date:** 2026-11-20 · **Affects:** SPEC 11
+
+The session picker now groups by repository with the current project first, shows the message count,
+model and age, and supports `d` → `y` to delete a session after confirmation. The append-only JSONL
+contract is unchanged: only the list view and the file removal were added.

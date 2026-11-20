@@ -8,6 +8,25 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.30] - 2026-11-20
+
+Web search that works, a configurable sidebar, and a model that acts.
+
+### Added
+- Parallel's keyless public MCP leads the web search chain; the HTML scrapers are fallbacks (D-043).
+- The sidebar has three configurable stacked blocks: sessions, hardware (per-core gradient bars,
+  memory, temperature, GPU), processes and widgets. The context, thinking and speed lines sit under
+  the prompt when the sidebar is open. Ctrl+↑/Ctrl+↓ move its selection (D-045).
+- The sidebar's open/closed state is saved on toggle, quit and signal, and restored at start (D-045).
+- Session picker: grouped by repository (current first), message count, model and age, `d` → `y` to
+  delete with confirmation (D-046).
+
+### Changed
+- An appended `<act>` section in SYSTEM.md pushes the model to act early and stop once verified
+  (D-044). The budget is 1050/1500 tokens.
+- READ/ASK/YOLO semantics are unchanged: READ runs every read-only tool including web search, ASK
+  asks before writes, YOLO allows everything.
+
 ## [0.7.29] - 2026-11-20
 
 Drag-to-copy, a global collapse key, one menu design and a self-updater.

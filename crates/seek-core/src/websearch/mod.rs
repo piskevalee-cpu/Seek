@@ -35,9 +35,9 @@ pub const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The chain of the providers when the configuration names none.
 ///
-/// The engines that need no key come first: DuckDuckGo, then Mojeek, then
-/// Startpage, then Ecosia.
-pub const DEFAULT_CHAIN: [&str; 4] = ["duckduckgo", "mojeek", "startpage", "ecosia"];
+/// Parallel comes first: its keyless public MCP answers without a browser or a key.
+/// The HTML scrapers follow as fallback, then Startpage and Ecosia.
+pub const DEFAULT_CHAIN: [&str; 5] = ["parallel", "duckduckgo", "mojeek", "startpage", "ecosia"];
 
 /// The settings of the web search: the chain of the providers, the address of a
 /// SearXNG instance, and the environment variables the keys are in.

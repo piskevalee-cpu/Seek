@@ -16,6 +16,7 @@ pub mod hackernews;
 pub mod jina;
 pub mod kagi;
 pub mod mojeek;
+pub mod parallel;
 pub mod public;
 pub mod searxng;
 pub mod startpage;
@@ -147,6 +148,7 @@ pub fn provider(id: &str) -> Option<Box<dyn SearchProvider>> {
         "jina" => Box::new(jina::Jina),
         "kagi" => Box::new(kagi::Kagi),
         "mojeek" => Box::new(mojeek::Mojeek),
+        "parallel" => Box::new(parallel::Parallel),
         "public" => Box::new(public::PublicWeb),
         "searxng" => Box::new(searxng::SearXng),
         "startpage" => Box::new(startpage::Startpage),
@@ -156,7 +158,8 @@ pub fn provider(id: &str) -> Option<Box<dyn SearchProvider>> {
 }
 
 /// The ids of the providers, in the order they are offered.
-pub const ENGINES: [&str; 13] = [
+pub const ENGINES: [&str; 14] = [
+    "parallel",
     "duckduckgo",
     "startpage",
     "mojeek",
@@ -184,6 +187,7 @@ pub fn label_of(id: &str) -> &'static str {
         "jina" => "Jina",
         "kagi" => "Kagi",
         "mojeek" => "Mojeek",
+        "parallel" => "Parallel",
         "public" => "Public Web",
         "searxng" => "SearXNG",
         "startpage" => "Startpage",

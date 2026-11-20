@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod completion;
 pub mod footer;
 pub mod gradient;
+pub mod hardware;
 pub mod input;
 pub mod logo;
 pub mod logo_bitmap;

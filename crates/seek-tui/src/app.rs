@@ -230,6 +230,12 @@ pub enum Command {
     SetUserName(String),
     /// Move the sidebar to the other side. The scrollbar follows it (SPEC 10.3).
     SetSidebarSide(seek_core::user::Side),
+    /// Set one of the three stacked sidebar blocks.
+    SetSidebarBlock { slot: usize, block: String },
+    /// Remember whether the sidebar was open, even across a Ctrl+C shutdown.
+    SetSidebarOpen(bool),
+    /// Delete a session after the picker's confirmation.
+    DeleteSession(String),
     /// Switch to another model. The switch happens between turns (SPEC 7.3).
     SwitchModel { id: String },
     /// Summarize the older turns into one message (SPEC 8).
@@ -345,6 +351,8 @@ pub struct App {
     pub follow_tail: bool,
     /// Which side of the screen the sidebar sits on; the scrollbar is opposite.
     pub sidebar_side: seek_core::user::Side,
+    /// Which blocks the three stacked sidebar slots show.
+    pub sidebar_blocks: seek_core::user::SidebarLayout,
     /// Where the scrollbar was drawn on the last frame, for mouse hit testing.
     bar_area: Rect,
     /// Where the visible transcript lines were drawn, for mouse hit testing.
@@ -427,6 +435,8 @@ pub struct App {
     pub discovered: std::collections::BTreeMap<String, Vec<String>>,
     /// The selected session.
     pub session_selected: usize,
+    /// A session armed for deletion in the picker.
+    pending_delete: Option<String>,
     /// Whether the keyboard is in the sidebar.
     pub sidebar_focused: bool,
     /// Which tools and skills are enabled.
@@ -458,6 +468,7 @@ impl App {
             scroll_offset: 0,
             follow_tail: true,
             sidebar_side: seek_core::user::Side::Left,
+            sidebar_blocks: seek_core::user::SidebarLayout::default(),
             bar_area: Rect::ZERO,
             transcript_view_area: Rect::ZERO,
             transcript_view: Vec::new(),
@@ -504,6 +515,7 @@ impl App {
             sessions: Vec::new(),
             discovered: std::collections::BTreeMap::new(),
             session_selected: 0,
+            pending_delete: None,
             sidebar_focused: false,
         }
     }
@@ -663,6 +675,21 @@ impl App {
             && let Some(command) = self.on_suggestion_key(key, &completions)
         {
             return command;
+        }
+
+        // Ctrl+Up / Ctrl+Down drive the sidebar from anywhere, without a focus round trip.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && matches!(key.code, KeyCode::Up | KeyCode::Down)
+            && self.sidebar.open
+        {
+            let step = if key.code == KeyCode::Up { -1 } else { 1 };
+            let blocks = self.sidebar_blocks.blocks();
+            if blocks.contains(&"sessions") {
+                self.move_session_selection(step);
+            } else if blocks.contains(&"processes") {
+                self.move_process_selection(step);
+            }
+            return None;
         }
 
         if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -831,7 +858,7 @@ impl App {
             }
             KeyCode::Char('b') => {
                 self.sidebar.toggle();
-                None
+                Some(Command::SetSidebarOpen(self.sidebar.open))
             }
             KeyCode::Char('o') => {
                 // One keypress collapses or expands every thought and every command output.
@@ -1388,6 +1415,15 @@ impl App {
                     self.pending_settings.push(Command::SetSidebarSide(side));
                 }
             }
+            key if key.starts_with("settings:block:") => {
+                if let Ok(slot) = key["settings:block:".len()..].parse::<usize>() {
+                    self.sidebar_blocks.set(slot, &value);
+                    self.pending_settings.push(Command::SetSidebarBlock {
+                        slot,
+                        block: value.clone(),
+                    });
+                }
+            }
             "settings:mode" => {
                 if let Some(mode) = PermissionMode::parse(&value) {
                     self.mode = mode;
@@ -1401,6 +1437,17 @@ impl App {
     }
 
     fn on_picker_key(&mut self, key: KeyEvent) -> Option<Command> {
+        let is_sessions = matches!(
+            &self.overlay,
+            Some(Overlay::Picker(picker)) if picker.title == "sessions" || picker.title == "history"
+        );
+        if is_sessions && let Some(id) = self.pending_delete.clone() {
+            self.pending_delete = None;
+            return match key.code {
+                KeyCode::Char('y') => Some(Command::DeleteSession(id)),
+                _ => None,
+            };
+        }
         let Some(Overlay::Picker(picker)) = self.overlay.as_mut() else {
             return None;
         };
@@ -1423,6 +1470,13 @@ impl App {
                 }
             }
             KeyCode::Backspace => picker.backspace(),
+            KeyCode::Char('d') if is_sessions && !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.pending_delete = picker
+                    .selected_item()
+                    .and_then(|item| item.value.strip_prefix("session:"))
+                    .map(str::to_string);
+                return None;
+            }
             KeyCode::Char(' ') => {
                 // Space toggles the selected item of a checklist.
                 let index = picker.selected;
@@ -1712,25 +1766,36 @@ impl App {
     /// The picker for `/sessions` and `/history`: every session of this SEEK home.
     fn sessions_picker(&self) -> Picker {
         let now = std::time::SystemTime::now();
-        let items = self
-            .sessions
-            .iter()
+        let here = repo_name(&self.cwd);
+        // Like grok: the current project first, then the other projects alphabetically.
+        let mut sessions: Vec<_> = self.sessions.iter().collect();
+        sessions.sort_by(|a, b| {
+            let (a_here, b_here) = (repo_name(&a.cwd) == here, repo_name(&b.cwd) == here);
+            b_here
+                .cmp(&a_here)
+                .then_with(|| repo_name(&a.cwd).cmp(&repo_name(&b.cwd)))
+                .then_with(|| b.created.cmp(&a.created))
+        });
+        let items = sessions
+            .into_iter()
             .map(|session| {
                 let title = if session.title.is_empty() {
                     "(no title)".to_string()
                 } else {
                     session.title.clone()
                 };
-                PickerItem::new(title, format!("session:{}", session.id)).with_detail(format!(
-                    "{}  ·  {}",
-                    session.cwd,
-                    session.age(now)
-                ))
+                PickerItem::new(title, format!("session:{}", session.id))
+                    .with_group(repo_name(&session.cwd))
+                    .with_tag(session.age(now))
+                    .with_detail(format!(
+                        "{}  ·  {}  ·  {} messages  ·  {}",
+                        session.id, session.cwd, session.messages, session.model
+                    ))
             })
             .collect();
         Picker::new("sessions", items)
             .bottom_anchored()
-            .tap_hint("↑↓ sessions · Enter resume · Esc close")
+            .tap_hint("↑↓ sessions · Enter resume · d delete · Esc close")
     }
 
     /// The grok-style model selector: a list with a detail pane.
@@ -1774,6 +1839,30 @@ impl App {
                 .with_right(&side)
                 .with_group("interface")
                 .selecting(&["left", "right"], &side),
+            MenuItem::new("Sidebar block 1", "settings:block:0")
+                .with_detail("The top block of the sidebar")
+                .with_right(&self.sidebar_blocks.block1)
+                .with_group("interface")
+                .selecting(
+                    &seek_core::user::SIDEBAR_BLOCKS,
+                    &self.sidebar_blocks.block1,
+                ),
+            MenuItem::new("Sidebar block 2", "settings:block:1")
+                .with_detail("The middle block of the sidebar")
+                .with_right(&self.sidebar_blocks.block2)
+                .with_group("interface")
+                .selecting(
+                    &seek_core::user::SIDEBAR_BLOCKS,
+                    &self.sidebar_blocks.block2,
+                ),
+            MenuItem::new("Sidebar block 3", "settings:block:2")
+                .with_detail("The bottom block of the sidebar")
+                .with_right(&self.sidebar_blocks.block3)
+                .with_group("interface")
+                .selecting(
+                    &seek_core::user::SIDEBAR_BLOCKS,
+                    &self.sidebar_blocks.block3,
+                ),
             MenuItem::new("Reasoning text", "settings:reasoning")
                 .with_detail("Show the model's reasoning in the transcript")
                 .with_right(&reasoning)
@@ -1990,6 +2079,17 @@ impl App {
         let length = visible as isize;
         let next = (self.session_selected as isize + delta).rem_euclid(length);
         self.session_selected = next as usize;
+    }
+
+    /// Move the process selection of the sidebar.
+    fn move_process_selection(&mut self, delta: isize) {
+        let count = self.sidebar.processes.len();
+        if count == 0 {
+            self.process_selected = 0;
+            return;
+        }
+        self.process_selected =
+            ((self.process_selected as isize + delta).rem_euclid(count as isize)) as usize;
     }
 
     /// Move the transcript selection up or down.
@@ -2483,10 +2583,15 @@ impl App {
                 sidebar_area,
                 &self.sidebar,
                 &self.theme,
-                &self.metrics,
                 &self.sessions,
                 self.session_selected,
                 self.sidebar_side == seek_core::user::Side::Left,
+                self.sidebar_blocks.blocks(),
+                &self.widget_outputs,
+                self.metrics
+                    .vitals
+                    .as_ref()
+                    .unwrap_or(&crate::vitals::Vitals::default()),
             );
         }
 
@@ -2544,6 +2649,7 @@ impl App {
             suggestions_area,
             toast_area,
             prompt_area,
+            metrics_area,
             footer_area,
         ] = Layout::vertical([
             Constraint::Min(3),
@@ -2555,6 +2661,8 @@ impl App {
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(if self.toast.is_some() { 1 } else { 0 }),
             Constraint::Length(prompt_height),
+            // With the sidebar open the context, thinking and speed move under the prompt.
+            Constraint::Length(if sidebar_area != Rect::ZERO { 1 } else { 0 }),
             Constraint::Length(1),
         ])
         .areas(main_area);
@@ -2611,7 +2719,30 @@ impl App {
             },
         );
 
-        // The metrics have exactly one home: the bottom of the sidebar when it is open, the
+        // When the sidebar is open, its blocks do not hold the run metrics: the context bar,
+        // the thinking animation and the speed sit on their own line under the prompt box.
+        if sidebar_area != Rect::ZERO {
+            let mut spans = self.metrics.context_line(&self.theme).spans;
+            if self.status == Status::Thinking {
+                spans.push(Span::styled(
+                    "  thinking ",
+                    Style::new().fg(self.theme.dim).italic(),
+                ));
+                if self.reduce_motion {
+                    spans.push(Span::styled("░░░░", Style::new().fg(self.theme.cube_dark)));
+                } else {
+                    spans.extend(self.spinner.cells_line(&self.theme));
+                }
+            }
+            spans.push(Span::styled("  ", Style::new()));
+            spans.extend(self.metrics.speed_line(&self.theme).spans);
+            frame.render_widget(
+                ratatui::widgets::Paragraph::new(Line::from(spans)),
+                metrics_area,
+            );
+        }
+
+        // The metrics have exactly one home: under the prompt when the sidebar is open, the
         // footer line otherwise. Never both (SPEC 10.2).
         let footer = Footer {
             mode: self.mode,
@@ -3027,6 +3158,16 @@ fn highlight_line(line: Line<'static>, from: usize, to: usize, theme: &Theme) ->
     Line::from(spans)
 }
 
+/// The last two components of a path, the way grok names a repository in the session list.
+fn repo_name(cwd: &str) -> String {
+    let parts: Vec<&str> = cwd
+        .trim_end_matches('/')
+        .split('/')
+        .filter(|p| !p.is_empty())
+        .collect();
+    parts[parts.len().saturating_sub(2)..].join("/")
+}
+
 /// A one-line summary of a tool call.
 /// The arguments of a tool call as they are written, without the JSON punctuation.
 fn summarize_arguments(arguments: &str) -> String {
@@ -3239,8 +3380,8 @@ mod tests {
             app.update(Message::Key(key(KeyCode::Char(c))));
         }
         app.update(Message::Key(key(KeyCode::Enter)));
-        // The permission level is the last setting; Right cycles ASK to YOLO.
-        for _ in 0..4 {
+        // Name, side, three sidebar blocks, reasoning and motion come before the mode.
+        for _ in 0..7 {
             app.update(Message::Key(key(KeyCode::Down)));
         }
         let command = app.update(Message::Key(key(KeyCode::Right)));
