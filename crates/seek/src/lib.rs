@@ -100,6 +100,12 @@ impl Runtime {
         let skills = seek_core::skill::discover(&root, home, &user_home, &builtin_skills());
         let toggles = seek_core::Toggles::read(&state_dir.join("toggles.toml")).unwrap_or_default();
         let config = seek_core::filesys::config(home, &root);
+        // The default permission level comes from config.toml (or the project overlay).
+        let default_mode = config
+            .default_mode
+            .as_deref()
+            .and_then(seek_core::PermissionMode::parse)
+            .unwrap_or(PermissionMode::Ask);
         let system_prompt = seek_core::filesys::system_prompt(home, &root);
 
         // The instructions of the project, if there are any (SPEC 9.5).
@@ -137,7 +143,7 @@ impl Runtime {
             session: tokio::sync::Mutex::new(None),
             history: tokio::sync::Mutex::new(seek_core::History::new()),
             cancel: tokio::sync::Mutex::new(CancelState::default()),
-            mode: seek_core::r#loop::PermissionModeCell::new(PermissionMode::Ask),
+            mode: seek_core::r#loop::PermissionModeCell::new(default_mode),
             user: tokio::sync::Mutex::new(seek_core::UserSettings::read(
                 &state_dir.join(seek_core::user::USER_FILE),
             )),
@@ -635,8 +641,17 @@ pub async fn agent_loop(
             }
             Command::SetMode(mode) => {
                 // The mode is read at every tool call: it applies to the turn that runs now
-                // (SPEC 9.4).
+                // (SPEC 9.4). `/mode` changes this session only.
                 runtime.mode.set(mode);
+            }
+            Command::SetDefaultMode(mode) => {
+                // The setting in `/settings` changes the level SEEK starts with, so persist it
+                // in `config.toml` as well as applying it to this session.
+                runtime.mode.set(mode);
+                let path = runtime.home.join(seek_core::config::CONFIG_FILE);
+                let mut config = seek_core::Config::read(&path).unwrap_or_default();
+                config.default_mode = Some(mode.label().to_lowercase());
+                let _ = config.write(&path);
             }
             Command::RunWidgets => {
                 // The widgets run when the home screen is shown (SPEC 10.5).

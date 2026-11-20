@@ -658,3 +658,172 @@ every location still uses the same `SKILL.md` format, and the resolved absolute 
 catalog so the model can read the body.
 
 **Status:** accepted. The specification, README, checklist and changelog were updated.
+## D-028 — Port the grok-build modal chrome into the menus
+
+**Date:** 2026-11-19 · **Affects:** SPEC 10.3
+
+The first "grok-style" menu was only inspired by the pager, and the owner asked for the real thing.
+The Apache-2.0 source is public at `xai-org/grok-build`; a shallow checkout now lives in
+`reference/grok-build` (gitignored). The model selector and settings menu were rewritten from the
+pager's `views/picker.rs` and `views/modal_window.rs`: 90% width with generous vertical margins,
+square border with a bold title and `[✗]`, ` search: ` search row, full-width dim divider, `◆`
+picker rows with right-aligned labels and badges, a detail line below the selection, and a centered
+shortcut footer. Nothing was copied verbatim; the code is written for SEEK's `Theme` and ratatui
+0.30 types. The SEEK addition is the directional blue gradient on the selected row.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-029 — The model picker is inline, the settings stay a modal
+
+**Date:** 2026-11-19 · **Affects:** SPEC 10.3
+
+The grok-code screenshot shows the model selector as a compact list directly above the prompt,
+not as a full-screen modal. D-028 ported the modal chrome, which made SEEK's picker look unlike the
+reference. The model selector is now inline: it clears only its own rows, draws a thin divider and
+a `/model <model> [window] [effort]` line, then compact rows with the cursor glyph, the model name,
+the `CURRENT`/`LOCAL` badge and a right-aligned id, with the directional gradient on the picked row.
+The transcript stays visible around it. The settings menu keeps the grok-build modal chrome, which
+is how the reference renders settings.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-030 — One design language for the menus and the sidebar
+
+**Date:** 2026-11-19 · **Affects:** SPEC 10.3
+
+The inline model picker of D-029 was closer to the grok-code reference, but its `/model <model>
+[window] [effort]` line and the grok-build chrome left in `/settings` looked foreign next to the
+sidebar. The owner asked for one coherent language across the model picker, the settings panel and
+the launch-options editor. All three now use the sidebar's vocabulary: a dark-cube border, a dim
+title with spaces, a bold `accent` section header, `cube_light` primary text, `dim` secondary text
+and the directional gradient on the selected row. The `/model` hint line is gone; while filtering,
+the typed query appears dimmed after the `Models`/`Settings` header. The shared `panel_block` and
+`section_header` helpers in `seek-tui::menu` keep the panels in step.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-031 — Menus are sidebar panels in the main column
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.3
+
+A screenshot with the sidebar open showed the model list spanning the whole window and drawing its
+rows beneath the sidebar, while the sidebar itself is a bordered `┌ SEEK ┐` panel. The owner asked
+for the model selector and settings to look like the sidebar and to adapt when it is open. Both are
+now bordered panels with a dim title on the border, grouped `accent` section headers and the same
+row styling as the sidebar's sessions. Crucially, overlays are rendered into `main_area` rather than
+the full screen, so they occupy the column beside the sidebar; the directional gradient keeps
+following the sidebar's side. Settings were reordered so each group header appears once.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-032 — A default permission level, and menus that match the sidebar
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.2, 10.3
+
+A screenshot showed the model panel filled with `theme.bg` while the sidebar is transparent, so
+the two panels looked different despite sharing the border and row styles. Menu panels now paint no
+background of their own: `Clear` erases the transcript behind them and the terminal shows through,
+exactly like the sidebar. Titles and group headers are capitalized to match `SEEK` and `Sessions`.
+
+`Config.default_mode` already existed but nothing read it: `App` and `Runtime` both started in
+`ASK`. The `/settings` row called "Permission mode" only changed the live session. It is now called
+"Default permission level" and writes `default_mode` to `config.toml`; both the app and the agent
+read that value at startup. `/mode` (Shift+Tab) remains session-only.
+
+Finally, the bright vertical borders of the prompt box sat beside the block cursor and read as a
+second cursor. They now use the dim `border` colour, leaving one bright vertical mark.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-033 — A blank row above the prompt box
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.3
+
+The last line of the transcript sat directly against the top border of the prompt box, which made
+the answer look crowded. The vertical layout now reserves one unprinted row between the
+transcript (and the log/pin/completion rows) and the box. The input's row budget and the overlay
+area were adjusted by one row so the gap survives long drafts and menus. A UI test checks that the
+row above the box is blank.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-034 — An animated, dry-runnable installer for Linux and macOS
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+The installer already sheened the logo on an interactive terminal, but the long steps were silent
+and there was no way to preview the changes. The owner asked for animations on Linux and for the
+script to work just as well on macOS, with a `--dry-run` to test it.
+
+`install.sh` now detects `uname -s` and names the platform, animates the logo and runs a braille
+spinner for the download and the source build when stdout is a TTY without `NO_COLOR`, `CI` or
+`TERM=dumb`. Everything is POSIX `sh`: the help uses `awk` instead of a BSD-sensitive `sed`
+interval, and `TMPDIR` is stripped of a trailing slash so macOS paths are clean. The release asset
+uses `aarch64-apple-darwin` / `x86_64-apple-darwin` on Darwin. `--dry-run` reports the would-be
+steps and the asset without creating folders, copying files, downloading or building. The download
+and build helpers chain their commands with `&&`, because a command in a `||` list disables
+`set -e` inside a shell function and a failed download would otherwise look successful.
+
+CI runs `sh -n`, the help check and a dry run in the `build` job on both ubuntu and macOS.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-035 — The installer is a frame-based TUI
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+A dry run showed the logo sweeping for five frames and then a static log of steps. The owner asked
+for the animation to continue, to finish on a complete logo, and for a slower, more interactive
+feel. The animated path now redraws a whole frame at 0.12 s intervals: the logo sheen loops for the
+entire run, five step rows move from pending to active to done, and the last frame paints every lit
+pixel at full highlight. A background animator redraws while the step command runs in the foreground
+with its output captured — a first attempt ran the command itself in the background and hung under
+a PTY because the status file was never written.
+
+POSIX `sh` has no local variables: the renderer's row counter collided with the step runner's index
+and kept every row marked active, so the two functions now use distinct names. The refactor also
+dropped the `--no-binary` guard; it is back. The plain path (pipe, `NO_COLOR`, `CI`, `TERM=dumb`)
+still prints the same quiet log and the platform line.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-036 — A static logo and an arrow-key menu
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+The frame-based TUI of D-035 was the wrong direction: the owner asked to drop the animation and
+make the installer interactive in a simpler way. `install.sh` now prints the complete 25 x 9 logo
+once, at full highlight, and presents five choices — full install, folders and files, binary only,
+dry run, cancel. ↑/↓ move the `❯` and Enter selects; `q` cancels. Key reading uses `stty` and `dd`
+with escape sequences, which works in the POSIX `sh` of both Linux and macOS. A flag preselects its
+row, and a pipe or CI skips the menu so automation keeps working. The `--no-binary`, `--dry-run`,
+`--from-source`, idempotency and platform logic are unchanged.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-037 — One logo bitmap
+
+**Date:** 2026-11-20 · **Affects:** SPEC 12, 13
+
+A screenshot of the installer showed the K of SEEK missing its last column: the copy of the 25 x 9
+bitmap in `install.sh` was shifted one column right compared with the generated
+`crates/seek-tui/src/logo_bitmap.rs`, so the rightmost lit cell fell outside the 25-cell row. The
+installer's heredoc now uses the exact nine rows from the generated file, and CI diffs the two
+before running the installer checks. The generated file stays the single source of truth.
+
+**Status:** accepted. The specification and changelog were updated.
+
+## D-038 — The piped install asks, and one URL everywhere
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+The one-command install pipes `install.sh` into `sh`, so stdin is the script, not a keyboard. With
+the menu reading stdin it was silently skipped and the user could not choose a dry run or a full
+install. The menu now opens `/dev/tty` on fd 3 for key input, which exists whenever there is a
+controlling terminal even when the script itself came from a pipe. CI and headless runs have no
+`/dev/tty` and go straight to the steps.
+
+The landing page pointed at the `develop` raw URL while `README.md` pointed at `main`. Both now use
+`https://raw.githubusercontent.com/piskevalee-cpu/Seek/main/install.sh`, the release branch.
+
+**Status:** accepted. The specification and changelog were updated.

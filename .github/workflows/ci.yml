@@ -41,3 +41,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --workspace --release
+      - name: Check the installer (syntax and dry run)
+        shell: bash
+        run: |
+          sh -n install.sh
+          sh install.sh --help | grep -q -- '--dry-run'
+          sed -n 's/^    "\([^"]*\)".*/\1/p' crates/seek-tui/src/logo_bitmap.rs > /tmp/seek-logo-tui.txt
+          sed -n "/<<'LOGO'/,/^LOGO$/p" install.sh | sed '1d;$d' > /tmp/seek-logo-install.txt
+          diff /tmp/seek-logo-tui.txt /tmp/seek-logo-install.txt
+          home="$(mktemp -d)"
+          HOME="$home" SEEK_HOME="$home/seek" sh install.sh --dry-run
+          test ! -e "$home/seek"
+          rm -rf "$home"

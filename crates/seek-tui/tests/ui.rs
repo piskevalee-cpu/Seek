@@ -120,6 +120,24 @@ fn the_name_is_taken_and_kept() {
 }
 
 #[test]
+fn a_blank_row_separates_the_transcript_from_the_prompt_box() {
+    let mut app = app();
+    for i in 0..24 {
+        app.rows
+            .push(Row::Assistant(format!("line {i} of the answer")));
+    }
+    let lines = render_lines(&mut app, 100, 30);
+    let box_line = lines
+        .iter()
+        .position(|line| line.starts_with('╭'))
+        .expect("the prompt box is drawn");
+    assert!(
+        box_line > 0 && lines[box_line - 1].trim().is_empty(),
+        "one blank row sits between the transcript and the box: {lines:?}"
+    );
+}
+
+#[test]
 fn the_settings_command_asks_for_the_name_again() {
     let mut app = app();
     app.user_name = Some("Ada".into());
@@ -259,12 +277,9 @@ fn the_settings_can_move_the_sidebar() {
         app.update(Message::Key(key(KeyCode::Char(c))));
     }
     app.update(Message::Key(key(KeyCode::Enter)));
-    // "Sidebar side" is the second entry of the settings picker.
+    // "Sidebar side" is the second row; Right cycles it to the other side.
     app.update(Message::Key(key(KeyCode::Down)));
-    app.update(Message::Key(key(KeyCode::Enter)));
-    // "right" is the second entry of the side picker.
-    app.update(Message::Key(key(KeyCode::Down)));
-    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    let command = app.update(Message::Key(key(KeyCode::Right)));
     assert_eq!(app.sidebar_side, seek_core::user::Side::Right);
     assert_eq!(
         command,
@@ -481,22 +496,19 @@ fn a_picker_covers_the_background_and_fits_a_small_window() {
     app.update(Message::Key(key(KeyCode::Enter)));
 
     let screen = render(&mut app, 100, 30);
-    assert!(!screen.contains("secret background"), "{screen}");
+    // The model selector is inline: the transcript stays visible around it.
     assert!(
-        screen.contains('╭'),
-        "the menu has a rounded border: {screen}"
+        screen.contains("┌ Models "),
+        "the sidebar-style model panel is open: {screen}"
     );
+    assert!(screen.contains('╭'), "the prompt box is visible: {screen}");
     assert!(
-        screen.contains("models"),
-        "the menu has its title: {screen}"
-    );
-    assert!(
-        screen.matches('╭').count() >= 2,
-        "the menu and the prompt box are both visible: {screen}"
+        screen.matches('╭').count() >= 1,
+        "the prompt box is visible: {screen}"
     );
 
     let small = render(&mut app, 90, 24);
-    assert!(small.contains('╭'), "the menu still fits: {small}");
+    assert!(small.contains("┌ Models "), "the panel still fits: {small}");
 }
 
 #[test]
@@ -714,7 +726,7 @@ fn the_right_arrow_opens_the_launch_options() {
     }
     app.update(Message::Key(key(KeyCode::Enter)));
 
-    // The local model is the only one, so it is selected.
+    // The local model is the only one, so Right opens its launch options.
     app.update(Message::Key(key(KeyCode::Right)));
 
     let screen = render(&mut app, 100, 30);

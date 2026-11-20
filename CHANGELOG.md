@@ -14,6 +14,132 @@ workspace; each release ships a milestone (SPEC 15).
   `.windsurf`, `.cline`, `.roo`, `.kilocode`, `.continue` and `.openclaw`, at project and user
   scope, plus any other hidden folder with a `skills/` child. SEEK's own folders win on a name
   collision, project skills beat user skills and installed skills beat built-ins (D-028).
+## [0.7.27] - 2026-11-20
+
+The one-command install offers the menu, and the site and README agree.
+
+### Fixed
+- The arrow-key menu reads the controlling terminal (`/dev/tty`) instead of stdin, so
+  `curl -fsSL .../install.sh | sh` lets you choose dry run or a full install before anything is
+  written. CI and headless runs still skip the menu.
+- The website now uses the same `main` install URL as `README.md` (D-038).
+
+## [0.7.26] - 2026-11-20
+
+The installer prints the whole logo.
+
+### Fixed
+- The installer's copy of the 25 x 9 bitmap was shifted one column right, cutting off the final
+  column of the K. It now matches `crates/seek-tui/src/logo_bitmap.rs` exactly, and CI diffs the
+  two so they cannot drift again (D-037).
+
+## [0.7.25] - 2026-11-20
+
+The installer asks what to do instead of animating.
+
+### Changed
+- Dropped the animated frame-based TUI. The complete SEEK logo is printed once, then an arrow-key
+  menu lets you pick a full install, folders and files only, binary only, a dry run, or cancel
+  (↑/↓ move, Enter select, `q` cancel). A flag preselects the matching row; a pipe or CI skips the
+  menu and runs directly (D-036).
+
+## [0.7.24] - 2026-11-20
+
+The installer is now a small TUI instead of a log with an animated header.
+
+### Changed
+- The logo sheen keeps running for the whole install, including during a download or build; the
+  final frame paints the completed logo at full highlight.
+- Five step rows light up from `○` to an animated glyph to `●`, with a step counter and the latest
+  detail lines. The 0.12 s frame pace is deliberately slower so the animation can be followed.
+- Fixed a variable collision between the renderer and the step runner, and restored the
+  `--no-binary` guard lost in the refactor (D-035).
+
+## [0.7.23] - 2026-11-20
+
+The installer animates on Linux and macOS, and can be tested without changing anything.
+
+### Added
+- `install.sh --dry-run` prints the folders, built-in files and the release asset it would fetch,
+  and makes no changes. CI checks a dry run on both Linux and macOS.
+- The detected platform is named at the start; long steps carry a spinner on interactive terminals.
+
+### Fixed
+- `TMPDIR` with a trailing slash (macOS) no longer yields double-slash paths; the download and the
+  source-build steps now propagate failures so the release-to-source fallback actually runs.
+
+## [0.7.22] - 2026-11-20
+
+A little breathing room above the prompt.
+
+### Fixed
+- One blank row now separates the transcript from the top border of the prompt box; overlays end
+  above that row so the spacing stays while a menu is open (D-033).
+
+## [0.7.21] - 2026-11-20
+
+The menus now match the sidebar exactly, and the startup permission level is configurable.
+
+### Changed
+- Menu panels no longer paint a background: like the sidebar, the terminal shows through, with
+  capitalized titles and section headers. The model list still sits in the main column beside the
+  sidebar.
+- `/settings` now has a **Default permission level** instead of a session-only permission mode.
+  Changing it writes `default_mode` to `config.toml` and sets the level SEEK starts with; `/mode`
+  keeps changing only the current session (D-032).
+- The prompt box's vertical borders are dim, so the block cursor is the only bright vertical mark
+  in the input — no more double cursor.
+
+## [0.7.20] - 2026-11-20
+
+The menus now use the sidebar's panel and stay clear of it.
+
+### Changed
+- `/model` and `/settings` are bordered panels with grouped section headers, like the sidebar's
+  `┌ SEEK ┐` box, instead of a divider with a bare header. The model list is grouped by provider
+  and local; settings groups its values into session, interface and security.
+- All overlays are drawn in the main column when the sidebar is open, never under it, and the
+  selected-row gradient keeps following the sidebar's side (D-031).
+
+## [0.7.19] - 2026-11-19
+
+The menus now speak the same visual language as the sidebar.
+
+### Changed
+- Removed the `/model <model> [window] [effort]` line from the inline model picker; the typed filter
+  now appears dimmed after the `Models` header.
+- `/model`, `/settings` and the local model's launch-options editor are drawn with the sidebar's
+  vocabulary: dark-cube borders, dim titles, bold section headers, `cube_light` primary text, `dim`
+  secondary text and gradient-selected rows. The grok-build chrome (`[✗]`, ` search: `, `◆`,
+  centered shortcuts) is gone (D-030).
+
+## [0.7.18] - 2026-11-19
+
+The model selector now matches the grok-code inline list.
+
+### Changed
+- `/model` is an inline picker above the prompt instead of a modal: a thin divider, a
+  `/model <model> [window] [effort]` line, and compact `❯` rows with the model name, a
+  `CURRENT`/`LOCAL` badge and a right-aligned id. The picked row keeps SEEK's gradient and the
+  transcript stays visible around the list. `/settings` stays a grok-build-style modal (D-029).
+
+## [0.7.17] - 2026-11-19
+
+The menus now carry the grok-build modal chrome.
+
+### Changed
+- `/model` and `/settings` were rebuilt from the grok-build pager source (Apache-2.0): wide modal,
+  square border with title and close button, ` search: ` row, `◆` picker rows with right-aligned
+  ids and badges, and a centered shortcut footer. The picked row keeps SEEK's gradient (D-028).
+
+## [0.7.16] - 2026-11-19
+
+Grok-style model selection and settings.
+
+### Changed
+- `/model` and `/settings` were rebuilt from the grok-build pager source (Apache-2.0): wide modal,
+  square border with title and close button, ` search: ` row, `◆` picker rows with right-aligned
+  ids and badges, and a centered shortcut footer. The picked row keeps SEEK's gradient (D-028).
 
 ## [0.7.15] - 2026-11-19
 

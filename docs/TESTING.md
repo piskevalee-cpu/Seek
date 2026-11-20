@@ -33,7 +33,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The widgets.** The `git` widget shows the branch and the recent commits; the `usage` widget shows the tokens used so far. A widget that fails shows its title and a dash.
 - [ ] **No model at the start.** The chat is there from the first frame: the footer and the top border of the prompt say `[no model selected]`. No picker opens on its own.
 - [ ] **A message needs a model.** Type "hello" and press Enter — the transcript says to choose a model with `/model`, and the draft stays.
-- [ ] **The model picker.** Type `/model` and press Enter. The local model is listed with a `LOCAL` tag, next to the catalog.
+- [ ] **The model selector.** Type `/model` and press Enter. A bordered panel like the sidebar's opens just above the prompt: `┌ models ─┐`, grouped section headers, compact `❯` rows with the model name, `LOCAL` badges and the model id on the right, and the directional gradient on the picked row. Open the sidebar and the panel stays in the main column beside it; putting the sidebar on the other side flips the gradient. Typing filters the list and the query appears in the title.
 - [ ] **Choose a model.** Press Enter — the picker closes, the footer shows the model.
 - [ ] **The footer.** One line: the mode chip (`ASK`), the model, the working directory, the branch and the metrics of the session. The metrics are not on a line of their own.
 - [ ] **Shift+Tab switches the mode.** Press it — the chip changes, whatever the sidebar does.
@@ -41,7 +41,7 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 
 ## The prompt bar
 
-- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one.
+- [ ] **The prompt is a box.** The input sits in a box with rounded corners. The name of the model is in the top border, the keys and the status in the bottom one. The vertical borders are dim: the block cursor is the only bright vertical mark in the input, never two cursors. One blank row separates the last line of the answer from the top border of the box.
 - [ ] **Command completion.** Type `/th` — the list above the bar holds `/think` and `/thoughts`. Down moves to the second, Tab takes it, Esc closes the list and typing brings it back.
 - [ ] **File completion.** Type "read src/ma" — the list shows `src/main.rs`; Tab inserts it and keeps the prose before it.
 - [ ] **Reference completion.** Type "look at @model" in the project root — the list finds `src/model.rs` anywhere below it; Enter inserts a file path without sending the message.
@@ -77,7 +77,8 @@ Run the TUI in a terminal of **at least 80x24**. Everything below is done in tha
 - [ ] **The wheel.** Scroll up — the line you were reading stays on screen while the model answers. Scroll back to the bottom — new answers follow again.
 - [ ] **The keys.** Shift+Up and Shift+Down move five lines, PgUp/PgDn a page, Home/End the ends when the prompt is empty.
 - [ ] **The mouse bar.** Click above or below the thumb to page; click the thumb and drag it — the transcript follows.
-- [ ] **Move the sidebar.** `/settings` → "Sidebar side" → "right". The sidebar moves to the right and the scrollbar moves to the left at once. Restart SEEK: the choice is kept in `state/user.toml`.
+- [ ] **Move the sidebar.** `/settings` → "Sidebar side" → press → to change it to right. The sidebar moves to the right and the scrollbar moves to the left at once. Restart SEEK: the choice is kept in `state/user.toml`.
+- [ ] **The default permission level.** `/settings` → "Default permission level" → press → through READ, ASK and YOLO. The footer chip changes at once. Pick READ and restart SEEK: the footer starts on READ, and `~/seek/config.toml` now carries `default_mode = 'read'`. `/mode` still changes only the current session.
 
 ## The conversation
 
@@ -210,6 +211,13 @@ Every key of the specification, one by one.
 - [ ] **Quit.** `/quit` — the app exits and the terminal is the way it was.
 - [ ] **The server is stopped.** After quitting, `pgrep -af "llama serve"` finds nothing: SEEK stopped the server it started.
 - [ ] **Ctrl+C twice** — the same.
+
+## The installer
+
+- [ ] **Dry run.** `./install.sh --dry-run` — the logo, the menu with Dry run preselected, and every step with `would create` / `would copy` / `would download`; nothing is written. Check `~/seek` is unchanged.
+- [ ] **The one-command install.** `curl -fsSL https://raw.githubusercontent.com/piskevalee-cpu/Seek/main/install.sh | sh` — the menu appears even though the script came from a pipe. Choose Dry run with the arrows and Enter: nothing is written. `README.md` and the landing page show this exact command.
+- [ ] **The menu.** Run it in a terminal: the complete SEEK logo prints once — all four letters, including the last column of the K — then five options appear. ↑/↓ move the `❯`, Enter runs the choice, `q` cancels. A flag preselects its row (e.g. `--dry-run` starts on Dry run); piping the script or setting `CI` skips the menu and runs the steps directly. CI also diffs the installer's bitmap against the generated one.
+- [ ] **macOS.** The same dry run on a Mac names `arm64-apple-darwin` (or `x86_64-apple-darwin`) and keeps `TMPDIR` paths with one slash. CI checks the syntax and a dry run on both Linux and macOS.
 
 ## Looking at the interface as a picture
 

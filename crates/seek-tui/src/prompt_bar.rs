@@ -35,7 +35,7 @@ pub fn prompt_lines(
     let mut lines = Vec::new();
     for row in input.visible_lines(width, max_rows) {
         let mut spans: Vec<Span<'static>> = Vec::new();
-        spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border_active)));
+        spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border)));
         spans.push(Span::styled(" ", Style::new()));
         let cursor = row.cursor.unwrap_or(usize::MAX);
         let mut used = 0usize;
@@ -265,9 +265,10 @@ pub fn render(frame: &mut Frame, area: Rect, input: &Input, theme: &Theme, state
         lines = prompt_lines(input, theme, text_width, max_rows);
     }
     for line in lines {
-        // The right border closes the box.
+        // The right border closes the box. Both vertical borders are dim so the block cursor is
+        // the only bright vertical mark in the input.
         let mut spans = line.spans;
-        spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border_active)));
+        spans.push(Span::styled(VERTICAL, Style::new().fg(theme.border)));
         box_lines.push(Line::from(spans));
     }
     // No "working..." status in the border: the thinking animation has its own line above the

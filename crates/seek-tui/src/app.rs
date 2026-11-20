@@ -20,6 +20,7 @@ use crate::completion::{self, Completion, Kind};
 use crate::footer::{Footer, ModelChip, PermissionMode, caption_path, footer_line};
 use crate::input::Input;
 use crate::logo;
+use crate::menu::{Menu, MenuItem, MenuKind, panel_block, section_header};
 use crate::metrics::Metrics;
 use crate::picker::{Picker, PickerItem};
 use crate::prompt_bar;
@@ -203,8 +204,10 @@ pub enum Command {
         id: u64,
         decision: PermissionDecision,
     },
-    /// Change the permission mode.
+    /// Change the permission mode for this session.
     SetMode(PermissionMode),
+    /// Change the permission level SEEK starts with, and remember it.
+    SetDefaultMode(PermissionMode),
     /// Change the name of the user.
     SetUserName(String),
     /// Move the sidebar to the other side. The scrollbar follows it (SPEC 10.3).
@@ -277,6 +280,8 @@ pub enum Overlay {
     Help,
     /// A filterable list.
     Picker(Picker),
+    /// The model selector or the settings menu.
+    Menu(crate::menu::Menu),
     /// The form that adds a provider.
     ProviderForm(ProviderForm),
     /// The launch options of a local model (SPEC 7.4).
@@ -384,6 +389,8 @@ pub struct App {
     /// Whether a model was chosen. A local model is not in the catalog, so this cannot be read
     /// from the current model.
     pub model_configured: bool,
+    /// Side effects queued by the settings menu while it is open.
+    pending_settings: Vec<Command>,
     /// The subcommand that starts the local server, when there is one.
     pub llama_subcommand: Option<String>,
     /// The sessions of the sidebar (SPEC 10.2).
@@ -459,6 +466,7 @@ impl App {
             suggestion: 0,
             completion_dismissed: false,
             model_configured: false,
+            pending_settings: Vec::new(),
             llama_subcommand: None,
             sessions: Vec::new(),
             discovered: std::collections::BTreeMap::new(),
@@ -555,6 +563,9 @@ impl App {
             }
         };
 
+        // Side effects queued by the settings menu are delivered after the key that caused them.
+        let command = command.or_else(|| self.pending_settings.drain(..).next());
+
         // The home screen runs the widgets (SPEC 10.5).
         if !self.widgets_ran && self.rows.is_empty() && !self.widgets.is_empty() {
             self.widgets_ran = true;
@@ -588,6 +599,16 @@ impl App {
         // An open overlay takes the keyboard.
         match &self.overlay {
             Some(Overlay::Picker(_)) => return self.on_picker_key(key),
+            Some(Overlay::Menu(_)) => {
+                let Some(Overlay::Menu(mut menu)) = self.overlay.take() else {
+                    return None;
+                };
+                let (command, keep) = self.on_menu_key(&mut menu, key);
+                if keep {
+                    self.overlay = Some(Overlay::Menu(menu));
+                }
+                return command;
+            }
             Some(Overlay::Options { .. }) => return self.on_options_key(key),
             Some(Overlay::ProviderForm(_)) => return self.on_provider_form_key(key),
             _ => {}
@@ -1162,6 +1183,106 @@ impl App {
     }
 
     /// Handle a key while a picker is open.
+    /// Keys for the model selector and the settings menu. The bool says whether to keep the menu.
+    fn on_menu_key(&mut self, menu: &mut Menu, key: KeyEvent) -> (Option<Command>, bool) {
+        match key.code {
+            KeyCode::Up => {
+                menu.move_prev();
+                (None, true)
+            }
+            KeyCode::Down => {
+                menu.move_next();
+                (None, true)
+            }
+            KeyCode::Left | KeyCode::Right => {
+                if menu.kind == MenuKind::Model
+                    && key.code == KeyCode::Right
+                    && let Some(value) = menu.selected_item().map(|item| item.value.as_str())
+                    && let Some(local_id) = value.strip_prefix("local:")
+                {
+                    self.open_options_editor(local_id);
+                    return (None, false);
+                }
+                if let Some(index) = menu.visible_indices().get(menu.selected).copied() {
+                    self.cycle_menu_option(&mut menu.items[index], key.code == KeyCode::Right);
+                }
+                (None, true)
+            }
+            KeyCode::Esc => (None, false),
+            KeyCode::Enter => {
+                let Some(index) = menu.visible_indices().get(menu.selected).copied() else {
+                    return (None, true);
+                };
+                if menu.kind == MenuKind::Model {
+                    let value = menu.items[index].value.clone();
+                    let model = self.apply_picker_value(&value);
+                    return (
+                        Some(Command::PickerClosed {
+                            toggles: self.toggles.clone(),
+                            model,
+                        }),
+                        false,
+                    );
+                }
+                let value = menu.items[index].value.clone();
+                match value.as_str() {
+                    "settings:name" => {
+                        self.prompt_mode = PromptMode::Name;
+                        self.input = Input::new();
+                        (None, false)
+                    }
+                    _ => {
+                        self.cycle_menu_option(&mut menu.items[index], true);
+                        (None, true)
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                menu.backspace();
+                (None, true)
+            }
+            KeyCode::Char(c) => {
+                menu.type_char(c);
+                (None, true)
+            }
+            _ => (None, true),
+        }
+    }
+
+    /// Cycle a setting's active option and apply it to the running session.
+    fn cycle_menu_option(&mut self, item: &mut MenuItem, forward: bool) {
+        if item.options.is_empty() {
+            return;
+        }
+        let current = item
+            .current
+            .as_deref()
+            .and_then(|value| item.options.iter().position(|option| option == value))
+            .unwrap_or(0);
+        let next =
+            (current + if forward { 1 } else { item.options.len() - 1 }) % item.options.len();
+        let value = item.options[next].clone();
+        item.current = Some(value.clone());
+        item.right_label = value.clone();
+        match item.value.as_str() {
+            "settings:side" => {
+                if let Some(side) = seek_core::user::Side::parse(&value) {
+                    self.sidebar_side = side;
+                    self.pending_settings.push(Command::SetSidebarSide(side));
+                }
+            }
+            "settings:mode" => {
+                if let Some(mode) = PermissionMode::parse(&value) {
+                    self.mode = mode;
+                    self.pending_settings.push(Command::SetDefaultMode(mode));
+                }
+            }
+            "settings:reasoning" => self.show_reasoning = value == "on",
+            "settings:motion" => self.reduce_motion = value == "on",
+            _ => {}
+        }
+    }
+
     fn on_picker_key(&mut self, key: KeyEvent) -> Option<Command> {
         let Some(Overlay::Picker(picker)) = self.overlay.as_mut() else {
             return None;
@@ -1210,35 +1331,6 @@ impl App {
         };
 
         match picker.title.as_str() {
-            "settings" => {
-                if !choose {
-                    return None;
-                }
-                match picker.selected_item().map(|item| item.value.as_str()) {
-                    Some("settings:name") => {
-                        self.prompt_mode = PromptMode::Name;
-                        self.input = Input::new();
-                        return None;
-                    }
-                    Some("settings:side") => {
-                        self.overlay = Some(Overlay::Picker(self.side_picker()));
-                        return None;
-                    }
-                    _ => return None,
-                }
-            }
-            "settings-side" => {
-                if choose
-                    && let Some(value) = picker
-                        .selected_item()
-                        .and_then(|item| item.value.strip_prefix("side:"))
-                    && let Some(side) = seek_core::user::Side::parse(value)
-                {
-                    self.sidebar_side = side;
-                    return Some(Command::SetSidebarSide(side));
-                }
-                return None;
-            }
             "sessions" | "history" => {
                 if choose
                     && let Some(value) = picker.selected_item().map(|item| item.value.as_str())
@@ -1524,6 +1616,67 @@ impl App {
             .tap_hint("↑↓ sessions · Enter resume · Esc close")
     }
 
+    /// The grok-style model selector: a list with a detail pane.
+    fn model_menu(&self) -> Menu {
+        let picker = self.model_picker();
+        let items = picker
+            .items
+            .into_iter()
+            .map(|item| {
+                let right = item
+                    .value
+                    .strip_prefix("model:")
+                    .or_else(|| item.value.strip_prefix("local:"))
+                    .unwrap_or("")
+                    .to_string();
+                MenuItem::new(item.label, item.value)
+                    .with_detail(item.detail)
+                    .with_right(right)
+                    .with_group(item.group.unwrap_or_default())
+                    .with_badge(item.tag.unwrap_or_default())
+            })
+            .collect();
+        Menu::new("Models", MenuKind::Model, items)
+            .with_hint("↑↓ models · type to search · Enter use · Esc close")
+    }
+
+    /// The grok-style settings menu: each row is a value you can cycle with ←/→.
+    fn settings_menu(&self) -> Menu {
+        let name = self.user_name.clone().unwrap_or_default();
+        let side = self.sidebar_side.as_str().to_string();
+        let mode = self.mode.label().to_string();
+        let reasoning = if self.show_reasoning { "on" } else { "off" }.to_string();
+        let motion = if self.reduce_motion { "on" } else { "off" }.to_string();
+        let items = vec![
+            MenuItem::new("User name", "settings:name")
+                .with_detail("The name the model calls you by")
+                .with_right(if name.is_empty() { "not set" } else { &name })
+                .with_group("session"),
+            MenuItem::new("Sidebar side", "settings:side")
+                .with_detail("Which side the sessions and metrics sit on")
+                .with_right(&side)
+                .with_group("interface")
+                .selecting(&["left", "right"], &side),
+            MenuItem::new("Reasoning text", "settings:reasoning")
+                .with_detail("Show the model's reasoning in the transcript")
+                .with_right(&reasoning)
+                .with_group("interface")
+                .selecting(&["on", "off"], &reasoning),
+            MenuItem::new("Reduce motion", "settings:motion")
+                .with_detail("Hold the logo and the thinking animation still")
+                .with_right(&motion)
+                .with_group("interface")
+                .selecting(&["on", "off"], &motion),
+            MenuItem::new("Default permission level", "settings:mode")
+                .with_detail("The level SEEK starts with: read only, ask, or allow everything")
+                .with_right(&mode)
+                .with_group("security")
+                .selecting(&["READ", "ASK", "YOLO"], &mode),
+        ];
+        Menu::new("Settings", MenuKind::Settings, items)
+            .with_hint("↑↓ setting · ←→ change · Enter apply · Esc close")
+    }
+
     /// The picker for `/mode`: the three permission modes.
     fn mode_picker(&self) -> Picker {
         let items = [
@@ -1541,36 +1694,6 @@ impl App {
         })
         .collect();
         Picker::new("mode", items).tap_hint("Enter to choose, Esc to close")
-    }
-
-    /// The picker for `/settings`: the name and the side of the sidebar.
-    fn settings_picker(&self) -> Picker {
-        let items = vec![
-            PickerItem::new("User name", "settings:name")
-                .with_detail("Set the name SEEK calls you by"),
-            PickerItem::new("Sidebar side", "settings:side").with_detail(format!(
-                "The sidebar is on the {}",
-                self.sidebar_side.as_str()
-            )),
-        ];
-        Picker::new("settings", items).tap_hint("Enter to open, Esc to close")
-    }
-
-    /// The two sides for the sidebar setting.
-    fn side_picker(&self) -> Picker {
-        use seek_core::user::Side;
-        let items = [Side::Left, Side::Right]
-            .into_iter()
-            .map(|side| {
-                PickerItem::new(side.as_str(), format!("side:{}", side.as_str()))
-                    .with_check(self.sidebar_side == side)
-                    .with_detail(format!(
-                        "The scrollbar goes on the {}",
-                        side.opposite().as_str()
-                    ))
-            })
-            .collect();
-        Picker::new("settings-side", items).tap_hint("Enter to choose, Esc to close")
     }
 
     /// Toggle the reasoning level: off and the last one that was not off.
@@ -1889,8 +2012,8 @@ impl App {
                 None
             }
             "/settings" => {
-                // The settings of the user: their name and where the sidebar sits.
-                self.overlay = Some(Overlay::Picker(self.settings_picker()));
+                // The settings menu: name, sidebar side, mode, reasoning, motion.
+                self.overlay = Some(Overlay::Menu(self.settings_menu()));
                 None
             }
             "/think" => {
@@ -1934,7 +2057,7 @@ impl App {
                 None
             }
             "/model" => {
-                self.overlay = Some(Overlay::Picker(self.model_picker()));
+                self.overlay = Some(Overlay::Menu(self.model_menu()));
                 None
             }
             "/provider" => {
@@ -2259,7 +2382,8 @@ impl App {
         };
         let pinned = prompt_bar::pin_lines(&pins, &self.theme);
         let text_width = main_area.width.saturating_sub(3) as usize;
-        let max_rows = main_area.height.saturating_sub(6).max(1) as usize;
+        // Transcript (3), prompt borders (2), footer (1) and the blank row above the box (1).
+        let max_rows = main_area.height.saturating_sub(7).max(1) as usize;
         self.input.ensure_visible(text_width, max_rows);
         let rows = self.input.visual_lines(text_width).len().min(max_rows);
         // The box has a top border and a bottom border. The status is in the bottom border, so
@@ -2299,6 +2423,7 @@ impl App {
             log_area,
             pinned_area,
             suggestions_area,
+            _gap_area,
             prompt_area,
             footer_area,
         ] = Layout::vertical([
@@ -2306,6 +2431,8 @@ impl App {
             Constraint::Length(log_lines.len() as u16),
             Constraint::Length(pinned.len() as u16),
             Constraint::Length(suggestions.len() as u16),
+            // One blank row between the transcript and the prompt box.
+            Constraint::Length(1),
             Constraint::Length(prompt_height),
             Constraint::Length(1),
         ])
@@ -2377,19 +2504,35 @@ impl App {
             footer_area,
         );
 
+        // Overlays live in the main column, never under the sidebar. When it is open they
+        // share its width and the gradient follows its side.
         match &self.overlay {
-            Some(Overlay::Help) => self.render_help(frame, area),
+            Some(Overlay::Help) => self.render_help(frame, main_area),
             Some(Overlay::Picker(picker)) => {
                 // The panel lives above the prompt, so the box stays visible while choosing.
                 let picker_area = Rect::new(
-                    area.x,
-                    area.y,
-                    area.width,
-                    area.height.saturating_sub(prompt_height + 1),
+                    main_area.x,
+                    main_area.y,
+                    main_area.width,
+                    main_area.height.saturating_sub(prompt_height + 2),
                 );
                 picker.render(
                     frame,
                     picker_area,
+                    &self.theme,
+                    self.sidebar_side == seek_core::user::Side::Left,
+                );
+            }
+            Some(Overlay::Menu(menu)) => {
+                let menu_area = Rect::new(
+                    main_area.x,
+                    main_area.y,
+                    main_area.width,
+                    main_area.height.saturating_sub(prompt_height + 2),
+                );
+                menu.render(
+                    frame,
+                    menu_area,
                     &self.theme,
                     self.sidebar_side == seek_core::user::Side::Left,
                 );
@@ -2399,8 +2542,8 @@ impl App {
                 prefix,
                 input,
                 ..
-            }) => self.render_options(frame, area, name, prefix, input),
-            Some(Overlay::ProviderForm(form)) => self.render_provider_form(frame, area, form),
+            }) => self.render_options(frame, main_area, name, prefix, input),
+            Some(Overlay::ProviderForm(form)) => self.render_provider_form(frame, main_area, form),
             None => {}
         }
     }
@@ -2628,29 +2771,25 @@ impl App {
             height,
         );
         frame.render_widget(ratatui::widgets::Clear, rect);
-        let block = ratatui::widgets::Block::bordered()
-            .border_style(Style::new().fg(self.theme.accent))
-            .style(Style::new().bg(self.theme.bg))
-            .title(Span::styled(
-                format!(" launch options: {name} "),
-                Style::new().fg(self.theme.accent).bold(),
-            ));
+        let block = panel_block(&format!("launch options: {name}"), &self.theme);
         let inner = block.inner(rect);
         frame.render_widget(block, rect);
 
         let lines = vec![
             Line::from(Span::styled(prefix, Style::new().fg(self.theme.dim))),
-            Line::from(Span::styled(
-                "the options above are set by SEEK",
-                Style::new().fg(self.theme.dim).italic(),
-            )),
+            section_header("Options", &self.theme),
             Line::from(vec![
+                Span::styled("  ", Style::new()),
                 Span::styled("> ", Style::new().fg(self.theme.accent).bold()),
                 Span::styled(input.text(), Style::new().fg(self.theme.cube_light)),
             ]),
             Line::from(Span::styled(
-                "Enter saves, Esc returns",
+                "  the options above are set by SEEK",
                 Style::new().fg(self.theme.dim).italic(),
+            )),
+            Line::from(Span::styled(
+                "  Enter saves, Esc returns",
+                Style::new().fg(self.theme.dim),
             )),
         ];
         frame.render_widget(
@@ -2910,6 +3049,22 @@ mod tests {
         assert_eq!(command, Some(Command::SetMode(PermissionMode::Yolo)));
         app.update(Message::Key(key(KeyCode::BackTab)));
         assert_eq!(app.mode, PermissionMode::Read);
+    }
+
+    #[test]
+    fn changing_the_default_permission_level_is_persisted() {
+        let mut app = App::new(Theme::default());
+        for c in "/settings".chars() {
+            app.update(Message::Key(key(KeyCode::Char(c))));
+        }
+        app.update(Message::Key(key(KeyCode::Enter)));
+        // The permission level is the last setting; Right cycles ASK to YOLO.
+        for _ in 0..4 {
+            app.update(Message::Key(key(KeyCode::Down)));
+        }
+        let command = app.update(Message::Key(key(KeyCode::Right)));
+        assert_eq!(command, Some(Command::SetDefaultMode(PermissionMode::Yolo)));
+        assert_eq!(app.mode, PermissionMode::Yolo);
     }
 
     #[test]

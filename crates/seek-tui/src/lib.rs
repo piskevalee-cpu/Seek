@@ -11,6 +11,7 @@ pub mod gradient;
 pub mod input;
 pub mod logo;
 pub mod logo_bitmap;
+pub mod menu;
 pub mod metrics;
 pub mod picker;
 pub mod prompt_bar;
