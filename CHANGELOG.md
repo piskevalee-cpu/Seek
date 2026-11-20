@@ -8,6 +8,18 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.24] - 2026-11-20
+
+The installer is now a small TUI instead of a log with an animated header.
+
+### Changed
+- The logo sheen keeps running for the whole install, including during a download or build; the
+  final frame paints the completed logo at full highlight.
+- Five step rows light up from `○` to an animated glyph to `●`, with a step counter and the latest
+  detail lines. The 0.12 s frame pace is deliberately slower so the animation can be followed.
+- Fixed a variable collision between the renderer and the step runner, and restored the
+  `--no-binary` guard lost in the refactor (D-035).
+
 ## [0.7.23] - 2026-11-20
 
 The installer animates on Linux and macOS, and can be tested without changing anything.

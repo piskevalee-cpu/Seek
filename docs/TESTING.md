@@ -214,7 +214,7 @@ Every key of the specification, one by one.
 ## The installer
 
 - [ ] **Dry run.** `./install.sh --dry-run` — the logo, `SEEK on Linux` (or `macOS`), and every step with `would create` / `would copy` / `would download`; nothing is written. Check `~/seek` is unchanged.
-- [ ] **The animation.** Run it in a terminal: the logo sheens, then the binary step shows a spinning glyph and a `✓` when done. With `NO_COLOR=1` or piped output both are plain.
+- [ ] **The TUI.** Run it in a terminal: the logo keeps sweeping throughout, five step rows go from `○` to a spinning glyph to `●`, and the last frame paints the whole logo bright. The pace is slow enough to follow. With `NO_COLOR=1` or piped output it is plain text.
 - [ ] **macOS.** The same dry run on a Mac names `arm64-apple-darwin` (or `x86_64-apple-darwin`) and keeps `TMPDIR` paths with one slash. CI checks the syntax and a dry run on both Linux and macOS.
 
 ## Looking at the interface as a picture

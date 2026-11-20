@@ -11,8 +11,9 @@
 #   ./install.sh --no-binary    only the folders and the built-in files
 #   ./install.sh --dry-run      show what would happen, change nothing
 #
-# On Linux and macOS an interactive terminal gets the sweeping logo and a spinner for the long
-# steps. Piped output, NO_COLOR, CI or TERM=dumb give the plain, quiet path.
+# On Linux and macOS an interactive terminal gets a small TUI: the sweeping logo keeps animating
+# for the whole install, the steps light up one by one, and the last frame completes the logo.
+# Piped output, NO_COLOR, CI or TERM=dumb give the plain, quiet path.
 
 set -eu
 
@@ -27,7 +28,7 @@ DRY_RUN=0
 TMP_ROOT="${TMPDIR:-/tmp}"
 TMP_ROOT="${TMP_ROOT%/}"
 
-# The logo and the spinner are plain on a pipe, in CI, with NO_COLOR, or on a dumb terminal.
+# The TUI is plain on a pipe, in CI, with NO_COLOR, or on a dumb terminal.
 OS_NAME=$(uname -s)
 case "$OS_NAME" in
 Linux) PLATFORM="Linux" ;;
@@ -93,10 +94,12 @@ if [ ! -f "$REPO_DIR/crates/seek/Cargo.toml" ]; then
 	exit "$status"
 fi
 
-# The same 25 x 9 bitmap the TUI draws. A short diagonal sweep runs from the top right to the
-# low left, the way the startup logo does; a non-interactive install gets the resting frame.
+# ---------------------------------------------------------------- the renderer
+
+# The same 25 x 9 bitmap the TUI draws. A diagonal sweep runs from the top right to the low left.
+# The third argument paints the completed logo, all lit pixels at full highlight.
 print_logo_frame() {
-	awk -v frame="$1" -v plain="${2:-0}" '
+	awk -v frame="$1" -v plain="${2:-0}" -v complete="${3:-0}" '
 	{
 		rows[NR] = $0
 		while (length(rows[NR]) < 25) rows[NR] = rows[NR] " "
@@ -109,23 +112,29 @@ print_logo_frame() {
 			for (c = 1; c <= 25; c++) {
 				ch = substr(rows[r], c, 1)
 				if (ch == " ") { line = line "  "; continue }
-				d = ((c - 1) + (9 - r)) / 34
-				forward = d - head
-				while (forward < 0) forward += 1
-				backward = head - d
-				while (backward < 0) backward += 1
-				dist = (forward < backward ? forward : backward) * 34
-				shine = dist < 4 ? (1 - dist / 4) ^ 2 : 0
-				if (ch == "#") {
-					br = 120; bg = 116; bb = 133
-					hr = 214; hg = 193; hb = 240
-					t = 0.55 + 0.45 * shine
+				if (complete) {
+					t = (ch == "#") ? 1 : 0.30
 				} else {
-					br = 47; bg = 43; bb = 60
-					hr = 160; hg = 154; hb = 176
-					t = 0.6 * shine
+					d = ((c - 1) + (9 - r)) / 34
+					forward = d - head
+					while (forward < 0) forward += 1
+					backward = head - d
+					while (backward < 0) backward += 1
+					dist = (forward < backward ? forward : backward) * 34
+					shine = dist < 4 ? (1 - dist / 4) ^ 2 : 0
+					if (ch == "#") {
+						br = 120; bg = 116; bb = 133
+						hr = 214; hg = 193; hb = 240
+						t = 0.55 + 0.45 * shine
+					} else {
+						br = 47; bg = 43; bb = 60
+						hr = 160; hg = 154; hb = 176
+						t = 0.6 * shine
+					}
 				}
 				if (t > 1) t = 1
+				if (ch == "#") { br = 120; bg = 116; bb = 133; hr = 214; hg = 193; hb = 240 }
+				else { br = 47; bg = 43; bb = 60; hr = 160; hg = 154; hb = 176 }
 				rr = int(br + (hr - br) * t + 0.5)
 				gg = int(bg + (hg - bg) * t + 0.5)
 				b2 = int(bb + (hb - bb) * t + 0.5)
@@ -151,110 +160,197 @@ print_logo_frame() {
 LOGO
 }
 
+FRAME=0
+LOGO_COMPLETE=0
+STEP_TOTAL=5
+CURRENT_STEP=0
+STEP_STATUS='00000'
+STEP_LABELS=''
+DETAIL_FILE="$TMP_ROOT/seek-install-detail-$$"
+STEP_LOG="$TMP_ROOT/seek-install-step-$$"
+: > "$DETAIL_FILE"
+
+# A line of detail: shown under the step list in the TUI, printed directly on a pipe.
+note() {
+	if [ "$ANIMATE" = "1" ]; then
+		printf '%s\n' "$*" >> "$DETAIL_FILE"
+	else
+		say "$*"
+	fi
+}
+
+spinner_glyph() {
+	case $((FRAME % 10)) in
+	0) printf '⠋' ;;
+	1) printf '⠙' ;;
+	2) printf '⠹' ;;
+	3) printf '⠸' ;;
+	4) printf '⠼' ;;
+	5) printf '⠴' ;;
+	6) printf '⠦' ;;
+	7) printf '⠧' ;;
+	8) printf '⠇' ;;
+	*) printf '⠏' ;;
+	esac
+}
+
+# Draw one frame: home the cursor, clear to the end of the screen, then the whole interface.
+render() {
+	[ "$ANIMATE" = "1" ] || return 0
+	printf '\033[H\033[J'
+	if [ "$LOGO_COMPLETE" = "1" ]; then
+		print_logo_frame 0 0 1
+	else
+		print_logo_frame "$((FRAME % 5))"
+	fi
+	printf '\n'
+	say "==> SEEK on $PLATFORM"
+	if [ "$DRY_RUN" = "1" ]; then
+		say "    dry run: no files will be changed"
+	fi
+	printf '\n'
+	render_row=1
+	while [ "$render_row" -le "$STEP_TOTAL" ]; do
+		render_state=$(printf '%s' "$STEP_STATUS" | cut -c "$render_row")
+		render_label=$(printf '%s\n' "$STEP_LABELS" | sed -n "${render_row}p")
+		case "$render_state" in
+		0) render_icon='○' ;;
+		1) render_icon=$(spinner_glyph) ;;
+		2) render_icon='●' ;;
+		*) render_icon='·' ;;
+		esac
+		say " $render_icon $render_label"
+		render_row=$((render_row + 1))
+	done
+	printf '\n'
+	if [ -s "$DETAIL_FILE" ]; then
+		tail -3 "$DETAIL_FILE"
+	fi
+	printf '\n'
+	say "   step $CURRENT_STEP of $STEP_TOTAL"
+}
+
+# Advance the animation a few frames. A frame is 0.12 s: deliberately slow enough to follow.
+pulse() {
+	[ "$ANIMATE" = "1" ] || return 0
+	count=$1
+	n=0
+	while [ "$n" -lt "$count" ]; do
+		FRAME=$((FRAME + 1))
+		render
+		sleep 0.12
+		n=$((n + 1))
+	done
+}
+
+set_status() {
+	set_pos=$1
+	set_char=$2
+	set_before=''
+	if [ "$set_pos" -gt 1 ]; then
+		set_before=$(printf '%s' "$STEP_STATUS" | cut -c "1-$((set_pos - 1))")
+	fi
+	set_after=$(printf '%s' "$STEP_STATUS" | cut -c "$((set_pos + 1))-" || true)
+	STEP_STATUS="$set_before$set_char$set_after"
+}
+
+# Mark a step active, animate while its command runs, then mark it done.
+run_step() {
+	step_index=$1
+	step_label=$2
+	shift 2
+	CURRENT_STEP=$step_index
+	: > "$DETAIL_FILE"
+	set_status "$step_index" 1
+	pulse 2
+	status=0
+	if [ "$ANIMATE" = "1" ]; then
+		# A background animator redraws the frame while the step runs in the foreground. The
+		# step's output goes to a log, so nothing smears the frame, and there is no status file
+		# for a subshell to forget to write.
+		(
+			while :; do
+				FRAME=$((FRAME + 1))
+				render
+				sleep 0.12
+			done
+		) &
+		animator_pid=$!
+		"$@" > "$STEP_LOG" 2>&1 || status=$?
+		kill "$animator_pid" 2>/dev/null || true
+		wait "$animator_pid" 2>/dev/null || true
+	else
+		"$@" || status=$?
+	fi
+	if [ "$status" != "0" ] && [ -s "$STEP_LOG" ]; then
+		cat "$STEP_LOG" >&2
+	fi
+	rm -f "$STEP_LOG"
+	set_status "$step_index" 2
+	pulse 2
+	return "$status"
+}
+
+STEP_LABELS=$(printf '%s\n' \
+	"the folders of $SEEK_HOME" \
+	"the built-in skills and widgets" \
+	"the binary" \
+	"what SEEK needs" \
+	"finishing")
+
 banner() {
 	if [ "$ANIMATE" = "1" ]; then
-		frame=0
-		while [ "$frame" -lt 5 ]; do
-			if [ "$frame" -gt 0 ]; then
-				printf '\033[9A'
-			fi
-			print_logo_frame "$frame"
-			sleep 0.07
-			frame=$((frame + 1))
-		done
+		pulse 10
 	else
 		print_logo_frame 5 1
 	fi
 }
 
-# Run a step, with a spinner while it works on an interactive terminal. The child's output is
-# kept and shown only when the step fails, so the spinner never gets smeared by a build log.
-spin() {
-	label=$1
-	shift
-	if [ "$ANIMATE" = "1" ]; then
-		log="$TMP_ROOT/seek-install-spin-$$"
-		(
-			while :; do
-				for glyph in '⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏'; do
-					printf '\r  %s %s' "$glyph" "$label"
-					sleep 0.08
-				done
-			done
-		) &
-		spinner_pid=$!
-		status=0
-		"$@" >"$log" 2>&1 || status=$?
-		kill "$spinner_pid" 2>/dev/null || true
-		wait "$spinner_pid" 2>/dev/null || true
-		if [ "$status" = "0" ]; then
-			printf '\r  ✓ %s\n' "$label"
+# ---------------------------------------------------------------- the steps
+
+step_folders() {
+	note "==> the folders of $SEEK_HOME"
+	for folder in skills tools models widgets state; do
+		if [ "$DRY_RUN" = "1" ]; then
+			note "    would create $SEEK_HOME/$folder"
 		else
-			printf '\r  ! %s\n' "$label"
-			cat "$log" >&2
+			mkdir -p "$SEEK_HOME/$folder"
+			note "    $SEEK_HOME/$folder"
 		fi
-		rm -f "$log"
-		return "$status"
-	fi
-	say "  $label"
-	status=0
-	"$@" || status=$?
-	return "$status"
+	done
 }
-
-banner
-say ""
-say "==> SEEK on $PLATFORM"
-if [ "$DRY_RUN" = "1" ]; then
-	say "    dry run: no files will be changed"
-fi
-say ""
-
-# ---------------------------------------------------------------- the folders
-
-say "==> the folders of $SEEK_HOME"
-for folder in skills tools models widgets state; do
-	if [ "$DRY_RUN" = "1" ]; then
-		say "    would create $SEEK_HOME/$folder"
-	else
-		mkdir -p "$SEEK_HOME/$folder"
-		say "    $SEEK_HOME/$folder"
-	fi
-done
-
-# ------------------------------------------------------- the built-in files
 
 copy_if_absent() {
 	source="$1"
 	target="$2"
 	if [ -e "$target" ]; then
-		say "    kept   $target"
+		note "    kept   $target"
 		return
 	fi
 	if [ ! -e "$source" ]; then
 		return
 	fi
 	if [ "$DRY_RUN" = "1" ]; then
-		say "    would copy $target"
+		note "    would copy $target"
 		return
 	fi
 	mkdir -p "$(dirname -- "$target")"
 	cp -R "$source" "$target"
-	say "    copied $target"
+	note "    copied $target"
 }
 
-say "==> the built-in skills and widgets"
-copy_if_absent "$REPO_DIR/builtin/SYSTEM.md" "$SEEK_HOME/SYSTEM.md"
-for skill in "$REPO_DIR"/builtin/skills/*; do
-	[ -d "$skill" ] || continue
-	copy_if_absent "$skill" "$SEEK_HOME/skills/$(basename -- "$skill")"
-done
-for widget in "$REPO_DIR"/builtin/widgets/*; do
-	[ -d "$widget" ] || continue
-	copy_if_absent "$widget" "$SEEK_HOME/widgets/$(basename -- "$widget")"
-done
-
-# ----------------------------------------------------------------- the binary
+step_builtins() {
+	note "==> the built-in skills and widgets"
+	copy_if_absent "$REPO_DIR/builtin/SYSTEM.md" "$SEEK_HOME/SYSTEM.md"
+	for skill in "$REPO_DIR"/builtin/skills/*; do
+		[ -d "$skill" ] || continue
+		copy_if_absent "$skill" "$SEEK_HOME/skills/$(basename -- "$skill")"
+	done
+	for widget in "$REPO_DIR"/builtin/widgets/*; do
+		[ -d "$widget" ] || continue
+		copy_if_absent "$widget" "$SEEK_HOME/widgets/$(basename -- "$widget")"
+	done
+}
 
 build_binary() {
 	cargo install --path "$REPO_DIR/crates/seek" --root "$HOME/.cargo" --force &&
@@ -268,11 +364,15 @@ download_binary() {
 		rm -rf "$archive" "$TMP_ROOT/$staging"
 }
 
-if [ "$INSTALL_BINARY" = "1" ]; then
-	say "==> the binary"
+step_binary() {
+	note "==> the binary"
+	if [ "$INSTALL_BINARY" != "1" ]; then
+		note "    skipped (--no-binary)"
+		return 0
+	fi
 	if [ "$DRY_RUN" = "1" ]; then
 		if [ "$FROM_SOURCE" = "1" ]; then
-			say "    would build the source and install $BIN_DIR/seek"
+			note "    would build the source and install $BIN_DIR/seek"
 		else
 			version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
 			case "$(uname -m)" in
@@ -285,78 +385,103 @@ if [ "$INSTALL_BINARY" = "1" ]; then
 			Darwin) target="${arch}-apple-darwin" ;;
 			*) target="${arch}-$(printf '%s' "$OS_NAME" | tr '[:upper:]' '[:lower:]')" ;;
 			esac
-			say "    would download seek-v${version}-${target}.tar.gz to $BIN_DIR/seek"
-			say "    falling back to a source build if that release is missing"
+			note "    would download seek-v${version}-${target}.tar.gz to $BIN_DIR/seek"
+			note "    falling back to a source build if that release is missing"
 		fi
+		return 0
+	fi
+	mkdir -p "$BIN_DIR"
+	if [ "$FROM_SOURCE" = "1" ]; then
+		build_binary ||
+			{ note "    the source build failed"; return 1; }
 	else
-		mkdir -p "$BIN_DIR"
-		if [ "$FROM_SOURCE" = "1" ]; then
-			spin "build from the source" build_binary
-		else
-			version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
-			case "$(uname -m)" in
-			x86_64 | amd64) arch=x86_64 ;;
-			aarch64 | arm64) arch=aarch64 ;;
-			*) arch=$(uname -m) ;;
-			esac
-			case "$OS_NAME" in
-			Linux) target="${arch}-unknown-linux-gnu" ;;
-			Darwin) target="${arch}-apple-darwin" ;;
-			*) target="${arch}-$(printf '%s' "$OS_NAME" | tr '[:upper:]' '[:lower:]')" ;;
-			esac
-			staging="seek-v${version}-${target}"
-			archive="$TMP_ROOT/${staging}.tar.gz"
-			url="https://github.com/piskevalee-cpu/Seek/releases/download/v${version}/${staging}.tar.gz"
-			if ! spin "download the release for $target" download_binary; then
-				say "    no release for this platform, building from the source"
-				spin "build from the source" build_binary
-			fi
+		version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$REPO_DIR/Cargo.toml" | head -1)
+		case "$(uname -m)" in
+		x86_64 | amd64) arch=x86_64 ;;
+		aarch64 | arm64) arch=aarch64 ;;
+		*) arch=$(uname -m) ;;
+		esac
+		case "$OS_NAME" in
+		Linux) target="${arch}-unknown-linux-gnu" ;;
+		Darwin) target="${arch}-apple-darwin" ;;
+		*) target="${arch}-$(printf '%s' "$OS_NAME" | tr '[:upper:]' '[:lower:]')" ;;
+		esac
+		staging="seek-v${version}-${target}"
+		archive="$TMP_ROOT/${staging}.tar.gz"
+		url="https://github.com/piskevalee-cpu/Seek/releases/download/v${version}/${staging}.tar.gz"
+		if ! download_binary; then
+			note "    no release for this platform, building from the source"
+			build_binary || { note "    the source build failed"; return 1; }
 		fi
-		chmod +x "$BIN_DIR/seek"
-		say "    $BIN_DIR/seek"
 	fi
-fi
+	chmod +x "$BIN_DIR/seek"
+	note "    $BIN_DIR/seek"
+}
 
-# ------------------------------------------------------------------- the checks
+step_checks() {
+	note "==> what SEEK needs"
+	missing=0
+	if command -v git >/dev/null 2>&1; then
+		note "    git      $(command -v git)"
+	else
+		note "    git      MISSING - install git to see the repository in the widgets"
+		missing=1
+	fi
+	if command -v llama >/dev/null 2>&1; then
+		note "    llama    $(command -v llama)"
+	elif command -v llama-server >/dev/null 2>&1; then
+		note "    llama    $(command -v llama-server)"
+	else
+		note "    llama    MISSING - install llama.cpp to run local models"
+		note "             https://github.com/ggml-org/llama.cpp"
+		missing=1
+	fi
+	if [ -d "$SEEK_HOME/models" ] && [ -n "$(ls -A "$SEEK_HOME/models" 2>/dev/null)" ]; then
+		note "    models   $(ls "$SEEK_HOME/models" | head -3 | tr '\n' ' ')"
+	else
+		note "    models   none yet - put a .gguf file in $SEEK_HOME/models"
+	fi
+	MISSING=$missing
+}
 
-say "==> what SEEK needs"
-missing=0
+step_finish() {
+	if [ "$DRY_RUN" = "1" ]; then
+		note ""
+		note "Dry run complete. Nothing was changed."
+	else
+		note ""
+		note "SEEK is installed on $PLATFORM. Next:"
+		note "    export PATH=\"\$HOME/.local/bin:\$PATH\""
+		note "    seek"
+		note ""
+		note "The configuration lives in $SEEK_HOME."
+		if [ "$MISSING" = "1" ]; then
+			note "Some programs are missing; see the list above."
+		fi
+	fi
+}
 
-if command -v git >/dev/null 2>&1; then
-	say "    git      $(command -v git)"
-else
-	say "    git      MISSING - install git to see the repository in the widgets"
-	missing=1
-fi
+# ------------------------------------------------------------------- the run
 
-if command -v llama >/dev/null 2>&1; then
-	say "    llama    $(command -v llama)"
-elif command -v llama-server >/dev/null 2>&1; then
-	say "    llama    $(command -v llama-server)"
-else
-	say "    llama    MISSING - install llama.cpp to run local models"
-	say "             https://github.com/ggml-org/llama.cpp"
-	missing=1
-fi
+banner
 
-if [ -d "$SEEK_HOME/models" ] && [ -n "$(ls -A "$SEEK_HOME/models" 2>/dev/null)" ]; then
-	say "    models   $(ls "$SEEK_HOME/models" | head -3 | tr '\n' ' ')"
-else
-	say "    models   none yet - put a .gguf file in $SEEK_HOME/models"
-fi
-
-# ----------------------------------------------------------------- the next step
-
-say ""
-if [ "$DRY_RUN" = "1" ]; then
-	say "Dry run complete. Nothing was changed."
-else
-	say "SEEK is installed on $PLATFORM. Next:"
-	say "    export PATH=\"\$HOME/.local/bin:\$PATH\""
-	say "    seek"
+# The TUI renderer draws these itself; on a pipe they are printed once here.
+if [ "$ANIMATE" = "0" ]; then
+	say "==> SEEK on $PLATFORM"
+	if [ "$DRY_RUN" = "1" ]; then
+		say "    dry run: no files will be changed"
+	fi
 	say ""
-	say "The configuration lives in $SEEK_HOME."
-	if [ "$missing" = "1" ]; then
-		say "Some programs are missing; see the list above."
-	fi
 fi
+
+run_step 1 "the folders of $SEEK_HOME" step_folders
+run_step 2 "the built-in skills and widgets" step_builtins
+run_step 3 "the binary" step_binary
+run_step 4 "what SEEK needs" step_checks
+run_step 5 "finishing" step_finish
+
+# The last frame completes the logo and holds, so the install ends on a finished mark.
+LOGO_COMPLETE=1
+render
+
+rm -f "$DETAIL_FILE" "$STEP_LOG"

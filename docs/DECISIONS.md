@@ -746,3 +746,22 @@ and build helpers chain their commands with `&&`, because a command in a `||` li
 CI runs `sh -n`, the help check and a dry run in the `build` job on both ubuntu and macOS.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-035 — The installer is a frame-based TUI
+
+**Date:** 2026-11-20 · **Affects:** SPEC 13
+
+A dry run showed the logo sweeping for five frames and then a static log of steps. The owner asked
+for the animation to continue, to finish on a complete logo, and for a slower, more interactive
+feel. The animated path now redraws a whole frame at 0.12 s intervals: the logo sheen loops for the
+entire run, five step rows move from pending to active to done, and the last frame paints every lit
+pixel at full highlight. A background animator redraws while the step command runs in the foreground
+with its output captured — a first attempt ran the command itself in the background and hung under
+a PTY because the status file was never written.
+
+POSIX `sh` has no local variables: the renderer's row counter collided with the step runner's index
+and kept every row marked active, so the two functions now use distinct names. The refactor also
+dropped the `--no-binary` guard; it is back. The plain path (pipe, `NO_COLOR`, `CI`, `TERM=dumb`)
+still prints the same quiet log and the platform line.
+
+**Status:** accepted. The specification and changelog were updated.
