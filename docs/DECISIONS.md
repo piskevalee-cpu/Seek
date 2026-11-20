@@ -713,3 +713,15 @@ Finally, the bright vertical borders of the prompt box sat beside the block curs
 second cursor. They now use the dim `border` colour, leaving one bright vertical mark.
 
 **Status:** accepted. The specification and changelog were updated.
+
+## D-033 — A blank row above the prompt box
+
+**Date:** 2026-11-20 · **Affects:** SPEC 10.3
+
+The last line of the transcript sat directly against the top border of the prompt box, which made
+the answer look crowded. The vertical layout now reserves one unprinted row between the
+transcript (and the log/pin/completion rows) and the box. The input's row budget and the overlay
+area were adjusted by one row so the gap survives long drafts and menus. A UI test checks that the
+row above the box is blank.
+
+**Status:** accepted. The specification and changelog were updated.

@@ -120,6 +120,24 @@ fn the_name_is_taken_and_kept() {
 }
 
 #[test]
+fn a_blank_row_separates_the_transcript_from_the_prompt_box() {
+    let mut app = app();
+    for i in 0..24 {
+        app.rows
+            .push(Row::Assistant(format!("line {i} of the answer")));
+    }
+    let lines = render_lines(&mut app, 100, 30);
+    let box_line = lines
+        .iter()
+        .position(|line| line.starts_with('╭'))
+        .expect("the prompt box is drawn");
+    assert!(
+        box_line > 0 && lines[box_line - 1].trim().is_empty(),
+        "one blank row sits between the transcript and the box: {lines:?}"
+    );
+}
+
+#[test]
 fn the_settings_command_asks_for_the_name_again() {
     let mut app = app();
     app.user_name = Some("Ada".into());

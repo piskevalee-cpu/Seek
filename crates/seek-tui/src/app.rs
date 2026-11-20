@@ -2382,7 +2382,8 @@ impl App {
         };
         let pinned = prompt_bar::pin_lines(&pins, &self.theme);
         let text_width = main_area.width.saturating_sub(3) as usize;
-        let max_rows = main_area.height.saturating_sub(6).max(1) as usize;
+        // Transcript (3), prompt borders (2), footer (1) and the blank row above the box (1).
+        let max_rows = main_area.height.saturating_sub(7).max(1) as usize;
         self.input.ensure_visible(text_width, max_rows);
         let rows = self.input.visual_lines(text_width).len().min(max_rows);
         // The box has a top border and a bottom border. The status is in the bottom border, so
@@ -2422,6 +2423,7 @@ impl App {
             log_area,
             pinned_area,
             suggestions_area,
+            _gap_area,
             prompt_area,
             footer_area,
         ] = Layout::vertical([
@@ -2429,6 +2431,8 @@ impl App {
             Constraint::Length(log_lines.len() as u16),
             Constraint::Length(pinned.len() as u16),
             Constraint::Length(suggestions.len() as u16),
+            // One blank row between the transcript and the prompt box.
+            Constraint::Length(1),
             Constraint::Length(prompt_height),
             Constraint::Length(1),
         ])
@@ -2510,7 +2514,7 @@ impl App {
                     main_area.x,
                     main_area.y,
                     main_area.width,
-                    main_area.height.saturating_sub(prompt_height + 1),
+                    main_area.height.saturating_sub(prompt_height + 2),
                 );
                 picker.render(
                     frame,
@@ -2524,7 +2528,7 @@ impl App {
                     main_area.x,
                     main_area.y,
                     main_area.width,
-                    main_area.height.saturating_sub(prompt_height + 1),
+                    main_area.height.saturating_sub(prompt_height + 2),
                 );
                 menu.render(
                     frame,
