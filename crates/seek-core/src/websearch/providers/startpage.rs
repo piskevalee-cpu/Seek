@@ -9,8 +9,6 @@
 //! CAPTCHA page. The flow is the one of a browser: read the homepage, take
 //! the hidden fields of the form, and post them back with the query.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::html::{elements_with_class, hidden_inputs};
@@ -184,12 +182,7 @@ impl SearchProvider for Startpage {
                 &crate::websearch::query::GOOGLE_QUERY_SYNTAX,
             );
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("startpage", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             // The handshake with the homepage: the token of the form.
             let mut fields: Option<Vec<(String, String)>> = None;

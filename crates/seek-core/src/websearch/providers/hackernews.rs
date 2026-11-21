@@ -6,8 +6,6 @@
 //! The search API of Hacker News indexes every story and every comment; the
 //! general engines index the threads of Hacker News late and thinly.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::query::{QuerySyntax, format_query};
@@ -212,12 +210,7 @@ async fn fetch_hits(
     count: usize,
     filters: &[String],
 ) -> Result<Vec<Hit>, SearchProviderError> {
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|error| {
-            SearchProviderError::new("hackernews", format!("the client failed: {error}"))
-        })?;
+    let client = super::client();
 
     let mut request = client.get(SEARCH_URL).query(&[
         ("query", keywords),

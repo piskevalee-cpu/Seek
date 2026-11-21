@@ -17,6 +17,33 @@ use crate::message::{History, Message};
 /// How long a title may be.
 const TITLE_LENGTH: usize = 60;
 
+/// Only the fields a session list needs from an event line.
+#[derive(Debug, Deserialize)]
+struct QuickEvent {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    model: Option<ModelTag>,
+    #[serde(default)]
+    message: Option<QuickMessage>,
+}
+
+/// A message reduced to what the title needs.
+#[derive(Debug, Deserialize)]
+struct QuickMessage {
+    role: String,
+    #[serde(default)]
+    blocks: Vec<QuickBlock>,
+}
+
+#[derive(Debug, Deserialize)]
+struct QuickBlock {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default)]
+    text: Option<String>,
+}
+
 /// The first line of a session file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionHeader {
@@ -269,6 +296,57 @@ impl Session {
         file.flush()
     }
 
+    /// Read the list metadata of one session without replaying its messages.
+    ///
+    /// A JSONL file can hold thousands of messages. Listing sessions only needs the header, the
+    /// number of messages and the last model, so the other fields are skipped by serde instead of
+    /// being parsed into a `Message` with all its blocks.
+    fn quick_info(path: &Path) -> Option<SessionInfo> {
+        let file = File::open(path).ok()?;
+        let mut lines = BufReader::new(file).lines();
+        let header: SessionHeader = serde_json::from_str(&lines.next()?.ok()?).ok()?;
+        let mut messages = 0usize;
+        let mut model = "-".to_string();
+        let mut title = header.title.clone();
+        for line in lines {
+            let line = match line {
+                Ok(line) => line,
+                Err(_) => break,
+            };
+            let Ok(event) = serde_json::from_str::<QuickEvent>(&line) else {
+                continue;
+            };
+            if event.kind == "message" {
+                messages += 1;
+                if title.is_empty()
+                    && let Some(message) = event.message.as_ref()
+                    && message.role == "user"
+                    && let Some(text) = message.blocks.iter().find_map(|block| {
+                        (block.kind == "text").then(|| block.text.clone()).flatten()
+                    })
+                {
+                    title = title_of(&text);
+                }
+            }
+            // A message carries its model, and a switch carries the new one: the last wins.
+            if let Some(tag) = event.model {
+                model = tag.model;
+            }
+        }
+        Some(SessionInfo {
+            id: header.id,
+            title: if title.is_empty() {
+                "(no title)".to_string()
+            } else {
+                title
+            },
+            cwd: header.cwd,
+            created: header.created,
+            messages,
+            model,
+        })
+    }
+
     /// The sessions of a folder, the newest first.
     pub fn list(dir: &Path) -> Vec<SessionInfo> {
         let Ok(entries) = std::fs::read_dir(dir) else {
@@ -277,28 +355,7 @@ impl Session {
         let mut sessions: Vec<SessionInfo> = entries
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "jsonl"))
-            .filter_map(|entry| {
-                let path = entry.path();
-                let session = Session::open(&path).ok()?;
-                let messages = session
-                    .replay()
-                    .map(|history| history.messages.len())
-                    .unwrap_or(0);
-                let model = session
-                    .model_history()
-                    .ok()
-                    .and_then(|tags| tags.into_iter().flatten().last())
-                    .map(|tag| tag.model)
-                    .unwrap_or_else(|| "-".to_string());
-                Some(SessionInfo {
-                    id: session.header().id.clone(),
-                    title: session.title(),
-                    cwd: session.header().cwd.clone(),
-                    created: session.header().created.clone(),
-                    messages,
-                    model,
-                })
-            })
+            .filter_map(|entry| Session::quick_info(&entry.path()))
             .collect();
         // The newest first.
         sessions.sort_by(|a, b| b.created.cmp(&a.created));
@@ -502,6 +559,53 @@ mod tests {
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].as_ref().unwrap().model, "claude-sonnet-4-5");
         assert_eq!(history[1].as_ref().unwrap().model, "claude-sonnet-4-5");
+    }
+
+    #[test]
+    fn the_session_list_counts_messages_without_replaying_them() {
+        let dir = temp_dir("list-meta");
+        let mut session =
+            Session::create(&dir, "/tmp", "2026-11-11T12:00:00Z", "one").expect("created");
+        session
+            .append_message(&Message::user("the first question"), None)
+            .expect("appended");
+        session
+            .append_model_switch(&ModelTag {
+                provider: "local".into(),
+                model: "local/demo".into(),
+                local: true,
+            })
+            .expect("switched");
+        session
+            .append_message(&Message::assistant("an answer"), None)
+            .expect("appended");
+
+        let sessions = Session::list(&dir);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].messages, 2, "both messages are counted");
+        assert_eq!(sessions[0].model, "local/demo", "the last model is shown");
+        assert_eq!(sessions[0].title, "the first question");
+    }
+
+    #[test]
+    fn a_broken_event_line_does_not_break_the_list() {
+        let dir = temp_dir("list-broken");
+        let mut session =
+            Session::create(&dir, "/tmp", "2026-11-11T12:00:00Z", "one").expect("created");
+        session
+            .append_message(&Message::user("hello"), None)
+            .expect("appended");
+        // Append a line that is not JSON at all.
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(session.path.clone())
+            .expect("opened");
+        use std::io::Write;
+        writeln!(file, "not json").expect("written");
+
+        let sessions = Session::list(&dir);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].messages, 1, "the valid message still counts");
     }
 
     #[test]

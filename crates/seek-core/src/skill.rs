@@ -8,6 +8,7 @@
 
 use std::collections::BTreeSet;
 use std::ffi::OsStr;
+use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -144,8 +145,8 @@ pub enum SkillError {
     NoDescription(String),
 }
 
-/// Parse a `SKILL.md`.
-pub fn parse(markdown: &str, path: &Path) -> Result<Skill, SkillError> {
+/// Split a `SKILL.md` into its frontmatter and its body.
+fn split<'a>(markdown: &'a str, path: &Path) -> Result<(&'a str, &'a str), SkillError> {
     let rest = markdown.strip_prefix("---").ok_or_else(|| {
         SkillError::Frontmatter(path.display().to_string(), "no frontmatter".to_string())
     })?;
@@ -156,19 +157,18 @@ pub fn parse(markdown: &str, path: &Path) -> Result<Skill, SkillError> {
             "the frontmatter is not closed".to_string(),
         )
     })?;
-    let front = &rest[..end];
-    let body = rest[end + 4..].trim_start_matches('\n').to_string();
+    let body = rest[end + 4..].trim_start_matches('\n');
+    Ok((&rest[..end], body))
+}
 
-    let parsed: Frontmatter = serde_norway::from_str(front)
-        .map_err(|error| SkillError::Frontmatter(path.display().to_string(), error.to_string()))?;
-
+/// Build the catalog entry out of a parsed frontmatter, without a body.
+fn from_frontmatter(parsed: Frontmatter, path: &Path, body: String) -> Result<Skill, SkillError> {
     if parsed.name.trim().is_empty() {
         return Err(SkillError::NoName(path.display().to_string()));
     }
     if parsed.description.trim().is_empty() {
         return Err(SkillError::NoDescription(path.display().to_string()));
     }
-
     Ok(Skill {
         name: parsed.name.trim().to_string(),
         description: parsed.description.trim().to_string(),
@@ -179,6 +179,68 @@ pub fn parse(markdown: &str, path: &Path) -> Result<Skill, SkillError> {
         compatibility: parsed.compatibility,
         metadata: parsed.metadata,
     })
+}
+
+/// Parse a `SKILL.md`.
+pub fn parse(markdown: &str, path: &Path) -> Result<Skill, SkillError> {
+    let (front, body) = split(markdown, path)?;
+    let parsed: Frontmatter = serde_norway::from_str(front)
+        .map_err(|error| SkillError::Frontmatter(path.display().to_string(), error.to_string()))?;
+    from_frontmatter(parsed, path, body.to_string())
+}
+
+/// Read only the frontmatter of a skill, leaving the body empty.
+///
+/// Discovery needs the name, the description and the path for the prompt, not the instructions:
+/// reading large bodies for up to a hundred skills at startup was wasted I/O. The body is loaded
+/// by [`read_body`] when the skill actually runs.
+pub fn read_meta(path: &Path) -> Result<Skill, SkillError> {
+    let file = std::fs::File::open(path)
+        .map_err(|error| SkillError::Frontmatter(path.display().to_string(), error.to_string()))?;
+    let mut reader = BufReader::new(file);
+    let mut front = String::new();
+    let mut line = String::new();
+    let first = reader
+        .read_line(&mut line)
+        .map_err(|error| SkillError::Frontmatter(path.display().to_string(), error.to_string()))?;
+    if first == 0 || line.trim() != "---" {
+        return Err(SkillError::Frontmatter(
+            path.display().to_string(),
+            "no frontmatter".to_string(),
+        ));
+    }
+    front.push_str(&line);
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).map_err(|error| {
+            SkillError::Frontmatter(path.display().to_string(), error.to_string())
+        })? == 0
+        {
+            return Err(SkillError::Frontmatter(
+                path.display().to_string(),
+                "the frontmatter is not closed".to_string(),
+            ));
+        }
+        if line.trim() == "---" {
+            break;
+        }
+        front.push_str(&line);
+    }
+    let parsed: Frontmatter = serde_norway::from_str(&front)
+        .map_err(|error| SkillError::Frontmatter(path.display().to_string(), error.to_string()))?;
+    from_frontmatter(parsed, path, String::new())
+}
+
+/// Read the body of a skill on demand.
+pub fn read_body(path: &Path) -> String {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|markdown| {
+            split(&markdown, path)
+                .ok()
+                .map(|(_, body)| body.to_string())
+        })
+        .unwrap_or_default()
 }
 
 /// Scan a folder for skills.
@@ -218,8 +280,7 @@ fn scan_dir(dir: &Path, depth: usize, skills: &mut Vec<Skill>) {
         let file = folder.join(SKILL_FILE);
         if file.is_file() {
             // A skill is a leaf: its references/ and scripts/ are not more skills.
-            if let Ok(markdown) = std::fs::read_to_string(&file)
-                && let Ok(skill) = parse(&markdown, &file)
+            if let Ok(skill) = read_meta(&file)
                 && skills.len() < MAX_SKILLS
             {
                 skills.push(skill);
@@ -365,6 +426,42 @@ mod tests {
         assert_eq!(skill.description, "Write an AGENTS.md for the repository.");
         assert!(skill.body.contains("Inspect the repository"));
         assert_eq!(skill.allowed_tools, vec!["Read", "Write"]);
+    }
+
+    #[test]
+    fn discovery_reads_only_the_frontmatter() {
+        let dir = temp_dir("meta-only");
+        let path = dir.join("SKILL.md");
+        std::fs::write(&path, EXAMPLE).expect("written");
+
+        let meta = read_meta(&path).expect("the frontmatter is enough");
+        assert_eq!(meta.name, "init");
+        assert_eq!(meta.description, "Write an AGENTS.md for the repository.");
+        assert_eq!(meta.allowed_tools, vec!["Read", "Write"]);
+        assert!(meta.body.is_empty(), "the body is not read at discovery");
+
+        let body = read_body(&path);
+        assert!(body.contains("Inspect the repository"));
+        let full = parse(EXAMPLE, &path).expect("parsed");
+        assert_eq!(body, full.body, "the on-demand body matches a full parse");
+    }
+
+    #[test]
+    fn a_broken_body_does_not_break_discovery() {
+        // The body is never touched at discovery: even bytes that are not UTF-8 cannot stop the
+        // catalog from loading, because reading stops at the closing frontmatter marker.
+        let dir = temp_dir("meta-utf8");
+        let path = dir.join("SKILL.md");
+        let mut data = b"---\nname: odd\ndescription: An odd skill.\n---\n".to_vec();
+        data.extend_from_slice(&[0xff, 0xfe, 0x00]);
+        std::fs::write(&path, data).expect("written");
+
+        let meta = read_meta(&path).expect("frontmatter is valid UTF-8");
+        assert_eq!(meta.name, "odd");
+        assert!(
+            std::fs::read_to_string(&path).is_err(),
+            "the body is not UTF-8"
+        );
     }
 
     #[test]

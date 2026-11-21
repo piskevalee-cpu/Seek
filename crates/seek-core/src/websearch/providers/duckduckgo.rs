@@ -7,8 +7,6 @@
 //! page that can be read without a browser. DuckDuckGo answers a plain GET
 //! with a bot challenge, so the request carries the headers of a browser.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::html::{elements_with_class, text_of};
@@ -262,12 +260,7 @@ impl SearchProvider for DuckDuckGo {
                 format_scraper_query(&params.query, Some(&params.parsed), &DDG_QUERY_SYNTAX);
             let kl = locale_to_kl(params.parsed.lang.as_deref()).unwrap_or("us-en");
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("duckduckgo", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let mut sources: Vec<SearchSource> = Vec::new();
             let mut seen: Vec<String> = Vec::new();

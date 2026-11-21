@@ -5,8 +5,6 @@
 //!
 //! The key is in `JINA_API_KEY`, or in the auth file under that name.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::query::{QuerySyntax, format_query};
@@ -86,12 +84,7 @@ impl SearchProvider for Jina {
                 ));
             }
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("jina", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let mut request = client
                 .get(format!("{SEARCH_URL}/{}", super::encode(&query)))

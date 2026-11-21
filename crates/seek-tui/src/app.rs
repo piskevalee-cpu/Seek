@@ -2329,13 +2329,17 @@ impl App {
     fn match_skill(&self, text: &str) -> Option<(seek_core::Skill, String)> {
         let (name, prompt) = text.split_once(char::is_whitespace).unwrap_or((text, ""));
         let name = name.strip_prefix('/')?;
-        let skill = self
+        let mut skill = self
             .skills
             .iter()
             .find(|skill| skill.name == name)
             .cloned()?;
         if !self.toggles.skill_enabled(&skill.name) {
             return None;
+        }
+        // Discovery reads only the frontmatter; the instructions are loaded when the skill runs.
+        if skill.body.is_empty() {
+            skill.body = seek_core::skill::read_body(&skill.path);
         }
         Some((skill, prompt.trim().to_string()))
     }
