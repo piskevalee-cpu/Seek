@@ -1,9 +1,9 @@
 ---
-name: widget
+name: create-widget
 description: Write a SEEK home widget — a small folder that prints a short status line into the Widgets sidebar block. Use when the user asks for a widget, a status line, or to show project data in SEEK's sidebar.
 ---
 
-# Widgets
+# Create a widget
 
 A widget is a folder `~/seek/widgets/<name>/` with two files:
 

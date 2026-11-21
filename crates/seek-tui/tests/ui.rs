@@ -1084,6 +1084,42 @@ fn a_skill_is_run_with_its_body() {
 }
 
 #[test]
+fn accepting_a_skill_leaves_it_in_the_bar_to_continue() {
+    let mut app = app();
+    app.model_configured = true;
+    app.skills = vec![a_skill("create-widget", "Write a widget.")];
+
+    // Type enough for the completion dropdown, then take the skill with Enter.
+    for c in "/create-wid".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    assert_eq!(app.update(Message::Key(key(KeyCode::Enter))), None);
+    assert!(
+        app.input.text().starts_with("/create-widget "),
+        "the skill stays in the bar: {:?}",
+        app.input.text()
+    );
+    let screen = render(&mut app, 100, 30);
+    assert!(
+        screen.contains("skill"),
+        "the staged chip is shown: {screen}"
+    );
+
+    // Keep writing, then send: the skill body leads the message.
+    for c in "make it show the branch".chars() {
+        app.update(Message::Key(key(KeyCode::Char(c))));
+    }
+    let command = app.update(Message::Key(key(KeyCode::Enter)));
+    match command {
+        Some(seek_tui::Command::Submit { text, .. }) => {
+            assert!(text.starts_with("the body of create-widget"), "{text}");
+            assert!(text.contains("make it show the branch"), "{text}");
+        }
+        other => panic!("expected a submit, got {other:?}"),
+    }
+}
+
+#[test]
 fn a_disabled_skill_is_not_run() {
     let mut app = app();
     app.model_configured = true;

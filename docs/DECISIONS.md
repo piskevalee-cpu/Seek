@@ -912,3 +912,16 @@ in the sidebar hardware block when it is open so no fact has two homes. The time
 rather than "think", in the speed line and the reasoning chip. The sidebar block is named `widget`
 in the singular; settings files written with the plural are normalized when read. A built-in skill
 named `widget` teaches the widget contract and is copied to `~/seek/skills/widget/` on install.
+
+## D-048 — Skills are staged, then the message continues
+
+**Date:** 2026-11-21 · **Affects:** SPEC 9.5, 10.3
+
+A skill used to run as soon as its completion was taken with Enter, so a prompt could not be written
+afterwards. The completion now marks skills with a distinct kind: Enter leaves `/skill ` in the bar
+and shows a ` skill ` chip above it (a view of the draft token, like the pins), the user continues
+writing, and the next Enter sends the body with the prompt. A bare skill name stages it too; a
+disabled skill is not staged and still submits as plain text. The built-in skill that teaches widget
+authoring was renamed `create-widget` to match its action.
+
+**Status:** accepted. The specification, README, checklist and changelog were updated.

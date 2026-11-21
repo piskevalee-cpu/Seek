@@ -8,8 +8,6 @@
 //! one-line form under the prompt bar, where the elements are dropped from the right when the
 //! terminal is narrow.
 
-use ratatui::Frame;
-use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use seek_core::context::{ContextWindow, Level, TurnStats};
@@ -144,16 +142,6 @@ impl Metrics {
         ])
     }
 
-    /// The rows of the sidebar form.
-    pub fn sidebar_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
-        let mut lines = vec![self.context_line(theme), self.speed_line(theme)];
-        if let Some(limit) = self.rate_limit_line(theme) {
-            lines.push(limit);
-        }
-        lines.push(self.vitals_line(theme));
-        lines
-    }
-
     /// The form beside the mode chip and the model name in the footer: the context bar, the
     /// counts, the thought time and the speed, dropping the speed when there is no room.
     pub fn footer_line(&self, theme: &Theme, width: usize, vitals: bool) -> Line<'static> {
@@ -179,94 +167,6 @@ impl Metrics {
         }
         Line::from(spans)
     }
-
-    /// The short form, for the footer line.
-    ///
-    /// The bar of the context is too wide for the footer: the counts and the percentage are
-    /// enough there. The vitals come last and are dropped when the line is narrow.
-    pub fn compact_line(&self, theme: &Theme, width: u16) -> Line<'static> {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        let color = self.context_color(theme);
-        spans.push(Span::styled(
-            format!("{} ", self.context.counts()),
-            Style::new().fg(theme.text),
-        ));
-        spans.push(Span::styled(
-            format!("{}%", (self.context.fraction() * 100.0).round() as u16),
-            Style::new().fg(color),
-        ));
-
-        let speed = self.speed_line(theme);
-        let limit = self.rate_limit_line(theme);
-        let vitals = self.vitals_short(theme);
-
-        let used: u16 = spans.iter().map(|span| span.width() as u16).sum();
-        let speed_width = speed.width() as u16;
-        let limit_width = limit.as_ref().map(|line| line.width() as u16).unwrap_or(0);
-        let vitals_width = vitals.width() as u16;
-
-        if used + speed_width + limit_width + vitals_width <= width {
-            spans.extend(speed.spans);
-            if let Some(limit) = limit {
-                spans.extend(limit.spans);
-            }
-            spans.extend(vitals.spans);
-        } else if used + speed_width + limit_width <= width {
-            spans.extend(speed.spans);
-            if let Some(limit) = limit {
-                spans.extend(limit.spans);
-            }
-        } else if used + speed_width <= width {
-            spans.extend(speed.spans);
-        }
-        Line::from(spans)
-    }
-
-    /// The one-line form, dropping the elements from the right when it is narrow.
-    ///
-    /// The order is the same as in the sidebar: the context bar, the speed, the rate limit and
-    /// the vitals.
-    pub fn one_line(&self, theme: &Theme, width: u16) -> Line<'static> {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        spans.extend(self.context_line(theme).spans);
-
-        let speed = self.speed_line(theme);
-        let limit = self.rate_limit_line(theme);
-        let vitals = self.vitals_line(theme);
-
-        let used = spans.iter().map(|span| span.width() as u16).sum::<u16>();
-        let speed_width = speed.width() as u16;
-        let limit_width = limit.as_ref().map(|line| line.width() as u16).unwrap_or(0);
-        let vitals_width = vitals.width() as u16;
-
-        if used + speed_width + limit_width + vitals_width <= width {
-            spans.extend(speed.spans);
-            if let Some(limit) = limit {
-                spans.extend(limit.spans);
-            }
-            spans.extend(vitals.spans);
-        } else if used + speed_width + limit_width <= width {
-            spans.extend(speed.spans);
-            if let Some(limit) = limit {
-                spans.extend(limit.spans);
-            }
-        } else if used + speed_width <= width {
-            spans.extend(speed.spans);
-        }
-        Line::from(spans)
-    }
-}
-
-/// Draw the metrics in the sidebar form.
-pub fn render_sidebar(frame: &mut Frame, area: Rect, metrics: &Metrics, theme: &Theme) {
-    let lines = metrics.sidebar_lines(theme);
-    frame.render_widget(ratatui::widgets::Paragraph::new(lines), area);
-}
-
-/// Draw the metrics in the one-line form.
-pub fn render_one_line(frame: &mut Frame, area: Rect, metrics: &Metrics, theme: &Theme) {
-    let line = metrics.one_line(theme, area.width);
-    frame.render_widget(ratatui::widgets::Paragraph::new(line), area);
 }
 
 #[cfg(test)]
@@ -345,21 +245,14 @@ mod tests {
     }
 
     #[test]
-    fn the_sidebar_has_one_row_per_element() {
-        let theme = Theme::default();
-        let lines = metrics().sidebar_lines(&theme);
-        assert_eq!(lines.len(), 3);
-    }
-
-    #[test]
-    fn the_one_line_form_drops_the_elements_when_it_is_narrow() {
+    fn the_footer_form_drops_the_elements_when_it_is_narrow() {
         let theme = Theme::default();
         let metrics = metrics();
-        let wide = metrics.one_line(&theme, 200).to_string();
+        let wide = metrics.footer_line(&theme, 200, true).to_string();
         assert!(wide.contains("t/s"));
         assert!(wide.contains("cpu"));
 
-        let narrow = metrics.one_line(&theme, 20).to_string();
+        let narrow = metrics.footer_line(&theme, 20, true).to_string();
         assert!(!narrow.contains("t/s"));
         assert!(narrow.contains("12.4k / 32.0k"));
     }

@@ -284,4 +284,4 @@ Questions and bugs: [GitHub Issues](https://github.com/piskevalee-cpu/Seek/issue
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
 
-The built-in `widget` skill teaches SEEK how to write new sidebar widgets (`/widget`).
+The built-in `create-widget` skill teaches SEEK how to write new sidebar widgets. Stage it with `/create-widget`, press Enter to keep it in the bar, finish the message, then press Enter to send.

@@ -202,7 +202,8 @@ Every key of the specification, one by one.
 
 - [ ] **The list.** `/skills` lists the installed skills with a check next to each.
 - [ ] **The built-in one.** `init` is there even when it is not installed in `~/seek/skills`.
-- [ ] **Run a skill.** Type `/init` and press Enter — the instructions of the skill fill the prompt, and the model follows them.
+- [ ] **Stage a skill.** Type `/create-wid`, press Enter on the completion — the `skill` chip appears and the bar keeps the name. Finish the message, press Enter: the skill body leads the prompt.
+- [ ] **Run a skill.** Type `/init write it` and press Enter — the instructions of the skill fill the prompt, and the model follows them.
 - [ ] **Turn one off.** `/skills`, Space on a skill, close the picker — it is gone from the prompt.
 - [ ] **The catalog.** The prompt that reaches the model carries the name, the description and the path of every enabled skill, and nothing else.
 - [ ] **Other harnesses.** Put a `SKILL.md` in `.claude/skills/<name>/` in the project and in `~/.codex/skills/<name>/` (or `~/.hermes/skills/<category>/<name>/`) — both show up in `/skills` after a restart, with the project copy winning on a name clash.
@@ -252,4 +253,4 @@ Every key of the specification, one by one.
 
 ## Authoring widgets
 
-- [ ] **The widget skill.** `/widget` — the skill explains `widget.toml`, the `run` executable, the eight-line/forty-column cap and the 500 ms budget, with a working example. Ask SEEK to add a widget and verify it shows in the sidebar's widget block.
+- [ ] **The widget skill.** `/create-widget` — the skill explains `widget.toml`, the `run` executable, the eight-line/forty-column cap and the 500 ms budget, with a working example. Ask SEEK to add a widget and verify it shows in the sidebar's widget block.

@@ -77,6 +77,25 @@ pub fn pin_lines(pins: &[seek_core::Pin], theme: &Theme) -> Vec<Line<'static>> {
     ])]
 }
 
+/// The skill staged in the draft, shown as a chip above the completions.
+///
+/// Like the pins, this is a view of the message token, not a second home for it: the `/skill` at
+/// the start of the draft carries the skill into the turn. The chip tells the user the skill is
+/// attached and that the message can continue.
+pub fn skill_lines(name: Option<&str>, theme: &Theme) -> Vec<Line<'static>> {
+    let Some(name) = name else {
+        return Vec::new();
+    };
+    vec![Line::from(vec![
+        Span::styled(
+            " skill  ",
+            Style::new().fg(theme.bg).bg(theme.accent_assistant),
+        ),
+        Span::styled(format!("/{name}"), Style::new().fg(theme.accent_assistant)),
+        Span::styled("  ·  keep writing, then Enter", Style::new().fg(theme.dim)),
+    ])]
+}
+
 /// The dropdown above the bar: the completions for what is typed.
 ///
 /// The layout is the one of the grok-build pager (Apache-2.0): a column of the names, a column
