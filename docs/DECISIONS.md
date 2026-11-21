@@ -925,3 +925,18 @@ disabled skill is not staged and still submits as plain text. The built-in skill
 authoring was renamed `create-widget` to match its action.
 
 **Status:** accepted. The specification, README, checklist and changelog were updated.
+
+## D-049 — Remove redundant work from search, skills and sessions
+
+**Date:** 2026-11-21 · **Affects:** SPEC 9.3, 9.5, 11
+
+The review found three places doing work more than once. All thirteen search providers built their
+own `reqwest::Client`, discarding keep-alive and TLS sessions between fallbacks; they now share one
+client from `websearch::providers::client()`. Skill discovery parsed every `SKILL.md` body at
+startup although only the frontmatter enters the prompt; `skill::read_meta` now stops at the closing
+marker and `read_body` loads the instructions when the skill runs. Session listing replayed every
+message to count them and find the last model; `Session::quick_info` reads the header and a small
+event shape instead. New tests cover the shared client (including a source guard), frontmatter-only
+discovery with a non-UTF-8 body, and listing with counts, model and a broken event line.
+
+**Status:** accepted. The specification, changelog and architecture notes were updated.

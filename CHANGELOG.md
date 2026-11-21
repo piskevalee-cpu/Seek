@@ -8,6 +8,21 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.33] - 2026-11-21
+
+Redundant work removed from startup, search and the session list.
+
+### Changed
+- All web search providers share one HTTP client, so a fallback reuses the connection and TLS
+  session instead of building a new client for every engine (D-049).
+- Skill discovery reads only `SKILL.md` frontmatter; the body is loaded on invocation (D-049).
+- Session listing reads event line types instead of replaying every message (D-049).
+
+### Added
+- Tests: shared-client singleton and a source guard against per-provider clients, frontmatter-only
+  discovery (including a body that is not UTF-8), and session listing with counts, last model and
+  a broken event line.
+
 ## [0.7.32] - 2026-11-21
 
 Skills are staged in the composer, and the widget skill has a clearer name.

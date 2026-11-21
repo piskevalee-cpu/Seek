@@ -9,8 +9,6 @@
 //! a key the API is asked in keyless mode. `FIRECRAWL_BASE_URL` (or
 //! `FIRECRAWL_API_URL`) points the provider at a self-hosted instance.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::query::{GOOGLE_QUERY_SYNTAX, QuerySyntax, format_query};
@@ -185,12 +183,7 @@ impl SearchProvider for Firecrawl {
                 body["tbs"] = serde_json::Value::String(tbs.clone());
             }
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("firecrawl", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let mut request = client
                 .post(search_url()?)

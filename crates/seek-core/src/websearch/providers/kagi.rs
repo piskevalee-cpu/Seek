@@ -5,8 +5,6 @@
 //!
 //! The key is in `KAGI_API_KEY`, or in the auth file under that name.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::query::{GOOGLE_QUERY_SYNTAX, format_query};
@@ -82,12 +80,7 @@ impl SearchProvider for Kagi {
                 body["filters"] = serde_json::json!({ "after": recency_date(recency) });
             }
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("kagi", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let response = client
                 .post(SEARCH_URL)

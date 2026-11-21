@@ -6,7 +6,6 @@
 //! `web/search/providers/parallel.ts`.
 
 use std::sync::OnceLock;
-use std::time::Duration;
 
 use super::{SearchParams, SearchProvider};
 use crate::tool::BoxFuture;
@@ -148,10 +147,7 @@ impl SearchProvider for Parallel {
                 "params": { "name": "web_search", "arguments": arguments },
             });
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| SearchProviderError::new("parallel", error.to_string()))?;
+            let client = super::client();
             let response = client
                 .post(MCP_URL)
                 .header("Accept", "application/json, text/event-stream")

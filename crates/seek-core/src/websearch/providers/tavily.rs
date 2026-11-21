@@ -5,8 +5,6 @@
 //!
 //! The key is in `TAVILY_API_KEY`, or in the auth file under that name.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::query::{QuerySyntax, format_query};
@@ -121,12 +119,7 @@ impl SearchProvider for Tavily {
                 body["time_range"] = serde_json::json!(recency.as_str());
             }
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("tavily", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let response = client
                 .post(SEARCH_URL)

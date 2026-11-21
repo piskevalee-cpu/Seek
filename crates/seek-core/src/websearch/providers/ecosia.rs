@@ -12,8 +12,6 @@
 //! The recency is ignored on purpose: the page has no date filter, and the
 //! legacy `freshness` parameter is a no-op on the server.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::html::{elements_with_attribute, elements_with_class, text_of};
@@ -161,12 +159,7 @@ impl SearchProvider for Ecosia {
             let query =
                 format_scraper_query(&params.query, Some(&params.parsed), &GOOGLE_QUERY_SYNTAX);
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("ecosia", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let mut request = client.get(SEARCH_URL).query(&[("q", query.as_str())]);
             for (name, value) in headers() {

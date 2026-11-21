@@ -23,8 +23,27 @@ pub mod startpage;
 pub mod tavily;
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
+use std::time::Duration;
 
 use crate::tool::BoxFuture;
+
+/// The one HTTP client of the search chain.
+///
+/// Every provider used to build its own client, which threw away keep-alive connections and TLS
+/// sessions between fallbacks. A single client pools them across the whole chain. The timeout is
+/// the one every provider already used.
+static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+/// The shared client, built once on first use.
+pub fn client() -> &'static reqwest::Client {
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("the HTTP client builds")
+    })
+}
 
 use super::query::StructuredQuery;
 use super::types::{Recency, SearchProviderError, SearchResponse};
@@ -322,5 +341,39 @@ mod tests {
     fn an_unauthorized_failure_is_named() {
         let error = classify_http_error("brave", 401, "invalid key").expect("named");
         assert!(error.message.contains("401"), "{}", error.message);
+    }
+
+    #[test]
+    fn every_provider_uses_the_one_shared_client() {
+        // The client is a process-wide singleton: successive calls return the same address, so
+        // keep-alive connections survive a fallback from one engine to the next.
+        let first = client() as *const reqwest::Client;
+        let second = client() as *const reqwest::Client;
+        assert_eq!(first, second, "the search chain has one HTTP client");
+    }
+
+    #[test]
+    fn no_provider_builds_its_own_client() {
+        // A regression guard for the redundancy this replaced: the source of every provider must
+        // call the shared client instead of building a reqwest::Client.
+        let folder =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/websearch/providers");
+        let mut found = Vec::new();
+        for entry in std::fs::read_dir(folder).expect("the provider folder is there") {
+            let path = entry.expect("an entry").path();
+            if path.extension().is_none_or(|ext| ext != "rs")
+                || path.file_name().is_none_or(|name| name == "mod.rs")
+            {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("readable");
+            if source.contains("reqwest::Client::builder()") {
+                found.push(path.file_name().unwrap().to_string_lossy().to_string());
+            }
+        }
+        assert!(
+            found.is_empty(),
+            "providers with their own client: {found:?}"
+        );
     }
 }

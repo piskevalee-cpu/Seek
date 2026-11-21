@@ -13,8 +13,6 @@
 //! with an HTTP redirect even for JSON. Single bangs (`!ddg`, `!images`) are
 //! kept: the instance resolves and removes them server-side.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::query::{GOOGLE_QUERY_SYNTAX, format_scraper_query};
@@ -179,12 +177,7 @@ impl SearchProvider for SearXng {
             let query = strip_external_bangs(&query);
             let auth = find_auth(params)?;
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("searxng", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let url = format!("{endpoint}/search");
             let mut request = client.get(&url).query(&[

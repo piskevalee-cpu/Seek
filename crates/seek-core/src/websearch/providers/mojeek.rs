@@ -3,8 +3,6 @@
 //! Ported from the oh-my-pi harness (MIT, (c) Mario Zechner):
 //! `web/search/providers/mojeek.ts`.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::html::{elements_with_class, text_of};
@@ -149,12 +147,7 @@ impl SearchProvider for Mojeek {
             let query =
                 format_scraper_query(&params.query, Some(&params.parsed), &MOJEEK_QUERY_SYNTAX);
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("mojeek", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let mut request = client.get(SEARCH_URL).query(&[
                 ("q", query.as_str()),

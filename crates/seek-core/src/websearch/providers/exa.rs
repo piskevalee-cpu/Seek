@@ -5,8 +5,6 @@
 //!
 //! The key is in `EXA_API_KEY`, or in the auth file under that name.
 
-use std::time::Duration;
-
 use super::{SearchParams, SearchProvider, classify_http_error};
 use crate::tool::BoxFuture;
 use crate::websearch::query::{QuerySyntax, format_query};
@@ -146,12 +144,7 @@ impl SearchProvider for Exa {
                 body["endPublishedDate"] = serde_json::json!(before);
             }
 
-            let client = reqwest::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .map_err(|error| {
-                    SearchProviderError::new("exa", format!("the client failed: {error}"))
-                })?;
+            let client = super::client();
 
             let response = client
                 .post(SEARCH_URL)
