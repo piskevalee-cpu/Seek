@@ -8,6 +8,20 @@ workspace; each release ships a milestone (SPEC 15).
 
 ## [Unreleased]
 
+## [0.7.32] - 2026-11-21
+
+Skills are staged in the composer, and the widget skill has a clearer name.
+
+### Changed
+- Taking a skill completion with Enter now leaves `/skill` in the bar with a ` skill ` chip so the
+  message can continue; the next Enter sends the body with the prompt. A bare skill name stages it
+  too. Disabled skills still submit as plain text (D-048).
+- Renamed the built-in `widget` skill to `create-widget` (`/create-widget`); installed copies of
+  the old name are replaced.
+
+### Fixed
+- Removed a duplicate model check in `submit()` found during the end-of-version review.
+
 ## [0.7.31] - 2026-11-20
 
 Footer layout, wording and a widget-authoring skill.

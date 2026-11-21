@@ -930,7 +930,13 @@ impl App {
                     self.suggestion = 0;
                     return Some(None);
                 };
-                let runs_command = key.code == KeyCode::Enter && chosen.kind == Kind::Command;
+                // A skill stays in the bar as a chip when taken: the user keeps writing and sends
+                // with a second Enter. A disabled skill still runs as plain text, as before.
+                let enabled_skill =
+                    chosen.kind == Kind::Skill && self.completion_skill_enabled(&chosen.value);
+                let runs_command = key.code == KeyCode::Enter
+                    && (chosen.kind == Kind::Command
+                        || !enabled_skill && chosen.kind == Kind::Skill);
                 self.accept_completion(&chosen);
                 self.suggestion = 0;
                 if runs_command {
@@ -943,10 +949,21 @@ impl App {
         }
     }
 
+    /// Whether a skill completion names an enabled skill.
+    fn completion_skill_enabled(&self, value: &str) -> bool {
+        let name = value.strip_prefix('/').unwrap_or(value);
+        self.skills
+            .iter()
+            .any(|skill| skill.name == name && self.toggles.skill_enabled(&skill.name))
+    }
+
     /// Put a completion in place of the token under the cursor.
     fn accept_completion(&mut self, item: &Completion) {
         if item.kind == Kind::Command {
             self.input.replace_current_line(&item.value);
+        } else if item.kind == Kind::Skill {
+            // Leave a space so the prose of the message can follow the skill name.
+            self.input.replace_current_line(&format!("{} ", item.value));
         } else if let Some(completion::Context::Path { start, .. }) =
             completion::context(&self.input)
         {
@@ -2174,6 +2191,15 @@ impl App {
             self.scroll_to_bottom();
             return None;
         }
+        // A bare skill name stages the skill instead of sending it: the user keeps writing the
+        // message and sends with a second Enter.
+        if let Some((skill, prompt)) = self.match_skill(&text)
+            && prompt.is_empty()
+        {
+            self.input.set_text(&format!("/{} ", skill.name));
+            self.completion_dismissed = false;
+            return None;
+        }
         self.input = Input::new();
         self.completion_dismissed = false;
 
@@ -2283,6 +2309,20 @@ impl App {
             }
             _ => None,
         }
+    }
+
+    /// The enabled skill staged at the start of the draft, if any. A view of the draft token.
+    fn staged_skill(&self) -> Option<String> {
+        let text = self.input.text();
+        let (first, _) = text.split_once(char::is_whitespace).unwrap_or((&text, ""));
+        let name = first.strip_prefix('/')?;
+        if name.is_empty() {
+            return None;
+        }
+        let skill = self.skills.iter().find(|skill| skill.name == name)?;
+        self.toggles
+            .skill_enabled(&skill.name)
+            .then_some(skill.name.clone())
     }
 
     /// The skill a text runs, and the prompt that goes with it.
@@ -2637,6 +2677,11 @@ impl App {
             None
         };
 
+        // A skill at the start of the draft is a chip: accepting it with Enter leaves it here so
+        // the user can keep writing the message (SPEC 9.5).
+        let staged_skill = self.staged_skill();
+        let skill_hint = prompt_bar::skill_lines(staged_skill.as_deref(), &self.theme);
+
         // The run metrics sit in the footer beside the mode chip and the model, whether or not the
         // sidebar is open. The vitals have one home: the hardware block when it is open, the footer
         // otherwise (SPEC 10.2).
@@ -2645,6 +2690,7 @@ impl App {
             transcript_area,
             _gap_area,
             log_area,
+            skill_area,
             pinned_area,
             suggestions_area,
             toast_area,
@@ -2656,6 +2702,7 @@ impl App {
             // just above the prompt box, where it was before.
             Constraint::Length(1),
             Constraint::Length(log_lines.len() as u16),
+            Constraint::Length(skill_hint.len() as u16),
             Constraint::Length(pinned.len() as u16),
             Constraint::Length(suggestions.len() as u16),
             Constraint::Length(if self.toast.is_some() { 1 } else { 0 }),
@@ -2666,6 +2713,9 @@ impl App {
 
         if !log_lines.is_empty() {
             frame.render_widget(ratatui::widgets::Paragraph::new(log_lines), log_area);
+        }
+        if !skill_hint.is_empty() {
+            frame.render_widget(ratatui::widgets::Paragraph::new(skill_hint), skill_area);
         }
         if !pinned.is_empty() {
             frame.render_widget(ratatui::widgets::Paragraph::new(pinned), pinned_area);

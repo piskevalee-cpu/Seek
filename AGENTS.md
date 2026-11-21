@@ -197,9 +197,10 @@ tests, and a broken picker or a lost keypress only shows up when a person uses i
   built-in, and the first name wins. Any other hidden folder with a `skills/` child is scanned as
   a fallback. The walk handles category folders, skips VCS/dependency folders and caps the catalog
   at 100 skills.
-- A skill runs with `/<name> <prompt>`; the body of the skill is inserted into that turn. The
-  built-in `init` skill lives in `builtin/skills/init/SKILL.md` and is loaded from there when it is
-  not installed in `~/seek/skills`.
+- A skill is staged with `/<name>`: taking the completion with Enter leaves it in the bar as a
+  chip, the message continues, and the next Enter inserts the body into that turn. The built-in
+  `init` and `create-widget` skills live in `builtin/skills/` and are loaded from there when not
+  installed in `~/seek/skills`.
 - The external tools are in `seek-core::external`: `tool.toml`, `schema.json` and a `run`
   executable that gets the arguments as JSON on stdin.
 - The widgets are in `seek-core::widget`: `widget.toml` and a `run` executable that prints up to

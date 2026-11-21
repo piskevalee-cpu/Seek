@@ -21,8 +21,10 @@ pub const MAX_ITEMS: usize = 50;
 /// What a completion is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
-    /// A slash command or a skill.
+    /// A slash command. Taking it with Enter runs it.
     Command,
+    /// A skill. Taking it leaves the skill in the bar so the message can continue.
+    Skill,
     /// A file.
     File,
     /// A directory; taking it opens the list of what is inside.
@@ -180,7 +182,7 @@ fn command_completions(prefix: &str, skills: &[seek_core::Skill]) -> Vec<Complet
                 value: command.clone(),
                 label: command,
                 detail: skill.description.clone(),
-                kind: Kind::Command,
+                kind: Kind::Skill,
             });
         }
     }
@@ -412,10 +414,21 @@ mod tests {
         }];
         let items = completions(&typed("/mod"), &skills, Path::new("/tmp"));
         assert!(items.iter().any(|item| item.value == "/model"));
-        assert!(items.iter().all(|item| item.kind == Kind::Command));
+        assert!(
+            items
+                .iter()
+                .filter(|item| item.value.starts_with('/') && item.value != "/init")
+                .all(|item| item.kind == Kind::Command)
+        );
 
         let items = completions(&typed("/i"), &skills, Path::new("/tmp"));
         assert!(items.iter().any(|item| item.value == "/init"));
+        assert!(
+            items
+                .iter()
+                .find(|item| item.value == "/init")
+                .is_some_and(|item| item.kind == Kind::Skill)
+        );
     }
 
     #[test]
